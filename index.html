@@ -1,0 +1,1468 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>FairSplit Pro</title>
+
+		<!-- Fonts & PDF Libraries -->
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+			rel="stylesheet" />
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+		<style>
+			:root {
+				--primary: #3b82f6;
+				--primary-hover: #2563eb;
+				--primary-light: #eff6ff;
+				--bg: #f8fafc;
+				--surface: #ffffff;
+				--text-main: #0f172a;
+				--text-muted: #64748b;
+				--border: #e2e8f0;
+				--input-bg: #ffffff;
+				--danger: #ef4444;
+				--danger-hover: #dc2626;
+				--success: #10b981;
+				--success-hover: #059669;
+				--radius: 12px;
+				--shadow:
+					0 4px 6px -1px rgb(0 0 0 / 0.05),
+					0 2px 4px -2px rgb(0 0 0 / 0.05);
+			}
+
+			[data-theme="dark"] {
+				--primary: #60a5fa;
+				--primary-hover: #3b82f6;
+				--primary-light: #1e3a8a;
+				--bg: #0f172a;
+				--surface: #1e293b;
+				--text-main: #f8fafc;
+				--text-muted: #94a3b8;
+				--border: #334155;
+				--input-bg: #0f172a;
+			}
+
+			* {
+				box-sizing: border-box;
+				font-family: "Inter", sans-serif;
+				transition:
+					background-color 0.2s,
+					color 0.2s,
+					border-color 0.2s;
+			}
+			body {
+				background-color: var(--bg);
+				color: var(--text-main);
+				padding: 2rem 1rem;
+				margin: 0;
+				line-height: 1.5;
+			}
+			.container {
+				max-width: 960px;
+				margin: 0 auto;
+				display: grid;
+				gap: 24px;
+			}
+
+			/* Typography & Layout */
+			h1,
+			h2,
+			h3 {
+				margin: 0 0 0.5rem 0;
+				color: var(--text-main);
+				font-weight: 600;
+			}
+			p {
+				color: var(--text-muted);
+				margin: 0 0 1rem 0;
+				font-size: 0.95rem;
+			}
+			.flex-row {
+				display: flex;
+				gap: 16px;
+				align-items: flex-end;
+				flex-wrap: wrap;
+			}
+			.flex-center {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+			.m-0 {
+				margin: 0;
+			}
+			.mt-3 {
+				margin-top: 12px;
+			}
+			.mt-4 {
+				margin-top: 16px;
+			}
+			.mt-8 {
+				margin-top: 32px;
+			}
+			.mb-3 {
+				margin-bottom: 12px;
+			}
+			.mb-4 {
+				margin-bottom: 16px;
+			}
+			.pt-6 {
+				padding-top: 24px;
+			}
+			.pb-3 {
+				padding-bottom: 12px;
+			}
+			.border-t {
+				border-top: 1px solid var(--border);
+			}
+			.border-b {
+				border-bottom: 1px solid var(--border);
+			}
+
+			/* Text Utilities */
+			.text-center {
+				text-align: center;
+			}
+			.text-right {
+				text-align: right;
+			}
+			.text-muted {
+				color: var(--text-muted);
+			}
+			.text-primary {
+				color: var(--primary);
+			}
+			.font-medium {
+				font-weight: 500;
+			}
+			.font-semibold {
+				font-weight: 600;
+			}
+			.font-bold {
+				font-weight: 700;
+			}
+			.text-sm {
+				font-size: 0.85rem;
+			}
+
+			/* Cards */
+			.card {
+				background: var(--surface);
+				padding: 24px;
+				border-radius: var(--radius);
+				box-shadow: var(--shadow);
+				border: 1px solid var(--border);
+			}
+			.header-card {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+			}
+			.empty-state {
+				text-align: center;
+				color: var(--text-muted);
+				padding: 24px;
+			}
+			.empty-grid-state {
+				grid-column: 1 / -1;
+				text-align: center;
+				color: var(--text-muted);
+				padding: 24px;
+				border: 1px dashed var(--border);
+				border-radius: 8px;
+			}
+
+			/* Forms */
+			.form-group {
+				display: flex;
+				flex-direction: column;
+				flex: 1;
+				min-width: 140px;
+			}
+			label {
+				font-size: 0.85rem;
+				font-weight: 500;
+				margin-bottom: 6px;
+				color: var(--text-muted);
+			}
+			input,
+			select {
+				padding: 10px 14px;
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				font-size: 0.95rem;
+				background: var(--input-bg);
+				color: var(--text-main);
+				outline: none;
+			}
+			input:focus,
+			select:focus {
+				border-color: var(--primary);
+				box-shadow: 0 0 0 3px var(--primary-light);
+			}
+
+			/* Buttons */
+			button {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 8px;
+				background: var(--primary);
+				color: #fff;
+				border: none;
+				padding: 10px 18px;
+				border-radius: 8px;
+				cursor: pointer;
+				font-weight: 500;
+				font-size: 0.95rem;
+				height: 42px;
+			}
+			button:hover {
+				background: var(--primary-hover);
+			}
+			button svg {
+				width: 18px;
+				height: 18px;
+			}
+			button.icon-btn {
+				padding: 8px;
+				width: 42px;
+				background: transparent;
+				color: var(--text-muted);
+				border: 1px solid var(--border);
+			}
+			button.icon-btn:hover {
+				background: var(--border);
+				color: var(--text-main);
+			}
+			button.danger-icon {
+				background: transparent;
+				color: var(--danger);
+				padding: 6px;
+				height: auto;
+				border-radius: 6px;
+			}
+			button.danger-icon:hover {
+				background: #fee2e2;
+			}
+			[data-theme="dark"] button.danger-icon:hover {
+				background: #7f1d1d;
+			}
+			button.success {
+				background: var(--success);
+				width: 100%;
+				margin-top: 16px;
+				font-size: 1rem;
+				height: 48px;
+			}
+			button.success:hover {
+				background: var(--success-hover);
+			}
+			button.secondary {
+				background: var(--text-muted);
+				width: 100%;
+				margin-top: 16px;
+				height: 48px;
+			}
+			button.secondary:hover {
+				background: #475569;
+			}
+
+			/* Tables */
+			.table-responsive {
+				overflow-x: auto;
+				border-radius: 8px;
+				border: 1px solid var(--border);
+				margin-top: 16px;
+			}
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				text-align: left;
+				white-space: nowrap;
+			}
+			th,
+			td {
+				padding: 12px 16px;
+				border-bottom: 1px solid var(--border);
+				font-size: 0.95rem;
+			}
+			th {
+				background: var(--bg);
+				font-weight: 600;
+				color: var(--text-muted);
+				text-transform: uppercase;
+				font-size: 0.75rem;
+				letter-spacing: 0.05em;
+			}
+			tr:last-child td {
+				border-bottom: none;
+			}
+
+			/* Chips & Badges */
+			.chip {
+				background: var(--bg);
+				border: 1px solid var(--border);
+				color: var(--text-main);
+				padding: 6px 14px;
+				border-radius: 999px;
+				font-size: 0.9rem;
+				font-weight: 500;
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+			.chip button {
+				padding: 0;
+				margin: 0;
+				width: 16px;
+				height: 16px;
+				background: transparent;
+				color: var(--text-muted);
+				border: none;
+			}
+			.chip button:hover {
+				color: var(--danger);
+			}
+
+			/* Trackers */
+			.tracker-container {
+				display: flex;
+				gap: 12px;
+				flex-wrap: wrap;
+				margin-bottom: 20px;
+				padding: 16px;
+				background: var(--bg);
+				border-radius: 8px;
+				border: 1px solid var(--border);
+			}
+			.tracker-badge {
+				padding: 6px 12px;
+				border-radius: 6px;
+				background: var(--surface);
+				border: 1px solid var(--border);
+				font-size: 0.85rem;
+				font-weight: 600;
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+			.tracker-badge.green {
+				border-left: 4px solid var(--success);
+			}
+			.tracker-badge.yellow {
+				border-left: 4px solid #f59e0b;
+			}
+			.tracker-badge.red {
+				border-left: 4px solid var(--danger);
+			}
+
+			/* Assignment Grid */
+			.assignment-grid {
+				display: grid;
+				gap: 20px;
+				grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+				margin-top: 16px;
+			}
+			.person-card {
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				padding: 20px;
+				background: var(--surface);
+			}
+			.item-row {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 8px 0;
+			}
+			.item-row input {
+				width: 80px;
+				text-align: center;
+				padding: 6px;
+			}
+
+			/* Results */
+			#results {
+				display: none;
+			}
+			.results-grid {
+				display: grid;
+				gap: 24px;
+				grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+			}
+			.summary-block {
+				background: var(--bg);
+				padding: 24px;
+				border-radius: 12px;
+				border: 1px solid var(--border);
+				margin-bottom: 32px;
+			}
+			.result-block {
+				margin-bottom: 24px;
+			}
+			.result-item {
+				display: flex;
+				justify-content: space-between;
+				font-size: 0.95rem;
+				margin-bottom: 8px;
+				color: var(--text-muted);
+			}
+			.result-item.bold {
+				font-weight: 600;
+				color: var(--text-main);
+			}
+			.total-row {
+				display: flex;
+				justify-content: space-between;
+				font-weight: 700;
+				border-top: 2px dashed var(--border);
+				padding-top: 12px;
+				margin-top: 12px;
+				font-size: 1.1rem;
+				color: var(--primary);
+			}
+			.final-owed {
+				font-size: 1.2rem;
+				color: var(--text-main);
+			}
+
+			/* Toast Notifications */
+			#toast-container {
+				position: fixed;
+				bottom: 24px;
+				right: 24px;
+				display: flex;
+				flex-direction: column;
+				gap: 10px;
+				z-index: 1000;
+			}
+			.toast {
+				background: var(--text-main);
+				color: var(--bg);
+				padding: 12px 20px;
+				border-radius: 8px;
+				font-size: 0.95rem;
+				box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				animation: slideIn 0.3s ease forwards;
+			}
+			.toast.error {
+				background: var(--danger);
+				color: #fff;
+			}
+			@keyframes slideIn {
+				from {
+					transform: translateX(100%);
+					opacity: 0;
+				}
+				to {
+					transform: translateX(0);
+					opacity: 1;
+				}
+			}
+			@keyframes fadeOut {
+				to {
+					opacity: 0;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<!-- Header -->
+			<div class="card header-card">
+				<div>
+					<h1 class="flex-center">
+						<svg
+							aria-hidden="true"
+							xmlns="http://www.w3.org/2000/svg"
+							width="28"
+							height="28"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="text-primary">
+							<path
+								d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
+							<path
+								d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+							<path d="M12 17.5v-11" />
+						</svg>
+						FairSplit Pro
+					</h1>
+					<p class="m-0">
+						Enterprise-grade bill calculator and receipt generator.
+					</p>
+				</div>
+				<button
+					class="icon-btn"
+					onclick="App.toggleTheme()"
+					aria-label="Toggle Theme">
+					<svg
+						id="theme-icon"
+						aria-hidden="true"
+						xmlns="http://www.w3.org/2000/svg"
+						width="24"
+						height="24"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round">
+						<circle cx="12" cy="12" r="4" />
+						<path d="M12 2v2" />
+						<path d="M12 20v2" />
+						<path d="m4.93 4.93 1.41 1.41" />
+						<path d="m17.66 17.66 1.41 1.41" />
+						<path d="M2 12h2" />
+						<path d="M20 12h2" />
+						<path d="m6.34 17.66-1.41 1.41" />
+						<path d="m19.07 4.93-1.41 1.41" />
+					</svg>
+				</button>
+			</div>
+
+			<!-- 1. Items Section -->
+			<div class="card">
+				<h2>1. Add Master Bill Items</h2>
+				<div class="flex-row">
+					<div class="form-group" style="flex: 2">
+						<label for="itemName">Item Name</label>
+						<input
+							type="text"
+							id="itemName"
+							placeholder="e.g., Kingfisher Beer" />
+					</div>
+					<div class="form-group">
+						<label for="itemQty">Total Qty</label>
+						<input
+							type="number"
+							id="itemQty"
+							value="1"
+							min="0.01"
+							step="0.01" />
+					</div>
+					<div class="form-group">
+						<label for="itemUnitPrice">Unit Price (₹)</label>
+						<input
+							type="number"
+							id="itemUnitPrice"
+							placeholder="0.00"
+							min="0"
+							step="0.01" />
+					</div>
+					<div class="form-group">
+						<label for="itemTax">Tax Category</label>
+						<select id="itemTax">
+							<option value="0.06">Alcohol (6% VAT)</option>
+							<option value="0.05" selected>Food (5% GST)</option>
+							<option value="0">No Tax</option>
+						</select>
+					</div>
+					<button onclick="App.addItem()">
+						<svg
+							aria-hidden="true"
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round">
+							<path d="M5 12h14" />
+							<path d="M12 5v14" />
+						</svg>
+						Add
+					</button>
+				</div>
+
+				<div class="table-responsive">
+					<table>
+						<thead>
+							<tr>
+								<th>Item</th>
+								<th class="text-right">Qty</th>
+								<th class="text-right">Unit Price</th>
+								<th class="text-right">Base Total</th>
+								<th class="text-right">Tax</th>
+								<th
+									class="text-right text-primary font-semibold">
+									Total (inc. Tax)
+								</th>
+								<th style="width: 50px"></th>
+							</tr>
+						</thead>
+						<tbody id="itemsList">
+							<tr>
+								<td colspan="7" class="empty-state">
+									No items added yet.
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- 2. People Section -->
+			<div class="card">
+				<h2>2. Add Participants</h2>
+				<div class="flex-row">
+					<div class="form-group">
+						<label for="personName">Participant Name</label>
+						<input
+							type="text"
+							id="personName"
+							placeholder="e.g., Lakshit"
+							onkeypress="
+								if (event.key === 'Enter') App.addPerson();
+							" />
+					</div>
+					<button onclick="App.addPerson()">
+						<svg
+							aria-hidden="true"
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round">
+							<path
+								d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+							<circle cx="9" cy="7" r="4" />
+							<line x1="19" x2="19" y1="8" y2="14" />
+							<line x1="22" x2="16" y1="11" y2="11" />
+						</svg>
+						Add Person
+					</button>
+				</div>
+				<div id="peopleList" class="flex-row mt-4"></div>
+			</div>
+
+			<!-- 3. Overall Service Charge -->
+			<div class="card">
+				<h2>3. Additional Fees</h2>
+				<div class="flex-row">
+					<div class="form-group">
+						<label for="serviceCharge">Service Charge (%)</label>
+						<input
+							type="number"
+							id="serviceCharge"
+							value="0"
+							min="0"
+							step="0.1"
+							oninput="App.updateServiceCharge(this.value)" />
+					</div>
+				</div>
+			</div>
+
+			<!-- 4. Assignments Section -->
+			<div class="card">
+				<h2>4. Consumption Splitter</h2>
+				<p>
+					Allocate the quantities consumed by each participant. The
+					tracker ensures mathematical integrity.
+				</p>
+
+				<div
+					id="qtyTrackers"
+					class="tracker-container"
+					style="display: none"></div>
+				<div class="assignment-grid" id="assignmentGrid">
+					<div class="empty-grid-state">
+						Add items and participants to begin splitting.
+					</div>
+				</div>
+
+				<button class="success" onclick="App.calculateSplit()">
+					<svg
+						aria-hidden="true"
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round">
+						<path
+							d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4" />
+						<path d="M14 2v4a2 2 0 0 0 2 2h4" />
+						<path d="M3 15h6" />
+						<path d="M3 18h6" />
+						<path d="M14 15h.01" />
+						<path d="M14 18h.01" />
+						<path d="M18 15h.01" />
+						<path d="M18 18h.01" />
+					</svg>
+					Calculate Fair Split
+				</button>
+			</div>
+
+			<!-- 5. Results Section -->
+			<div class="card" id="results">
+				<h2>5. Final Settlement Breakdown</h2>
+				<div id="resultsContent"></div>
+
+				<div class="mt-8 pt-6 border-t">
+					<div class="form-group mb-4">
+						<label for="receiptTitle"
+							>Official Document Title (Optional)</label
+						>
+						<input
+							type="text"
+							id="receiptTitle"
+							placeholder="e.g., Friday Dinner at Taj" />
+					</div>
+					<button class="secondary m-0" onclick="App.exportToPDF()">
+						<svg
+							aria-hidden="true"
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round">
+							<path
+								d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+							<polyline points="7 10 12 15 17 10" />
+							<line x1="12" x2="12" y1="15" y2="3" />
+						</svg>
+						Export Master PDF Receipt
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<div id="toast-container" aria-live="polite"></div>
+
+		<script>
+			const App = {
+				state: {
+					items: [],
+					people: [],
+					assignments: {},
+					serviceChargeRate: 0,
+					calculationResult: null,
+				},
+
+				utils: {
+					round2: (num) =>
+						Math.round((num + Number.EPSILON) * 100) / 100,
+					formatMoney: (num) => `₹${num.toFixed(2)}`,
+					escapeHTML: (str) =>
+						str.replace(
+							/[&<>'"]/g,
+							(tag) =>
+								({
+									"&": "&amp;",
+									"<": "&lt;",
+									">": "&gt;",
+									"'": "&#39;",
+									'"': "&quot;",
+								})[tag],
+						),
+					generateId: () =>
+						Date.now().toString(36) +
+						Math.random().toString(36).substr(2),
+				},
+
+				showToast(message, type = "default") {
+					const container =
+						document.getElementById("toast-container");
+					const toast = document.createElement("div");
+					toast.className = `toast ${type}`;
+
+					const icon =
+						type === "error"
+							? `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+							: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+
+					toast.innerHTML = `${icon} <span>${this.utils.escapeHTML(message)}</span>`;
+					container.appendChild(toast);
+
+					setTimeout(() => {
+						toast.style.animation = "fadeOut 0.3s ease forwards";
+						setTimeout(() => toast.remove(), 300);
+					}, 3000);
+				},
+
+				toggleTheme() {
+					const html = document.documentElement;
+					const icon = document.getElementById("theme-icon");
+					if (html.getAttribute("data-theme") === "light") {
+						html.setAttribute("data-theme", "dark");
+						icon.innerHTML = `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`;
+					} else {
+						html.setAttribute("data-theme", "light");
+						icon.innerHTML = `<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>`;
+					}
+				},
+
+				addItem() {
+					const nameEl = document.getElementById("itemName");
+					const qtyEl = document.getElementById("itemQty");
+					const priceEl = document.getElementById("itemUnitPrice");
+					const taxEl = document.getElementById("itemTax");
+
+					const name = nameEl.value.trim();
+					const qty = parseFloat(qtyEl.value);
+					const unitPrice = parseFloat(priceEl.value);
+					const tax = parseFloat(taxEl.value);
+
+					if (!name)
+						return this.showToast(
+							"Item name is required.",
+							"error",
+						);
+					if (isNaN(qty) || qty <= 0)
+						return this.showToast(
+							"Valid quantity is required.",
+							"error",
+						);
+					if (isNaN(unitPrice) || unitPrice < 0)
+						return this.showToast(
+							"Valid unit price is required.",
+							"error",
+						);
+
+					const totalBase = qty * unitPrice;
+					const totalTax = totalBase * tax;
+					const totalWithTax = totalBase + totalTax;
+
+					this.state.items.push({
+						id: this.utils.generateId(),
+						name,
+						qty,
+						unitPrice,
+						tax,
+						totalBase,
+						totalTax,
+						totalWithTax,
+					});
+
+					nameEl.value = "";
+					priceEl.value = "";
+					qtyEl.value = "1";
+					nameEl.focus();
+
+					this.showToast(`${name} added successfully.`);
+					this.render();
+				},
+
+				removeItem(id) {
+					this.state.items = this.state.items.filter(
+						(i) => i.id !== id,
+					);
+					this.render();
+				},
+
+				addPerson() {
+					const input = document.getElementById("personName");
+					const name = input.value.trim();
+
+					if (!name)
+						return this.showToast(
+							"Participant name cannot be empty.",
+							"error",
+						);
+					if (this.state.people.includes(name))
+						return this.showToast("Name must be unique.", "error");
+
+					this.state.people.push(name);
+					this.state.assignments[name] = {};
+					input.value = "";
+
+					this.render();
+				},
+
+				removePerson(name) {
+					this.state.people = this.state.people.filter(
+						(p) => p !== name,
+					);
+					delete this.state.assignments[name];
+					this.render();
+				},
+
+				updateServiceCharge(val) {
+					this.state.serviceChargeRate = parseFloat(val) / 100 || 0;
+				},
+
+				updateShare(person, itemId, value) {
+					this.state.assignments[person][itemId] =
+						parseFloat(value) || 0;
+					this.renderTrackers();
+				},
+
+				render() {
+					this.renderItems();
+					this.renderPeople();
+					this.renderAssignments();
+					this.renderTrackers();
+				},
+
+				renderItems() {
+					const tbody = document.getElementById("itemsList");
+					if (this.state.items.length === 0) {
+						tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No items added yet.</td></tr>`;
+						return;
+					}
+
+					tbody.innerHTML = this.state.items
+						.map(
+							(item) => `
+			                <tr>
+			                    <td class="font-medium">${this.utils.escapeHTML(item.name)}</td>
+			                    <td class="text-right">${item.qty}</td>
+			                    <td class="text-right">${this.utils.formatMoney(item.unitPrice)}</td>
+			                    <td class="text-right">${this.utils.formatMoney(item.totalBase)}</td>
+			                    <td class="text-right">${(item.tax * 100).toFixed(0)}%</td>
+			                    <td class="text-right font-semibold text-primary">${this.utils.formatMoney(item.totalWithTax)}</td>
+			                    <td class="text-right">
+			                        <button class="danger-icon" onclick="App.removeItem('${item.id}')" aria-label="Remove ${this.utils.escapeHTML(item.name)}" title="Remove">
+			                            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+			                        </button>
+			                    </td>
+			                </tr>
+			            `,
+						)
+						.join("");
+				},
+
+				renderPeople() {
+					const div = document.getElementById("peopleList");
+					div.innerHTML = this.state.people
+						.map(
+							(p) => `
+			                <div class="chip">
+			                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+			                    ${this.utils.escapeHTML(p)}
+			                    <button onclick="App.removePerson('${this.utils.escapeHTML(p)}')"><svg aria-hidden="true" aria-label="Remove ${this.utils.escapeHTML(p)}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+			                </div>
+			            `,
+						)
+						.join("");
+				},
+
+				renderTrackers() {
+					const trackerDiv = document.getElementById("qtyTrackers");
+					if (
+						this.state.items.length === 0 ||
+						this.state.people.length === 0
+					) {
+						trackerDiv.style.display = "none";
+						return;
+					}
+
+					trackerDiv.style.display = "flex";
+					trackerDiv.innerHTML = this.state.items
+						.map((item) => {
+							let claimed = 0;
+							this.state.people.forEach(
+								(p) =>
+									(claimed +=
+										this.state.assignments[p][item.id] ||
+										0),
+							);
+							let remaining = this.utils.round2(
+								item.qty - claimed,
+							);
+
+							let statusClass = "yellow";
+							let icon = `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`;
+
+							if (remaining === 0) {
+								statusClass = "green";
+								icon = `<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>`;
+							}
+							if (remaining < 0) {
+								statusClass = "red";
+								icon = `<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>`;
+							}
+
+							return `<div class="tracker-badge ${statusClass}">
+			                    <svg aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">${icon}</svg>
+			                    ${this.utils.escapeHTML(item.name)}: ${remaining} / ${item.qty} left
+			                </div>`;
+						})
+						.join("");
+				},
+
+				renderAssignments() {
+					const grid = document.getElementById("assignmentGrid");
+					if (
+						this.state.people.length === 0 ||
+						this.state.items.length === 0
+					) {
+						grid.innerHTML =
+							'<div class="empty-grid-state">Add items and participants to begin splitting.</div>';
+						return;
+					}
+
+					grid.innerHTML = this.state.people
+						.map(
+							(person) => `
+			                <div class="person-card">
+			                    <h3 class="flex-center pb-3 border-b mb-4"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ${this.utils.escapeHTML(person)}</h3>
+			                    ${this.state.items
+									.map(
+										(item) => `
+			                        <div class="item-row">
+			                            <span class="font-medium text-sm">
+			                                ${this.utils.escapeHTML(item.name)} <br>
+			                                <small class="text-muted font-normal">Total: ${this.utils.formatMoney(item.totalWithTax)}</small>
+			                            </span>
+			                            <input type="number" min="0" step="0.01" value="${this.state.assignments[person][item.id] || ""}"
+			                                aria-label="Quantity of ${this.utils.escapeHTML(item.name)} for ${this.utils.escapeHTML(person)}"
+			                                oninput="App.updateShare('${this.utils.escapeHTML(person)}', '${item.id}', this.value)" placeholder="Qty">
+			                        </div>
+			                    `,
+									)
+									.join("")}
+			                </div>
+			            `,
+						)
+						.join("");
+				},
+
+				calculateSplit() {
+					if (
+						this.state.items.length === 0 ||
+						this.state.people.length === 0
+					) {
+						return this.showToast(
+							"Need items and participants to calculate.",
+							"error",
+						);
+					}
+
+					let warnings = [];
+					this.state.items.forEach((item) => {
+						let claimed = 0;
+						this.state.people.forEach(
+							(p) =>
+								(claimed +=
+									this.state.assignments[p][item.id] || 0),
+						);
+						let diff = this.utils.round2(item.qty - claimed);
+
+						if (diff > 0)
+							warnings.push(
+								`'${item.name}' has ${diff} unassigned.`,
+							);
+						if (diff < 0)
+							warnings.push(
+								`'${item.name}' is over-assigned by ${Math.abs(diff)}.`,
+							);
+					});
+
+					if (warnings.length > 0) {
+						const proceed = confirm(
+							"Math Warning:" +
+								warnings.join(" ") +
+								"Do you want to force calculation anyway?",
+						);
+						if (!proceed) return;
+					}
+
+					let globalSummary = {
+						totalQty: 0,
+						subTotal: 0,
+						totalVAT: 0,
+						totalGST: 0,
+						serviceCharge: 0,
+						grandTotal: 0,
+					};
+
+					this.state.items.forEach((item) => {
+						globalSummary.totalQty += item.qty;
+						globalSummary.subTotal += item.totalBase;
+						if (item.tax === 0.06)
+							globalSummary.totalVAT += item.totalTax;
+						else if (item.tax === 0.05)
+							globalSummary.totalGST += item.totalTax;
+					});
+
+					let totalSubtotalForProportions = 0;
+					const individualBreakdowns = {};
+
+					this.state.people.forEach((person) => {
+						let subtotal = 0;
+						let consumedItems = [];
+
+						this.state.items.forEach((item) => {
+							const consumedQty =
+								this.state.assignments[person][item.id] || 0;
+							if (consumedQty > 0) {
+								const costShare =
+									(consumedQty / item.qty) *
+									item.totalWithTax;
+								subtotal += costShare;
+								consumedItems.push({
+									name: item.name,
+									qty: consumedQty,
+									cost: costShare,
+								});
+							}
+						});
+
+						totalSubtotalForProportions += subtotal;
+						individualBreakdowns[person] = {
+							subtotal: subtotal,
+							items: consumedItems,
+						};
+					});
+
+					let calcGrandTotal = 0;
+					let totalSCAmount = 0;
+
+					Object.keys(individualBreakdowns).forEach((person) => {
+						const data = individualBreakdowns[person];
+						const proportion =
+							totalSubtotalForProportions > 0
+								? data.subtotal / totalSubtotalForProportions
+								: 0;
+						const scAmount =
+							totalSubtotalForProportions *
+							this.state.serviceChargeRate *
+							proportion;
+
+						data.serviceCharge = scAmount;
+						data.totalOwed = data.subtotal + scAmount;
+						calcGrandTotal += data.totalOwed;
+						totalSCAmount += scAmount;
+					});
+
+					globalSummary.serviceCharge = totalSCAmount;
+					globalSummary.grandTotal = calcGrandTotal;
+
+					this.state.calculationResult = {
+						individualBreakdowns,
+						globalSummary,
+					};
+					this.renderResults();
+					this.showToast(
+						"Calculation complete! Scroll down to view.",
+					);
+				},
+
+				renderResults() {
+					const resDiv = document.getElementById("resultsContent");
+					const { individualBreakdowns, globalSummary } =
+						this.state.calculationResult;
+
+					let htmlStr = `
+			                <div class="summary-block">
+			                    <h3 class="text-primary flex-center mb-4">
+			                        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+			                        Master Bill Summary
+			                    </h3>
+			                    <div class="result-item"><span>Total Items (Qty)</span><span class="bold">${globalSummary.totalQty.toFixed(2).replace(/\.00$/, "")}</span></div>
+			                    <div class="result-item"><span>Base Subtotal</span><span class="bold">${this.utils.formatMoney(globalSummary.subTotal)}</span></div>
+			                    ${globalSummary.totalGST > 0 ? `<div class="result-item"><span>Total GST (5%)</span><span class="bold">${this.utils.formatMoney(globalSummary.totalGST)}</span></div>` : ""}
+			                    ${globalSummary.totalVAT > 0 ? `<div class="result-item"><span>Total VAT (6%)</span><span class="bold">${this.utils.formatMoney(globalSummary.totalVAT)}</span></div>` : ""}
+			                    ${globalSummary.serviceCharge > 0 ? `<div class="result-item"><span>Total Service Charge</span><span class="bold">${this.utils.formatMoney(globalSummary.serviceCharge)}</span></div>` : ""}
+			                    <div class="total-row"><span>Grand Total</span><span>${this.utils.formatMoney(globalSummary.grandTotal)}</span></div>
+			                </div>
+			                <div class="results-grid">
+			            `;
+
+					htmlStr += Object.keys(individualBreakdowns)
+						.map((person) => {
+							const b = individualBreakdowns[person];
+							if (b.totalOwed === 0) return "";
+							return `
+			                    <div class="card result-block m-0">
+			                        <h3 class="text-primary border-b pb-3 mb-4">${this.utils.escapeHTML(person)}</h3>
+			                        ${b.items
+										.map(
+											(i) => `
+			                            <div class="result-item">
+			                                <span>${this.utils.escapeHTML(i.name)} <span class="text-sm text-muted">x${i.qty}</span></span>
+			                                <span class="bold">${this.utils.formatMoney(i.cost)}</span>
+			                            </div>
+			                        `,
+										)
+										.join("")}
+			                        ${
+										this.state.serviceChargeRate > 0
+											? `
+			                        <div class="result-item mt-3 text-sm">
+			                            <span>Service Charge Proportion</span>
+			                            <span class="bold">${this.utils.formatMoney(b.serviceCharge)}</span>
+			                        </div>`
+											: ""
+									}
+			                        <div class="total-row final-owed">
+			                            <span>Owes</span>
+			                            <span>${this.utils.formatMoney(b.totalOwed)}</span>
+			                        </div>
+			                    </div>
+			                `;
+						})
+						.join("");
+
+					htmlStr += `</div>`;
+					resDiv.innerHTML = htmlStr;
+
+					const resultsSection = document.getElementById("results");
+					resultsSection.style.display = "block";
+					resultsSection.scrollIntoView({
+						behavior: "smooth",
+						block: "start",
+					});
+				},
+
+				exportToPDF() {
+					try {
+						if (!this.state.calculationResult)
+							return this.showToast(
+								"Calculate split first.",
+								"error",
+							);
+						if (!window.jspdf || !window.jspdf.jsPDF)
+							return this.showToast(
+								"PDF Library failed to load.",
+								"error",
+							);
+
+						const { jsPDF } = window.jspdf;
+						const doc = new jsPDF();
+
+						const customTitle = document
+							.getElementById("receiptTitle")
+							.value.trim();
+						const dateStr = new Date().toLocaleDateString();
+						const docTitle = customTitle
+							? customTitle
+							: "Official Settlement Receipt";
+
+						let startY = 20;
+
+						// --- 1. Document Header ---
+						doc.setFontSize(24);
+						doc.setTextColor(15, 23, 42);
+						doc.text(docTitle, 105, startY, { align: "center" });
+						startY += 8;
+
+						doc.setFontSize(10);
+						doc.setTextColor(100);
+						doc.text(
+							`Generated securely by FairSplit Pro on ${dateStr}`,
+							105,
+							startY,
+							{ align: "center" },
+						);
+						startY += 15;
+
+						// --- 2. Master Bill Recap ---
+						doc.setFontSize(14);
+						doc.setTextColor(37, 99, 235);
+						doc.text("Master Bill Breakdown", 14, startY);
+						startY += 6;
+
+						const masterTableData = this.state.items.map((i) => [
+							i.name,
+							i.qty.toString(),
+							`Rs. ${i.unitPrice.toFixed(2)}`,
+							`${(i.tax * 100).toFixed(0)}%`,
+							`Rs. ${i.totalWithTax.toFixed(2)}`,
+						]);
+
+						doc.autoTable({
+							startY: startY,
+							head: [
+								[
+									"Item",
+									"Qty",
+									"Unit Price",
+									"Tax",
+									"Total (inc. Tax)",
+								],
+							],
+							body: masterTableData,
+							theme: "grid",
+							headStyles: {
+								fillColor: [59, 130, 246],
+								textColor: 255,
+							},
+							styles: { fontSize: 9, cellPadding: 4 },
+							columnStyles: {
+								1: { halign: "center" },
+								2: { halign: "right" },
+								3: { halign: "center" },
+								4: { halign: "right", fontStyle: "bold" },
+							},
+						});
+
+						startY = doc.lastAutoTable.finalY + 15;
+
+						// --- 3. Global Summary ---
+						const { globalSummary } = this.state.calculationResult;
+						const summaryData = [
+							[
+								"Base Subtotal:",
+								`Rs. ${globalSummary.subTotal.toFixed(2)}`,
+							],
+						];
+
+						if (globalSummary.totalGST > 0)
+							summaryData.push([
+								"Total GST (5%):",
+								`Rs. ${globalSummary.totalGST.toFixed(2)}`,
+							]);
+						if (globalSummary.totalVAT > 0)
+							summaryData.push([
+								"Total VAT (6%):",
+								`Rs. ${globalSummary.totalVAT.toFixed(2)}`,
+							]);
+						if (globalSummary.serviceCharge > 0)
+							summaryData.push([
+								"Total Service Charge:",
+								`Rs. ${globalSummary.serviceCharge.toFixed(2)}`,
+							]);
+
+						summaryData.push([
+							{
+								content: "Grand Total:",
+								styles: {
+									fontStyle: "bold",
+									textColor: [15, 23, 42],
+									fontSize: 12,
+								},
+							},
+							{
+								content: `Rs. ${globalSummary.grandTotal.toFixed(2)}`,
+								styles: {
+									fontStyle: "bold",
+									textColor: [15, 23, 42],
+									fontSize: 12,
+								},
+							},
+						]);
+
+						doc.autoTable({
+							startY: startY,
+							body: summaryData,
+							theme: "plain",
+							styles: { fontSize: 10 },
+							columnStyles: {
+								0: { cellWidth: 120 },
+								1: { halign: "right" },
+							},
+						});
+
+						startY = doc.lastAutoTable.finalY + 20;
+
+						// --- 4. Individual Settlements ---
+						doc.setFontSize(14);
+						doc.setTextColor(37, 99, 235);
+						doc.text("Individual Settlements", 14, startY);
+						startY += 6;
+
+						const { individualBreakdowns, scRate } =
+							this.state.calculationResult;
+
+						Object.keys(individualBreakdowns).forEach((person) => {
+							const b = individualBreakdowns[person];
+							if (b.totalOwed === 0) return;
+
+							if (startY > 240) {
+								doc.addPage();
+								startY = 20;
+							}
+
+							doc.setFontSize(12);
+							doc.setTextColor(15, 23, 42);
+							doc.text(person, 14, startY);
+							startY += 4;
+
+							const tableData = b.items.map((i) => [
+								i.name,
+								i.qty.toString(),
+								`Rs. ${i.cost.toFixed(2)}`,
+							]);
+
+							if (this.state.serviceChargeRate > 0) {
+								tableData.push([
+									"Service Charge Proportion",
+									"-",
+									`Rs. ${b.serviceCharge.toFixed(2)}`,
+								]);
+							}
+
+							tableData.push([
+								{
+									content: "Total Owed:",
+									colSpan: 2,
+									styles: {
+										halign: "right",
+										fontStyle: "bold",
+										fillColor: [241, 245, 249],
+									},
+								},
+								{
+									content: `Rs. ${b.totalOwed.toFixed(2)}`,
+									styles: {
+										fontStyle: "bold",
+										fillColor: [241, 245, 249],
+									},
+								},
+							]);
+
+							doc.autoTable({
+								startY: startY,
+								head: [
+									["Item Consumed", "Qty", "Allocated Cost"],
+								],
+								body: tableData,
+								theme: "striped",
+								headStyles: {
+									fillColor: [226, 232, 240],
+									textColor: 15,
+								},
+								styles: { fontSize: 9 },
+								columnStyles: {
+									1: { halign: "center" },
+									2: { halign: "right" },
+								},
+							});
+
+							startY = doc.lastAutoTable.finalY + 10;
+						});
+
+						// --- 5. Save ---
+						const safeFilename = customTitle
+							? customTitle
+									.replace(/[^a-z0-9]/gi, "_")
+									.toLowerCase()
+							: `Settlement_${new Date().toISOString().slice(0, 10)}`;
+						doc.save(`${safeFilename}.pdf`);
+
+						this.showToast(
+							"PDF Generated Successfully!",
+							"success",
+						);
+					} catch (error) {
+						console.error(error);
+						this.showToast("Error generating PDF.", "error");
+					}
+				},
+			};
+
+			App.render();
+		</script>
+	</body>
+</html>
