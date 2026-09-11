@@ -1,0 +1,23 @@
+{
+	"name": "Ekwly",
+	"short_name": "Ekwly",
+	"description": "Itemised bill-splitting calculator and settlement engine.",
+	"start_url": "./index.html",
+	"scope": "./",
+	"display": "standalone",
+	"background_color": "#f8fafc",
+	"theme_color": "#4f46e5",
+	"orientation": "portrait-primary",
+	"icons": [
+		{
+			"src": "icon-192.png",
+			"type": "image/png",
+			"sizes": "192x192"
+		},
+		{
+			"src": "icon-512.png",
+			"type": "image/png",
+			"sizes": "512x512"
+		}
+	]
+}
