@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#312e81"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+
+  <!-- Back Card -->
+  <rect x="122" y="102" width="205" height="276" rx="26" fill="#e0e7ff" opacity="0.9"/>
+  <rect x="163" y="163" width="72" height="15" rx="6" fill="#6366f1"/>
+  <rect x="163" y="207" width="123" height="13" rx="5" fill="#a5b4fc"/>
+
+  <!-- Front Card with Shadow -->
+  <g filter="url(#cardShadow)">
+    <rect x="184" y="133" width="215" height="287" rx="26" fill="#ffffff"/>
+    <rect x="223" y="185" width="82" height="17" rx="6" fill="#4f46e5"/>
+    <rect x="223" y="231" width="137" height="13" rx="5" fill="#cbd5e1"/>
+    <rect x="223" y="265" width="137" height="13" rx="5" fill="#cbd5e1"/>
+    <rect x="223" y="311" width="112" height="17" rx="6" fill="#10b981"/>
+  </g>
+</svg>

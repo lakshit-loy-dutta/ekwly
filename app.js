@@ -24,7 +24,6 @@ const App = {
 			),
 		generateId: () =>
 			Date.now().toString(36) + Math.random().toString(36).substr(2),
-		// Parses strings like "1.5" or "1/3" securely into numbers
 		parseQty: (val) => {
 			if (!val) return 0;
 			if (typeof val === "number") return val;
@@ -85,7 +84,6 @@ const App = {
 		const qty = parseFloat(qtyEl.value);
 		const unitPrice = parseFloat(priceEl.value);
 
-		// Custom Tax Implementation
 		const taxRateRaw = parseFloat(taxEl.value);
 		const tax = isNaN(taxRateRaw) ? 0 : taxRateRaw / 100;
 
@@ -151,12 +149,10 @@ const App = {
 	},
 
 	updateShare(person, itemId, value) {
-		// Store as string to preserve fraction format (e.g. "1/3")
-		this.state.assignments[person][itemId] = value.trim() || "";
+		this.state.assignments[person][itemId] = String(value).trim() || "";
 		this.renderTrackers();
 	},
 
-	// --- Quick Split Tool ---
 	renderQuickSplit() {
 		const section = document.getElementById("quickSplitSection");
 		if (this.state.items.length === 0 || this.state.people.length === 0) {
@@ -166,7 +162,6 @@ const App = {
 
 		section.style.display = "block";
 
-		// 1. Populate Items Select
 		const select = document.getElementById("qsItem");
 		select.innerHTML = this.state.items
 			.map(
@@ -175,7 +170,6 @@ const App = {
 			)
 			.join("");
 
-		// 2. Populate People Tap-Chips
 		const peopleDiv = document.getElementById("qsPeople");
 		peopleDiv.innerHTML = this.state.people
 			.map(
@@ -193,7 +187,6 @@ const App = {
 		const item = this.state.items.find((i) => i.id === itemId);
 		if (!item) return;
 
-		// Find all chips that have the 'active' class
 		const activeChips = document.querySelectorAll(
 			"#qsPeople .toggle-chip.active",
 		);
@@ -205,7 +198,6 @@ const App = {
 			return this.showToast("Select at least one participant.", "error");
 		}
 
-		// Apply Exact Fractions visually
 		const fractionString =
 			item.qty % 1 === 0 && item.qty === 1
 				? `1/${selectedPeople.length}`
@@ -219,7 +211,6 @@ const App = {
 			this.state.assignments[person][item.id] = fractionString;
 		});
 
-		// Clear active states on chips
 		activeChips.forEach((chip) => chip.classList.remove("active"));
 
 		this.renderAssignments();
@@ -384,7 +375,7 @@ const App = {
 
 		if (warnings.length > 0) {
 			const proceed = confirm(
-				"Math Warning:" +
+				"Math Warning:\n" +
 					warnings.join("\n") +
 					"\n\nDo you want to force calculation anyway?",
 			);
@@ -394,8 +385,7 @@ const App = {
 		let globalSummary = {
 			totalQty: 0,
 			subTotal: 0,
-			totalVAT: 0,
-			totalGST: 0,
+			totalTax: 0,
 			serviceCharge: 0,
 			grandTotal: 0,
 		};
@@ -403,11 +393,7 @@ const App = {
 		this.state.items.forEach((item) => {
 			globalSummary.totalQty += item.qty;
 			globalSummary.subTotal += item.totalBase;
-			// Map common taxes directly or handle custom
-			if (Math.abs(item.tax - 0.06) < 0.001)
-				globalSummary.totalVAT += item.totalTax;
-			else if (Math.abs(item.tax - 0.05) < 0.001)
-				globalSummary.totalGST += item.totalTax;
+			globalSummary.totalTax += item.totalTax;
 		});
 
 		let totalSubtotalForProportions = 0;
@@ -427,7 +413,7 @@ const App = {
 					subtotal += costShare;
 					consumedItems.push({
 						name: item.name,
-						qtyString: consumedQtyString, // Preserve the fraction text for receipt display
+						qtyString: consumedQtyString || consumedQty.toString(),
 						cost: costShare,
 					});
 				}
@@ -481,8 +467,7 @@ const App = {
                 </h3>
                 <div class="result-item"><span>Total Items (Qty)</span><span class="bold">${globalSummary.totalQty.toFixed(2).replace(/\.00$/, "")}</span></div>
                 <div class="result-item"><span>Base Subtotal</span><span class="bold">${this.utils.formatMoney(globalSummary.subTotal)}</span></div>
-                ${globalSummary.totalGST > 0 ? `<div class="result-item"><span>Total GST (5%)</span><span class="bold">${this.utils.formatMoney(globalSummary.totalGST)}</span></div>` : ""}
-                ${globalSummary.totalVAT > 0 ? `<div class="result-item"><span>Total VAT (6%)</span><span class="bold">${this.utils.formatMoney(globalSummary.totalVAT)}</span></div>` : ""}
+                ${globalSummary.totalTax > 0 ? `<div class="result-item"><span>Total Tax</span><span class="bold">${this.utils.formatMoney(globalSummary.totalTax)}</span></div>` : ""}
                 ${globalSummary.serviceCharge > 0 ? `<div class="result-item"><span>Total Service Charge</span><span class="bold">${this.utils.formatMoney(globalSummary.serviceCharge)}</span></div>` : ""}
                 <div class="total-row pt-4"><span>Grand Total</span><span>${this.utils.formatMoney(globalSummary.grandTotal)}</span></div>
             </div>
@@ -554,14 +539,12 @@ const App = {
 			const dateStr = new Date().toLocaleDateString();
 			const docTitle = customTitle ? customTitle : "Settlement Receipt";
 
-			// Document Styling Config
 			const primaryColor = [79, 70, 229];
 			const darkText = [17, 24, 39];
 			const mutedText = [107, 114, 128];
 
 			let startY = 25;
 
-			// --- 1. Document Header ---
 			doc.setFontSize(26);
 			doc.setFont("helvetica", "bold");
 			doc.setTextColor(...darkText);
@@ -570,17 +553,12 @@ const App = {
 			doc.setFontSize(10);
 			doc.setFont("helvetica", "normal");
 			doc.setTextColor(...mutedText);
-			doc.text(
-				`Generated by FairSplit Pro on ${dateStr}`,
-				14,
-				startY + 6,
-			);
+			doc.text(`Generated by Ekwly on ${dateStr}`, 14, startY + 6);
 
 			doc.setDrawColor(229, 231, 235);
 			doc.line(14, startY + 12, 196, startY + 12);
 			startY += 25;
 
-			// --- 2. Master Bill Recap ---
 			doc.setFontSize(12);
 			doc.setFont("helvetica", "bold");
 			doc.setTextColor(...primaryColor);
@@ -627,15 +605,10 @@ const App = {
 				["Base Subtotal:", `Rs. ${globalSummary.subTotal.toFixed(2)}`],
 			];
 
-			if (globalSummary.totalGST > 0)
+			if (globalSummary.totalTax > 0)
 				summaryData.push([
-					"Total GST (5%):",
-					`Rs. ${globalSummary.totalGST.toFixed(2)}`,
-				]);
-			if (globalSummary.totalVAT > 0)
-				summaryData.push([
-					"Total VAT (6%):",
-					`Rs. ${globalSummary.totalVAT.toFixed(2)}`,
+					"Total Tax:",
+					`Rs. ${globalSummary.totalTax.toFixed(2)}`,
 				]);
 			if (globalSummary.serviceCharge > 0)
 				summaryData.push([
@@ -673,7 +646,6 @@ const App = {
 
 			startY = doc.lastAutoTable.finalY + 25;
 
-			// --- 4. Individual Settlements ---
 			doc.setFontSize(12);
 			doc.setFont("helvetica", "bold");
 			doc.setTextColor(...primaryColor);
@@ -776,7 +748,6 @@ const App = {
 	},
 };
 
-// Initialize App on load & Register Service Worker
 document.addEventListener("DOMContentLoaded", () => {
 	App.render();
 
