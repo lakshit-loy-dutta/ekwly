@@ -1,295 +1,489 @@
 <!doctype html>
 <html lang="en" data-theme="light">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ekwly</title>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Ekwly</title>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+			rel="stylesheet" />
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 
-    <link rel="manifest" href="./manifest.json" />
-    <meta name="theme-color" content="#4f46e5" />
-    <link rel="apple-touch-icon" href="icon-192.png" />
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
+		<link rel="manifest" href="./manifest.json" />
+		<meta name="theme-color" content="#4f46e5" />
+		<link rel="apple-touch-icon" href="icon-192.png" />
+		<link rel="icon" href="favicon.ico" type="image/x-icon" />
 
-    <link rel="stylesheet" href="styles.css" />
-    <script src="app.js" defer></script>
-</head>
-<body>
-    <div class="app-wrapper">
-        <main class="container">
-            <!-- Header -->
-            <header class="card header-card">
-                <div class="brand">
-                    <img src="icon.svg" width="44" height="44" alt="Ekwly Logo" class="app-logo">
-                    <div>
-                        <h1>Ekwly</h1>
-                        <p>Itemised bill calculator and settlement engine.</p>
-                    </div>
-                </div>
+		<link rel="stylesheet" href="styles.css" />
+		<script src="app.js" defer></script>
+	</head>
+	<body>
+		<div class="app-wrapper">
+			<main class="container">
+				<!-- Header -->
+				<header class="card header-card">
+					<div class="brand">
+						<img
+							src="icon.svg"
+							width="44"
+							height="44"
+							alt="Ekwly Logo"
+							class="app-logo" />
+						<div>
+							<h1>Ekwly</h1>
+							<p>
+								Itemised bill calculator and settlement engine.
+							</p>
+						</div>
+					</div>
 
-                <button type="button" class="icon-btn" onclick="App.toggleTheme()" aria-label="Toggle Theme">
-                    <svg id="theme-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="4" />
-                        <path d="M12 2v2" />
-                        <path d="M12 20v2" />
-                        <path d="m4.93 4.93 1.41 1.41" />
-                        <path d="m17.66 17.66 1.41 1.41" />
-                        <path d="M2 12h2" />
-                        <path d="M20 12h2" />
-                        <path d="m6.34 17.66-1.41 1.41" />
-                        <path d="m19.07 4.93-1.41 1.41" />
-                    </svg>
-                </button>
-            </header>
+					<button
+						type="button"
+						class="icon-btn"
+						onclick="App.toggleTheme()"
+						aria-label="Toggle Theme">
+						<svg
+							id="theme-icon"
+							aria-hidden="true"
+							xmlns="http://www.w3.org/2000/svg"
+							width="24"
+							height="24"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round">
+							<circle cx="12" cy="12" r="4" />
+							<path d="M12 2v2" />
+							<path d="M12 20v2" />
+							<path d="m4.93 4.93 1.41 1.41" />
+							<path d="m17.66 17.66 1.41 1.41" />
+							<path d="M2 12h2" />
+							<path d="M20 12h2" />
+							<path d="m6.34 17.66-1.41 1.41" />
+							<path d="m19.07 4.93-1.41 1.41" />
+						</svg>
+					</button>
+				</header>
 
-            <!-- 1. Taxes & Fees Configuration -->
-            <section class="card bg-subtle">
-                <div class="section-header">
-                    <span class="step-badge">1</span>
-                    <h2>Global Taxes & Fees</h2>
-                </div>
-                <p class="mb-4 text-sm">Define your tax rates and specify which tax applies to the Service Charge.</p>
-                
-                <div class="fees-grid mt-4">
-                    <div class="fees-sc-col">
-                        <div class="form-group mb-4">
-                            <label for="serviceCharge">Service Charge (%)</label>
-                            <input type="number" id="serviceCharge" value="0" min="0" step="0.1" oninput="App.updateServiceCharge(this.value)">
-                        </div>
-                        <div class="form-group">
-                            <label for="scTaxSelect">Tax on S.C.</label>
-                            <div class="select-wrapper">
-                                <select id="scTaxSelect" onchange="App.updateSCTax(this.value)">
-                                    <option value="none">None</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="fees-preset-col">
-                        <div class="tax-input-row">
-                            <div class="form-group" style="flex: 2;">
-                                <label for="newTaxName">Add Tax Preset</label>
-                                <input type="text" id="newTaxName" placeholder="Name (e.g. Food GST)">
-                            </div>
-                            <div class="form-group" style="flex: 1;">
-                                <label for="newTaxRate">Total (%)</label>
-                                <input type="number" id="newTaxRate" placeholder="0" min="0" step="0.1">
-                            </div>
-                            <div class="form-group">
-                                <label class="desktop-spacer">&nbsp;</label>
-                                <label class="toggle-label" for="newTaxSplit" title="Splits percentage into CGST & SGST">
-                                    <span class="font-medium text-sm text-main">Split</span>
-                                    <div class="toggle-switch">
-                                        <input type="checkbox" id="newTaxSplit" checked>
-                                        <span class="slider"></span>
-                                    </div>
-                                </label>
-                            </div>
-                            <div class="form-group">
-                                <label class="desktop-spacer">&nbsp;</label>
-                                <button type="button" class="btn-outline m-0" onclick="App.addTaxPreset()" style="padding: 0 24px;">Add</button>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-4 pt-4" style="border-top: 1px dashed var(--border);">
-                            <label class="text-sm font-medium text-main mb-2" style="display:block;">Active Presets:</label>
-                            <div id="taxPresetList" class="chip-container"></div>
-                        </div>
-                    </div>
-                </div>
-            </section>
+				<!-- 1. Taxes & Fees Configuration -->
+				<section class="card bg-subtle">
+					<div class="section-header">
+						<span class="step-badge">1</span>
+						<h2>Global Taxes & Fees</h2>
+					</div>
+					<p class="mb-4 text-sm">
+						Define your tax rates and specify which tax applies to
+						the global Service Charge pool.
+					</p>
 
-            <!-- 2. Items Section -->
-            <section class="card">
-                <div class="section-header">
-                    <span class="step-badge">2</span>
-                    <h2>Add Master Bill Items</h2>
-                </div>
+					<div class="fees-grid mt-4">
+						<div
+							class="fees-sc-col"
+							style="
+								display: flex;
+								flex-direction: column;
+								gap: 1.25rem;
+							">
+							<div class="form-group">
+								<label for="serviceCharge"
+									>Service Charge (%)</label
+								>
+								<input
+									type="number"
+									id="serviceCharge"
+									value="0"
+									min="0"
+									step="0.1"
+									oninput="
+										App.updateServiceCharge(this.value)
+									" />
+							</div>
+							<div class="form-group">
+								<label for="scTaxSelect">Tax on S.C.</label>
+								<div class="select-wrapper">
+									<select
+										id="scTaxSelect"
+										onchange="App.updateSCTax(this.value)">
+										<option value="none">None</option>
+									</select>
+								</div>
+							</div>
+						</div>
 
-                <div class="form-grid items-form mt-4">
-                    <div class="form-group span-2">
-                        <label for="itemName">Item Name</label>
-                        <input type="text" id="itemName" placeholder="e.g., Kingfisher Beer" />
-                    </div>
-                    <div class="form-group">
-                        <label for="itemQty">Total Qty</label>
-                        <input type="number" id="itemQty" value="1" min="0.01" step="0.01" />
-                    </div>
-                    <div class="form-group">
-                        <label for="itemUnitPrice">Unit Price (₹)</label>
-                        <input type="number" id="itemUnitPrice" placeholder="0.00" min="0" step="0.01" />
-                    </div>
-                    <div class="form-group">
-                        <label for="itemTax">Tax Applied</label>
-                        <div class="select-wrapper">
-                            <select id="itemTax" aria-label="Select Tax Rate"></select>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="desktop-spacer">&nbsp;</label>
-                        <label class="toggle-label" for="itemApplySC" title="Apply Service Charge to this item">
-                            <span class="font-medium text-sm text-main">Apply S.C.</span>
-                            <div class="toggle-switch">
-                                <input type="checkbox" id="itemApplySC" checked>
-                                <span class="slider"></span>
-                            </div>
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label class="desktop-spacer">&nbsp;</label>
-                        <button type="button" class="btn-primary w-full" id="saveItemBtn" onclick="App.saveItem()">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M5 12h14" />
-                                <path d="M12 5v14" />
-                            </svg>
-                            Add
-                        </button>
-                    </div>
-                </div>
+						<div class="fees-preset-col">
+							<div class="tax-input-row">
+								<div class="form-group preset-name-col">
+									<label for="newTaxName"
+										>Add Tax Preset</label
+									>
+									<input
+										type="text"
+										id="newTaxName"
+										placeholder="Name (e.g. Food GST)" />
+								</div>
+								<div class="form-group">
+									<label for="newTaxRate">Total (%)</label>
+									<input
+										type="number"
+										id="newTaxRate"
+										placeholder="0"
+										min="0"
+										step="0.1" />
+								</div>
+								<div class="form-group">
+									<label
+										class="invisible-label"
+										aria-hidden="true"
+										>Spacer</label
+									>
+									<label
+										class="toggle-label"
+										for="newTaxSplit"
+										title="Splits percentage into CGST & SGST">
+										<span
+											class="font-medium text-sm text-main"
+											>Split</span
+										>
+										<div class="toggle-switch">
+											<input
+												type="checkbox"
+												id="newTaxSplit"
+												checked />
+											<span class="slider"></span>
+										</div>
+									</label>
+								</div>
+								<div class="form-group preset-add-col">
+									<label class="desktop-spacer">&nbsp;</label>
+									<button
+										type="button"
+										class="btn-outline m-0 w-full"
+										onclick="App.addTaxPreset()"
+										style="padding: 0 24px">
+										Add
+									</button>
+								</div>
+							</div>
 
-                <div class="table-container mt-6">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th class="text-right">Qty</th>
-                                <th class="text-right">Unit Price</th>
-                                <th class="text-right">Taxes & Fees</th>
-                                <th class="text-right text-primary">Total</th>
-                                <th class="text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="itemsList">
-                            <tr>
-                                <td colspan="6" class="empty-state">No items added to the bill yet.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+							<div
+								class="mt-5 pt-4"
+								style="border-top: 1px dashed var(--border)">
+								<label
+									class="text-sm font-medium text-main mb-3"
+									style="display: block"
+									>Active Presets:</label
+								>
+								<div
+									id="taxPresetList"
+									class="chip-container"></div>
+							</div>
+						</div>
+					</div>
+				</section>
 
-            <!-- 3. People Section -->
-            <section class="card">
-                <div class="section-header">
-                    <span class="step-badge">3</span>
-                    <h2>Add Participants</h2>
-                </div>
-                <div class="form-grid people-form mt-4">
-                    <div class="form-group span-2">
-                        <label for="personName">Participant Name</label>
-                        <input type="text" id="personName" placeholder="e.g., Lakshit" onkeypress="if (event.key === 'Enter') App.addPerson();" />
-                    </div>
-                    <button type="button" class="btn-primary" onclick="App.addPerson()">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                            <circle cx="9" cy="7" r="4" />
-                            <line x1="19" x2="19" y1="8" y2="14" />
-                            <line x1="22" x2="16" y1="11" y2="11" />
-                        </svg>
-                        Add Person
-                    </button>
-                </div>
-                <div id="peopleList" class="chip-container mt-4"></div>
-            </section>
+				<!-- 2. Items Section -->
+				<section class="card">
+					<div class="section-header">
+						<span class="step-badge">2</span>
+						<h2>Add Master Bill Items</h2>
+					</div>
 
-            <!-- 4. Quick Split Tool -->
-            <section class="card bg-subtle" id="quickSplitSection" style="display: none">
-                <div class="section-header">
-                    <span class="step-badge" style="background: var(--primary)">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                            <path d="m13 2-2 2.5h3L11 12" />
-                            <path d="M21 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
-                            <circle cx="12" cy="7" r="4" />
-                        </svg>
-                    </span>
-                    <h2>Quick Split</h2>
-                </div>
-                <p class="text-sm mt-1 mb-6">Select an item and tap the participants who shared it to divide equally.</p>
+					<div class="form-grid items-form mt-4">
+						<div class="form-group span-2">
+							<label for="itemName">Item Name</label>
+							<input
+								type="text"
+								id="itemName"
+								placeholder="e.g., Kingfisher Beer" />
+						</div>
+						<div class="form-group">
+							<label for="itemQty">Total Qty</label>
+							<input
+								type="number"
+								id="itemQty"
+								value="1"
+								min="0.01"
+								step="0.01" />
+						</div>
+						<div class="form-group">
+							<label for="itemUnitPrice">Unit Price (₹)</label>
+							<input
+								type="number"
+								id="itemUnitPrice"
+								placeholder="0.00"
+								min="0"
+								step="0.01" />
+						</div>
+						<div class="form-group">
+							<label for="itemTax">Tax Applied</label>
+							<div class="select-wrapper">
+								<select
+									id="itemTax"
+									aria-label="Select Tax Rate"></select>
+							</div>
+						</div>
+						<div class="form-group">
+							<label class="desktop-spacer">&nbsp;</label>
+							<label
+								class="toggle-label"
+								for="itemApplySC"
+								title="Apply Service Charge to this item">
+								<span class="font-medium text-sm text-main"
+									>Apply S.C.</span
+								>
+								<div class="toggle-switch">
+									<input
+										type="checkbox"
+										id="itemApplySC"
+										checked />
+									<span class="slider"></span>
+								</div>
+							</label>
+						</div>
+						<div class="form-group">
+							<label class="desktop-spacer">&nbsp;</label>
+							<button
+								type="button"
+								class="btn-primary w-full"
+								id="saveItemBtn"
+								onclick="App.saveItem()">
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2">
+									<path d="M5 12h14" />
+									<path d="M12 5v14" />
+								</svg>
+								Add
+							</button>
+						</div>
+					</div>
 
-                <div class="quick-split-grid">
-                    <div class="form-group">
-                        <label for="qsItem">1. Select Item</label>
-                        <div class="select-wrapper">
-                            <select id="qsItem" aria-label="Select item to split"></select>
-                        </div>
-                    </div>
+					<div class="table-container mt-6">
+						<table>
+							<thead>
+								<tr>
+									<th>Item</th>
+									<th class="text-right">Qty</th>
+									<th class="text-right">Unit Price</th>
+									<th class="text-right">Taxes & Fees</th>
+									<th class="text-right text-primary">
+										Total
+									</th>
+									<th class="text-right">Actions</th>
+								</tr>
+							</thead>
+							<tbody id="itemsList">
+								<tr>
+									<td colspan="6" class="empty-state">
+										No items added to the bill yet.
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</section>
 
-                    <div class="form-group">
-                        <label>2. Select Participants</label>
-                        <div id="qsPeople" class="qs-chip-grid"></div>
-                    </div>
+				<!-- 3. People Section -->
+				<section class="card">
+					<div class="section-header">
+						<span class="step-badge">3</span>
+						<h2>Add Participants</h2>
+					</div>
+					<div class="people-form-row mt-4">
+						<div
+							class="form-group"
+							style="flex: 1; min-width: 200px">
+							<label for="personName">Participant Name</label>
+							<input
+								type="text"
+								id="personName"
+								placeholder="e.g., Lakshit"
+								onkeypress="
+									if (event.key === 'Enter') App.addPerson();
+								" />
+						</div>
+						<div class="form-group">
+							<label class="desktop-spacer">&nbsp;</label>
+							<button
+								type="button"
+								class="btn-primary"
+								onclick="App.addPerson()"
+								style="width: auto; min-width: 140px">
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2">
+									<path
+										d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+									<circle cx="9" cy="7" r="4" />
+									<line x1="19" x2="19" y1="8" y2="14" />
+									<line x1="22" x2="16" y1="11" y2="11" />
+								</svg>
+								Add Person
+							</button>
+						</div>
+					</div>
+					<div id="peopleList" class="chip-container mt-4"></div>
+				</section>
 
-                    <div class="form-group" style="justify-content: flex-end;">
-                        <button type="button" class="btn-primary w-full" onclick="App.applyQuickSplit()">
-                            Apply Even Split
-                        </button>
-                    </div>
-                </div>
-            </section>
+				<!-- 4. Quick Split Tool -->
+				<section
+					class="card bg-subtle"
+					id="quickSplitSection"
+					style="display: none">
+					<div class="section-header">
+						<span
+							class="step-badge"
+							style="background: var(--primary)">
+							<svg
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="3">
+								<path d="m13 2-2 2.5h3L11 12" />
+								<path
+									d="M21 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+								<circle cx="12" cy="7" r="4" />
+							</svg>
+						</span>
+						<h2>Quick Split</h2>
+					</div>
+					<p class="text-sm mt-1 mb-6">
+						Select an item and tap the participants who shared it to
+						divide equally.
+					</p>
 
-            <!-- 5. Assignments Section -->
-            <section class="card">
-                <div class="section-header">
-                    <span class="step-badge">4</span>
-                    <h2>Consumption Splitter</h2>
-                </div>
-                <p>Manually allocate or review the quantities consumed. Use decimal points or exact fractions (e.g. 1/3).</p>
+					<div class="quick-split-grid">
+						<div class="form-group">
+							<label for="qsItem">1. Select Item</label>
+							<div class="select-wrapper">
+								<select
+									id="qsItem"
+									aria-label="Select item to split"></select>
+							</div>
+						</div>
 
-                <div id="qtyTrackers" class="tracker-container d-none mt-4"></div>
+						<div class="form-group">
+							<label>2. Select Participants</label>
+							<div id="qsPeople" class="qs-chip-grid"></div>
+						</div>
 
-                <div class="assignment-grid mt-6" id="assignmentGrid">
-                    <div class="empty-state border-dashed">
-                        Add items and participants to begin splitting.
-                    </div>
-                </div>
+						<div
+							class="form-group"
+							style="justify-content: flex-end">
+							<button
+								type="button"
+								class="btn-primary w-full"
+								onclick="App.applyQuickSplit()">
+								Apply Even Split
+							</button>
+						</div>
+					</div>
+				</section>
 
-                <button type="button" class="btn-success mt-8 w-full" onclick="App.calculateSplit()">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4" />
-                        <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-                        <path d="M3 15h6" />
-                        <path d="M3 18h6" />
-                        <path d="M14 15h.01" />
-                        <path d="M14 18h.01" />
-                        <path d="M18 15h.01" />
-                        <path d="M18 18h.01" />
-                    </svg>
-                    Calculate Fair Split
-                </button>
-            </section>
+				<!-- 5. Assignments Section -->
+				<section class="card">
+					<div class="section-header">
+						<span class="step-badge">4</span>
+						<h2>Consumption Splitter</h2>
+					</div>
+					<p>
+						Manually allocate or review the quantities consumed. Use
+						decimals or exact fractions (e.g. <code>1 1/2</code> or
+						<code>1/3</code>).
+					</p>
 
-            <!-- 6. Results Section -->
-            <section class="card d-none" id="results">
-                <div class="section-header">
-                    <span class="step-badge">5</span>
-                    <h2>Final Settlement</h2>
-                </div>
-                <div id="resultsContent" class="mt-4"></div>
+					<div
+						id="qtyTrackers"
+						class="tracker-container d-none mt-4"></div>
 
-                <div class="pdf-export-box mt-8">
-                    <div class="form-group">
-                        <label for="receiptTitle">Official Document Title (Optional)</label>
-                        <input type="text" id="receiptTitle" placeholder="e.g., Friday Dinner at Taj" />
-                    </div>
-                    <button type="button" class="btn-secondary mt-4 w-full" onclick="App.exportToPDF()">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" x2="12" y1="15" y2="3" />
-                        </svg>
-                        Export Master PDF Receipt
-                    </button>
-                </div>
-            </section>
-        </main>
-    </div>
+					<div class="assignment-grid mt-6" id="assignmentGrid">
+						<div class="empty-state border-dashed">
+							Add items and participants to begin splitting.
+						</div>
+					</div>
 
-    <div id="toast-container" aria-live="polite"></div>
-</body>
+					<button
+						type="button"
+						class="btn-success mt-8 w-full"
+						onclick="App.calculateSplit()">
+						<svg
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2">
+							<path
+								d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4" />
+							<path d="M14 2v4a2 2 0 0 0 2 2h4" />
+							<path d="M3 15h6" />
+							<path d="M3 18h6" />
+							<path d="M14 15h.01" />
+							<path d="M14 18h.01" />
+							<path d="M18 15h.01" />
+							<path d="M18 18h.01" />
+						</svg>
+						Calculate Fair Split
+					</button>
+				</section>
+
+				<!-- 6. Results Section -->
+				<section class="card d-none" id="results">
+					<div class="section-header">
+						<span class="step-badge">5</span>
+						<h2>Final Settlement</h2>
+					</div>
+					<div id="resultsContent" class="mt-4"></div>
+
+					<div class="pdf-export-box mt-8">
+						<div class="form-group">
+							<label for="receiptTitle"
+								>Official Document Title (Optional)</label
+							>
+							<input
+								type="text"
+								id="receiptTitle"
+								placeholder="e.g., Friday Dinner at Taj" />
+						</div>
+						<button
+							type="button"
+							class="btn-secondary mt-4 w-full"
+							onclick="App.exportToPDF()">
+							<svg
+								width="18"
+								height="18"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2">
+								<path
+									d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+								<polyline points="7 10 12 15 17 10" />
+								<line x1="12" x2="12" y1="15" y2="3" />
+							</svg>
+							Export Master PDF Receipt
+						</button>
+					</div>
+				</section>
+			</main>
+		</div>
+
+		<div id="toast-container" aria-live="polite"></div>
+	</body>
 </html>
