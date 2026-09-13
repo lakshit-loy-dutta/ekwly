@@ -1,4 +1,4 @@
-const CACHE_NAME = "fairsplit-v1";
+const CACHE_NAME = "fairsplit-v2";
 const ASSETS_TO_CACHE = [
 	"./",
 	"./index.html",

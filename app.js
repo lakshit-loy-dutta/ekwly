@@ -4,6 +4,14 @@ const App = {
 		people: [],
 		assignments: {},
 		serviceChargeRate: 0,
+		scTaxPresetId: "none",
+		taxPresets: [
+			{ id: "tx-1", name: "Food GST", rate: 5, split: true },
+			{ id: "tx-2", name: "Alcohol VAT", rate: 6, split: false },
+			{ id: "tx-3", name: "Tobacco Cess", rate: 40, split: false },
+			{ id: "tx-4", name: "Exempt", rate: 0, split: false },
+		],
+		editingItemId: null,
 		calculationResult: null,
 	},
 
@@ -28,6 +36,15 @@ const App = {
 			if (!val) return 0;
 			if (typeof val === "number") return val;
 			let str = String(val).trim();
+
+			let mixedMatch = str.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+			if (mixedMatch) {
+				let whole = parseFloat(mixedMatch[1]);
+				let num = parseFloat(mixedMatch[2]);
+				let den = parseFloat(mixedMatch[3]);
+				if (den !== 0) return whole + num / den;
+			}
+
 			if (str.includes("/")) {
 				let parts = str.split("/");
 				if (parts.length === 2) {
@@ -41,6 +58,36 @@ const App = {
 			let parsed = parseFloat(str);
 			return isNaN(parsed) ? 0 : parsed;
 		},
+		getFractionString: (qty, dividers) => {
+			let n = Math.round(qty * 10000);
+			let d = Math.round(dividers * 10000);
+			const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
+			const divisor = gcd(n, d);
+			n /= divisor;
+			d /= divisor;
+			if (d === 1) return `${n}`;
+			if (n > d) {
+				const whole = Math.floor(n / d);
+				const rem = n % d;
+				return `${whole} ${rem}/${d}`;
+			}
+			return `${n}/${d}`;
+		},
+		getSplitNames: (name) => {
+			let base = name.trim();
+			if (/GST/i.test(base)) {
+				return {
+					cgst: base.replace(/GST/i, "CGST"),
+					sgst: base.replace(/GST/i, "SGST"),
+				};
+			}
+			return { cgst: `${base} (CGST)`, sgst: `${base} (SGST)` };
+		},
+	},
+
+	init() {
+		this.renderTaxPresets();
+		this.render();
 	},
 
 	showToast(message, type = "default") {
@@ -74,18 +121,98 @@ const App = {
 		}
 	},
 
-	addItem() {
+	renderTaxPresets() {
+		const itemTaxEl = document.getElementById("itemTax");
+		const scTaxEl = document.getElementById("scTaxSelect");
+		const listEl = document.getElementById("taxPresetList");
+
+		const presetOptions = this.state.taxPresets
+			.map(
+				(t) =>
+					`<option value="${t.id}">${this.utils.escapeHTML(t.name)} (${t.rate}%)</option>`,
+			)
+			.join("");
+
+		itemTaxEl.innerHTML = presetOptions;
+		scTaxEl.innerHTML =
+			`<option value="none">None</option>` + presetOptions;
+		scTaxEl.value = this.state.scTaxPresetId;
+
+		listEl.innerHTML = this.state.taxPresets
+			.map((t) => {
+				const badges = t.split
+					? `<span class="chip-split-badge">Split</span>`
+					: "";
+				return `
+            <div class="chip">
+                ${this.utils.escapeHTML(t.name)} (${t.rate}%)${badges}
+                <button type="button" onclick="App.removeTaxPreset('${t.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            `;
+			})
+			.join("");
+	},
+
+	addTaxPreset() {
+		const nameEl = document.getElementById("newTaxName");
+		const rateEl = document.getElementById("newTaxRate");
+		const splitEl = document.getElementById("newTaxSplit");
+
+		const name = nameEl.value.trim();
+		const rate = parseFloat(rateEl.value);
+		const split = splitEl ? splitEl.checked : false;
+
+		if (!name) return this.showToast("Preset name is required.", "error");
+		if (isNaN(rate) || rate < 0)
+			return this.showToast("Valid tax rate is required.", "error");
+
+		this.state.taxPresets.push({
+			id: this.utils.generateId(),
+			name,
+			rate,
+			split,
+		});
+
+		nameEl.value = "";
+		rateEl.value = "";
+		if (splitEl) splitEl.checked = true;
+
+		this.renderTaxPresets();
+		this.showToast(`Added ${name} preset.`);
+	},
+
+	removeTaxPreset(id) {
+		if (this.state.taxPresets.length <= 1) {
+			return this.showToast(
+				"You must have at least one tax preset.",
+				"error",
+			);
+		}
+		this.state.taxPresets = this.state.taxPresets.filter(
+			(t) => t.id !== id,
+		);
+		if (this.state.scTaxPresetId === id) this.state.scTaxPresetId = "none";
+		this.renderTaxPresets();
+		this.renderItems();
+	},
+
+	saveItem() {
 		const nameEl = document.getElementById("itemName");
 		const qtyEl = document.getElementById("itemQty");
 		const priceEl = document.getElementById("itemUnitPrice");
 		const taxEl = document.getElementById("itemTax");
+		const applySCEl = document.getElementById("itemApplySC");
 
 		const name = nameEl.value.trim();
 		const qty = parseFloat(qtyEl.value);
 		const unitPrice = parseFloat(priceEl.value);
 
-		const taxRateRaw = parseFloat(taxEl.value);
-		const tax = isNaN(taxRateRaw) ? 0 : taxRateRaw / 100;
+		const taxPreset = this.state.taxPresets.find(
+			(t) => t.id === taxEl.value,
+		);
+		const taxRate = taxPreset ? taxPreset.rate / 100 : 0;
+		const taxPresetId = taxPreset ? taxPreset.id : null;
+		const applySC = applySCEl.checked;
 
 		if (!name) return this.showToast("Item name is required.", "error");
 		if (isNaN(qty) || qty <= 0)
@@ -94,27 +221,73 @@ const App = {
 			return this.showToast("Valid unit price is required.", "error");
 
 		const totalBase = qty * unitPrice;
-		const totalTax = totalBase * tax;
-		const totalWithTax = totalBase + totalTax;
 
-		this.state.items.push({
-			id: this.utils.generateId(),
-			name,
-			qty,
-			unitPrice,
-			tax,
-			totalBase,
-			totalTax,
-			totalWithTax,
-		});
+		if (this.state.editingItemId) {
+			const idx = this.state.items.findIndex(
+				(i) => i.id === this.state.editingItemId,
+			);
+			if (idx > -1) {
+				this.state.items[idx] = {
+					id: this.state.editingItemId,
+					name,
+					qty,
+					unitPrice,
+					taxRate,
+					taxPresetId,
+					applySC,
+					totalBase,
+				};
+			}
+			this.state.editingItemId = null;
+			document.getElementById("saveItemBtn").innerHTML =
+				`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg> Add`;
+			this.showToast(`${name} updated successfully.`);
+		} else {
+			this.state.items.push({
+				id: this.utils.generateId(),
+				name,
+				qty,
+				unitPrice,
+				taxRate,
+				taxPresetId,
+				applySC,
+				totalBase,
+			});
+			this.showToast(`${name} added to bill.`);
+		}
 
 		nameEl.value = "";
 		priceEl.value = "";
 		qtyEl.value = "1";
 		nameEl.focus();
 
-		this.showToast(`${name} added successfully.`);
 		this.render();
+	},
+
+	editItem(id) {
+		const item = this.state.items.find((i) => i.id === id);
+		if (!item) return;
+
+		document.getElementById("itemName").value = item.name;
+		document.getElementById("itemQty").value = item.qty;
+		document.getElementById("itemUnitPrice").value = item.unitPrice;
+		document.getElementById("itemApplySC").checked = item.applySC;
+
+		const taxEl = document.getElementById("itemTax");
+		if (
+			Array.from(taxEl.options).some(
+				(opt) => opt.value === item.taxPresetId,
+			)
+		) {
+			taxEl.value = item.taxPresetId;
+		}
+
+		this.state.editingItemId = id;
+		document.getElementById("saveItemBtn").innerHTML =
+			`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> Update`;
+
+		document.getElementById("itemName").focus();
+		window.scrollTo({ top: 0, behavior: "smooth" });
 	},
 
 	removeItem(id) {
@@ -146,6 +319,12 @@ const App = {
 
 	updateServiceCharge(val) {
 		this.state.serviceChargeRate = parseFloat(val) / 100 || 0;
+		this.renderItems();
+	},
+
+	updateSCTax(val) {
+		this.state.scTaxPresetId = val;
+		this.renderItems();
 	},
 
 	updateShare(person, itemId, value) {
@@ -174,10 +353,10 @@ const App = {
 		peopleDiv.innerHTML = this.state.people
 			.map(
 				(person) => `
-            <button type="button" class="toggle-chip" onclick="this.classList.toggle('active')" data-name="${this.utils.escapeHTML(person)}">
-                ${this.utils.escapeHTML(person)}
-            </button>
-        `,
+                <button type="button" class="toggle-chip" onclick="this.classList.toggle('active')" data-name="${this.utils.escapeHTML(person)}">
+                    ${this.utils.escapeHTML(person)}
+                </button>
+            `,
 			)
 			.join("");
 	},
@@ -198,10 +377,10 @@ const App = {
 			return this.showToast("Select at least one participant.", "error");
 		}
 
-		const fractionString =
-			item.qty % 1 === 0 && item.qty === 1
-				? `1/${selectedPeople.length}`
-				: `${item.qty}/${selectedPeople.length}`;
+		const fractionString = this.utils.getFractionString(
+			item.qty,
+			selectedPeople.length,
+		);
 
 		this.state.people.forEach((person) => {
 			this.state.assignments[person][item.id] = "";
@@ -235,23 +414,48 @@ const App = {
 			return;
 		}
 
+		const scTaxPreset = this.state.taxPresets.find(
+			(t) => t.id === this.state.scTaxPresetId,
+		);
+
 		tbody.innerHTML = this.state.items
-			.map(
-				(item) => `
-            <tr>
-                <td class="font-medium">${this.utils.escapeHTML(item.name)}</td>
-                <td class="text-right">${item.qty}</td>
-                <td class="text-right">${this.utils.formatMoney(item.unitPrice)}</td>
-                <td class="text-right">${(item.tax * 100).toFixed(1).replace(/\.0$/, "")}%</td>
-                <td class="text-right font-semibold text-primary">${this.utils.formatMoney(item.totalWithTax)}</td>
-                <td class="text-right w-10">
-                    <button class="danger-icon" onclick="App.removeItem('${item.id}')" aria-label="Remove" title="Remove">
-                        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                    </button>
-                </td>
-            </tr>
-        `,
-			)
+			.map((item) => {
+				const itemTaxAmount = item.totalBase * item.taxRate;
+				const itemSC = item.applySC
+					? item.totalBase * this.state.serviceChargeRate
+					: 0;
+				const itemSCTaxAmount =
+					scTaxPreset && itemSC > 0
+						? itemSC * (scTaxPreset.rate / 100)
+						: 0;
+				const finalItemTotal =
+					item.totalBase + itemTaxAmount + itemSC + itemSCTaxAmount;
+
+				let taxString = `${(item.taxRate * 100).toFixed(1).replace(/\.0$/, "")}%`;
+				if (item.applySC) {
+					taxString += `<br><span class="text-muted text-sm">+ SC ${scTaxPreset ? `(+${scTaxPreset.rate}%)` : ""}</span>`;
+				}
+
+				return `
+                <tr>
+                    <td class="font-medium">${this.utils.escapeHTML(item.name)}</td>
+                    <td class="text-right">${item.qty}</td>
+                    <td class="text-right">${this.utils.formatMoney(item.unitPrice)}</td>
+                    <td class="text-right text-sm text-nowrap">${taxString}</td>
+                    <td class="text-right font-semibold text-primary">${this.utils.formatMoney(finalItemTotal)}</td>
+                    <td class="text-right">
+                        <div style="display: flex; gap: 4px; justify-content: flex-end;">
+                            <button type="button" class="edit-icon" onclick="App.editItem('${item.id}')" aria-label="Edit" title="Edit">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                            </button>
+                            <button type="button" class="danger-icon" onclick="App.removeItem('${item.id}')" aria-label="Remove" title="Remove">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                `;
+			})
 			.join("");
 	},
 
@@ -260,12 +464,12 @@ const App = {
 		div.innerHTML = this.state.people
 			.map(
 				(p) => `
-            <div class="chip">
-                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                ${this.utils.escapeHTML(p)} 
-                <button onclick="App.removePerson('${this.utils.escapeHTML(p)}')"><svg aria-hidden="true" aria-label="Remove" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-            </div>
-        `,
+                <div class="chip">
+                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    ${this.utils.escapeHTML(p)} 
+                    <button type="button" onclick="App.removePerson('${this.utils.escapeHTML(p)}')"><svg aria-hidden="true" aria-label="Remove" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                </div>
+            `,
 			)
 			.join("");
 	},
@@ -302,9 +506,9 @@ const App = {
 				}
 
 				return `<div class="tracker-badge ${statusClass}">
-                <svg aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">${icon}</svg>
-                ${this.utils.escapeHTML(item.name)}: ${remaining} / ${item.qty} left
-            </div>`;
+                    <svg aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">${icon}</svg>
+                    ${this.utils.escapeHTML(item.name)}: ${remaining} / ${item.qty} left
+                </div>`;
 			})
 			.join("");
 	},
@@ -320,28 +524,28 @@ const App = {
 		grid.innerHTML = this.state.people
 			.map(
 				(person) => `
-            <div class="person-card p-0">
-                <div class="person-card-header">
-                    <h3 class="m-0"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ${this.utils.escapeHTML(person)}</h3>
+                <div class="person-card p-0">
+                    <div class="person-card-header">
+                        <h3 class="m-0"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ${this.utils.escapeHTML(person)}</h3>
+                    </div>
+                    <div class="person-card-body">
+                        ${this.state.items
+							.map(
+								(item) => `
+                                <div class="item-row">
+                                    <span class="font-medium text-sm">
+                                        ${this.utils.escapeHTML(item.name)}
+                                    </span>
+                                    <input type="text" inputmode="decimal" value="${this.utils.escapeHTML(this.state.assignments[person][item.id] || "")}" 
+                                        aria-label="Quantity of ${this.utils.escapeHTML(item.name)} for ${this.utils.escapeHTML(person)}"
+                                        oninput="App.updateShare('${this.utils.escapeHTML(person)}', '${item.id}', this.value)" placeholder="0">
+                                </div>
+                            `,
+							)
+							.join("")}
+                    </div>
                 </div>
-                <div class="person-card-body">
-                    ${this.state.items
-						.map(
-							(item) => `
-                        <div class="item-row">
-                            <span class="font-medium text-sm">
-                                ${this.utils.escapeHTML(item.name)}
-                            </span>
-                            <input type="text" inputmode="decimal" value="${this.utils.escapeHTML(this.state.assignments[person][item.id] || "")}" 
-                                aria-label="Quantity of ${this.utils.escapeHTML(item.name)} for ${this.utils.escapeHTML(person)}"
-                                oninput="App.updateShare('${this.utils.escapeHTML(person)}', '${item.id}', this.value)" placeholder="0">
-                        </div>
-                    `,
-						)
-						.join("")}
-                </div>
-            </div>
-        `,
+            `,
 			)
 			.join("");
 	},
@@ -385,70 +589,109 @@ const App = {
 		let globalSummary = {
 			totalQty: 0,
 			subTotal: 0,
-			totalTax: 0,
+			taxBreakdown: {},
 			serviceCharge: 0,
 			grandTotal: 0,
 		};
+		const scTaxPreset = this.state.taxPresets.find(
+			(t) => t.id === this.state.scTaxPresetId,
+		);
+
+		const addTaxToBreakdown = (preset, amount, fallbackName) => {
+			if (amount <= 0) return;
+			if (preset) {
+				if (preset.split) {
+					const names = this.utils.getSplitNames(preset.name);
+					const half = amount / 2;
+					globalSummary.taxBreakdown[names.cgst] =
+						(globalSummary.taxBreakdown[names.cgst] || 0) + half;
+					globalSummary.taxBreakdown[names.sgst] =
+						(globalSummary.taxBreakdown[names.sgst] || 0) + half;
+				} else {
+					globalSummary.taxBreakdown[preset.name] =
+						(globalSummary.taxBreakdown[preset.name] || 0) + amount;
+				}
+			} else {
+				globalSummary.taxBreakdown[fallbackName] =
+					(globalSummary.taxBreakdown[fallbackName] || 0) + amount;
+			}
+		};
 
 		this.state.items.forEach((item) => {
+			const itemTaxAmount = item.totalBase * item.taxRate;
+			const itemSC = item.applySC
+				? item.totalBase * this.state.serviceChargeRate
+				: 0;
+			const itemSCTaxAmount =
+				scTaxPreset && itemSC > 0
+					? itemSC * (scTaxPreset.rate / 100)
+					: 0;
+
 			globalSummary.totalQty += item.qty;
 			globalSummary.subTotal += item.totalBase;
-			globalSummary.totalTax += item.totalTax;
+			globalSummary.serviceCharge += itemSC;
+
+			const itemPreset = this.state.taxPresets.find(
+				(t) => t.id === item.taxPresetId,
+			);
+			addTaxToBreakdown(itemPreset, itemTaxAmount, "Other Tax");
+			addTaxToBreakdown(scTaxPreset, itemSCTaxAmount, "S.C. Tax");
 		});
 
-		let totalSubtotalForProportions = 0;
 		const individualBreakdowns = {};
+		let calcGrandTotal = 0;
 
 		this.state.people.forEach((person) => {
 			let subtotal = 0;
+			let totalScAmount = 0;
 			let consumedItems = [];
 
 			this.state.items.forEach((item) => {
 				const consumedQtyString =
 					this.state.assignments[person][item.id];
 				const consumedQty = this.utils.parseQty(consumedQtyString);
+
 				if (consumedQty > 0) {
-					const costShare =
-						(consumedQty / item.qty) * item.totalWithTax;
-					subtotal += costShare;
+					const proportion = consumedQty / item.qty;
+
+					const baseShare = proportion * item.totalBase;
+					const itemTaxShare = baseShare * item.taxRate;
+
+					const scShare = item.applySC
+						? proportion *
+							(item.totalBase * this.state.serviceChargeRate)
+						: 0;
+					const scTaxShare =
+						scTaxPreset && scShare > 0
+							? scShare * (scTaxPreset.rate / 100)
+							: 0;
+
+					const finalCostShare = baseShare + itemTaxShare;
+					const finalScBurden = scShare + scTaxShare;
+
+					subtotal += finalCostShare;
+					totalScAmount += finalScBurden;
+
 					consumedItems.push({
 						name: item.name,
 						qtyString: consumedQtyString || consumedQty.toString(),
-						cost: costShare,
+						cost: finalCostShare,
 					});
 				}
 			});
 
-			totalSubtotalForProportions += subtotal;
+			const totalOwed = subtotal + totalScAmount;
+			calcGrandTotal += totalOwed;
+
 			individualBreakdowns[person] = {
 				subtotal: subtotal,
+				serviceCharge: totalScAmount,
+				totalOwed: totalOwed,
 				items: consumedItems,
 			};
 		});
 
-		let calcGrandTotal = 0;
-		let totalSCAmount = 0;
-
-		Object.keys(individualBreakdowns).forEach((person) => {
-			const data = individualBreakdowns[person];
-			const proportion =
-				totalSubtotalForProportions > 0
-					? data.subtotal / totalSubtotalForProportions
-					: 0;
-			const scAmount =
-				totalSubtotalForProportions *
-				this.state.serviceChargeRate *
-				proportion;
-
-			data.serviceCharge = scAmount;
-			data.totalOwed = data.subtotal + scAmount;
-			calcGrandTotal += data.totalOwed;
-			totalSCAmount += scAmount;
-		});
-
-		globalSummary.serviceCharge = totalSCAmount;
 		globalSummary.grandTotal = calcGrandTotal;
-
 		this.state.calculationResult = { individualBreakdowns, globalSummary };
 		this.renderResults();
 		this.showToast("Calculation complete! Scroll down to view.");
@@ -459,6 +702,15 @@ const App = {
 		const { individualBreakdowns, globalSummary } =
 			this.state.calculationResult;
 
+		let taxesHtml = "";
+		for (const [taxName, amount] of Object.entries(
+			globalSummary.taxBreakdown,
+		)) {
+			if (amount > 0) {
+				taxesHtml += `<div class="result-item"><span>Total ${this.utils.escapeHTML(taxName)}</span><span class="bold">${this.utils.formatMoney(amount)}</span></div>`;
+			}
+		}
+
 		let htmlStr = `
             <div class="summary-block">
                 <h3 class="text-primary flex-center mb-4">
@@ -467,7 +719,7 @@ const App = {
                 </h3>
                 <div class="result-item"><span>Total Items (Qty)</span><span class="bold">${globalSummary.totalQty.toFixed(2).replace(/\.00$/, "")}</span></div>
                 <div class="result-item"><span>Base Subtotal</span><span class="bold">${this.utils.formatMoney(globalSummary.subTotal)}</span></div>
-                ${globalSummary.totalTax > 0 ? `<div class="result-item"><span>Total Tax</span><span class="bold">${this.utils.formatMoney(globalSummary.totalTax)}</span></div>` : ""}
+                ${taxesHtml}
                 ${globalSummary.serviceCharge > 0 ? `<div class="result-item"><span>Total Service Charge</span><span class="bold">${this.utils.formatMoney(globalSummary.serviceCharge)}</span></div>` : ""}
                 <div class="total-row pt-4"><span>Grand Total</span><span>${this.utils.formatMoney(globalSummary.grandTotal)}</span></div>
             </div>
@@ -495,10 +747,10 @@ const App = {
 							)
 							.join("")}
                         ${
-							this.state.serviceChargeRate > 0
+							b.serviceCharge > 0
 								? `
                         <div class="result-item mt-4 text-sm border-t pt-3">
-                            <span>Service Charge</span>
+                            <span>Service Charge (inc. Tax)</span>
                             <span class="bold">${this.utils.formatMoney(b.serviceCharge)}</span>
                         </div>`
 								: ""
@@ -565,19 +817,34 @@ const App = {
 			doc.text("MASTER BILL BREAKDOWN", 14, startY);
 			startY += 6;
 
-			const masterTableData = this.state.items.map((i) => [
-				i.name,
-				i.qty.toString(),
-				`Rs. ${i.unitPrice.toFixed(2)}`,
-				`${(i.tax * 100).toFixed(1).replace(/\.0$/, "")}%`,
-				`Rs. ${i.totalWithTax.toFixed(2)}`,
-			]);
+			const scTaxPreset = this.state.taxPresets.find(
+				(t) => t.id === this.state.scTaxPresetId,
+			);
+
+			const masterTableData = this.state.items.map((i) => {
+				const itemTaxAmount = i.totalBase * i.taxRate;
+				const itemSC = i.applySC
+					? i.totalBase * this.state.serviceChargeRate
+					: 0;
+				const itemSCTaxAmount =
+					scTaxPreset && itemSC > 0
+						? itemSC * (scTaxPreset.rate / 100)
+						: 0;
+				const finalTotal =
+					i.totalBase + itemTaxAmount + itemSC + itemSCTaxAmount;
+
+				return [
+					i.name,
+					i.qty.toString(),
+					`Rs. ${i.unitPrice.toFixed(2)}`,
+					`${(i.taxRate * 100).toFixed(1).replace(/\.0$/, "")}% ${i.applySC ? "+ SC" : ""}`,
+					`Rs. ${finalTotal.toFixed(2)}`,
+				];
+			});
 
 			doc.autoTable({
 				startY: startY,
-				head: [
-					["Item", "Qty", "Unit Price", "Tax", "Total (inc. Tax)"],
-				],
+				head: [["Item", "Qty", "Unit Price", "Tax & Fees", "Total"]],
 				body: masterTableData,
 				theme: "grid",
 				headStyles: {
@@ -605,11 +872,17 @@ const App = {
 				["Base Subtotal:", `Rs. ${globalSummary.subTotal.toFixed(2)}`],
 			];
 
-			if (globalSummary.totalTax > 0)
-				summaryData.push([
-					"Total Tax:",
-					`Rs. ${globalSummary.totalTax.toFixed(2)}`,
-				]);
+			for (const [taxName, amount] of Object.entries(
+				globalSummary.taxBreakdown,
+			)) {
+				if (amount > 0) {
+					summaryData.push([
+						`${taxName}:`,
+						`Rs. ${amount.toFixed(2)}`,
+					]);
+				}
+			}
+
 			if (globalSummary.serviceCharge > 0)
 				summaryData.push([
 					"Total Service Charge:",
@@ -652,8 +925,7 @@ const App = {
 			doc.text("INDIVIDUAL SETTLEMENTS", 14, startY);
 			startY += 8;
 
-			const { individualBreakdowns, scRate } =
-				this.state.calculationResult;
+			const { individualBreakdowns } = this.state.calculationResult;
 
 			Object.keys(individualBreakdowns).forEach((person) => {
 				const b = individualBreakdowns[person];
@@ -676,10 +948,10 @@ const App = {
 					`Rs. ${i.cost.toFixed(2)}`,
 				]);
 
-				if (this.state.serviceChargeRate > 0) {
+				if (b.serviceCharge > 0) {
 					tableData.push([
 						{
-							content: "Service Charge Proportion",
+							content: "Service Charge (inc. Tax)",
 							styles: { textColor: mutedText },
 						},
 						"-",
@@ -749,7 +1021,7 @@ const App = {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-	App.render();
+	App.init();
 
 	if ("serviceWorker" in navigator) {
 		window.addEventListener("load", () => {
