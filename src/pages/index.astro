@@ -1,0 +1,39 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SettlementEngine from '../components/SettlementEngine.tsx';
+---
+
+<Layout title="Ekwly">
+  <div class="min-h-screen w-full flex justify-center p-4 md:py-12 md:px-6">
+    <main class="w-full max-w-[1050px] flex flex-col gap-6">
+      <!-- Header -->
+      <header class="rounded-2xl p-6 md:p-8 bg-surface border border-border shadow-stripe flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <img src="/icon.svg" width="44" height="44" alt="Ekwly Logo" class="rounded-xl shadow-sm" />
+          <div>
+            <h1 class="text-xl md:text-2xl font-semibold tracking-tight text-main">Ekwly</h1>
+            <p class="text-sm text-muted">Itemised bill calculator and settlement engine.</p>
+          </div>
+        </div>
+
+        <button type="button" onclick="window.toggleTheme()" class="flex items-center gap-2 px-4 py-2 bg-subtle hover:bg-border border border-border rounded-lg text-sm font-medium transition-colors text-main shadow-sm" aria-label="Toggle Theme">
+          <svg id="theme-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2"></path>
+            <path d="M12 20v2"></path>
+            <path d="m4.93 4.93 1.41 1.41"></path>
+            <path d="m17.66 17.66 1.41 1.41"></path>
+            <path d="M2 12h2"></path>
+            <path d="M20 12h2"></path>
+            <path d="m6.34 17.66-1.41 1.41"></path>
+            <path d="m19.07 4.93-1.41 1.41"></path>
+          </svg>
+          <span class="hidden sm:inline">Theme</span>
+        </button>
+      </header>
+
+      <SettlementEngine client:load />
+      
+    </main>
+  </div>
+</Layout>
