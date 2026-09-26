@@ -1,15 +1,44 @@
+/* src/styles/base.css */
+
 * {
 	box-sizing: border-box;
 	font-family: "Inter", sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+
+	/* Disable the blue tap highlight on mobile */
+	-webkit-tap-highlight-color: transparent;
 }
 
+html,
 body {
 	background-color: var(--bg-page);
 	color: var(--text-main);
 	margin: 0;
 	line-height: 1.5;
+	width: 100%;
+	height: 100%;
+
+	/* Prevent the elastic "bounce" scrolling on iOS/Android */
+	overscroll-behavior-y: none;
+}
+
+/* Prevent accidental text selection on UI elements */
+body {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+/* Re-enable text selection ONLY where it makes sense */
+input,
+select,
+p,
+h1,
+h2,
+h3,
+span {
+	-webkit-user-select: auto;
+	user-select: auto;
 }
 
 input,
@@ -22,7 +51,6 @@ select {
 	border-radius: var(--radius-md);
 	color: var(--text-main);
 	font-size: 0.95rem;
-	transition: all 0.2s ease;
 	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 	appearance: none;
 }
@@ -45,7 +73,8 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 button {
-	transition: all 0.2s ease;
+	/* Optimize touch interactions */
+	touch-action: manipulation;
 }
 
 /* Smooth Dark Mode Transitions */
@@ -61,4 +90,14 @@ body,
 		border-color 0.3s ease,
 		color 0.3s ease,
 		box-shadow 0.3s ease !important;
+}
+/* Hide scrollbars globally but allow scrolling */
+.no-scrollbar::-webkit-scrollbar {
+	display: none;
+}
+.no-scrollbar,
+body,
+html {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
 }

@@ -25,6 +25,9 @@ export interface IndividualBreakdown {
 
 export interface GlobalSummary {
 	totalQty: number;
+	rawSubTotal: number;
+	discountAmount: number;
+	discountMode: "pre-tax" | "post-tax";
 	subTotal: number;
 	taxBreakdown: Record<string, number>;
 	serviceCharge: number;

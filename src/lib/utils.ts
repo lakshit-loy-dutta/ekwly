@@ -63,24 +63,47 @@ export const showToast = (
 	message: string,
 	type: "default" | "error" | "success" = "default",
 ) => {
-	const container = document.getElementById("toast-container");
-	if (!container) return alert(message);
+	if (typeof document === "undefined") return;
+
+	let container = document.getElementById("toast-container");
+	if (!container) {
+		container = document.createElement("div");
+		container.id = "toast-container";
+		container.style.cssText =
+			"position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; z-index: 99999; width: 90%; max-width: 400px; pointer-events: none;";
+		document.body.appendChild(container);
+	}
 
 	const toast = document.createElement("div");
-	toast.className = `toast ${type}`;
+	const bgColor =
+		type === "error"
+			? "#DF1B41"
+			: type === "success"
+				? "#00D924"
+				: "#141A28";
+
+	toast.style.cssText = `background: ${bgColor}; color: #ffffff; padding: 14px 20px; border-radius: 12px; font-size: 0.95rem; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 12px; transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform: translateY(20px); opacity: 0; pointer-events: auto; border: 1px solid rgba(255,255,255,0.1);`;
 
 	const icon =
 		type === "error"
-			? `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+			? `<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
 			: type === "success"
-				? `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
-				: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+				? `<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
+				: `<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
 
-	toast.innerHTML = `${icon} <span>${message.replace(/[&<>'"]/g, (tag) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[tag as string] || tag)}</span>`;
+	toast.innerHTML = `${icon} <span style="flex-1">${message.replace(/[&<>'"]/g, (tag) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[tag as string] || tag)}</span>`;
 	container.appendChild(toast);
 
+	requestAnimationFrame(() => {
+		requestAnimationFrame(() => {
+			toast.style.transform = "translateY(0)";
+			toast.style.opacity = "1";
+		});
+	});
+
 	setTimeout(() => {
-		toast.classList.add("fade-out");
+		toast.style.opacity = "0";
+		toast.style.transform = "translateY(10px)";
 		setTimeout(() => toast.remove(), 300);
-	}, 3000);
+	}, 3500);
 };

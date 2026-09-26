@@ -1,39 +1,50 @@
 ---
-import Layout from '../layouts/Layout.astro';
-import SettlementEngine from '../components/SettlementEngine.tsx';
+import '../styles/global.css';
+import { ClientRouter } from 'astro:transitions';
+import AppRouter from '../components/AppRouter';
 ---
 
-<Layout title="Ekwly">
-  <div class="min-h-screen w-full flex justify-center p-4 md:py-12 md:px-6">
-    <main class="w-full max-w-[1050px] flex flex-col gap-6">
-      <!-- Header -->
-      <header class="rounded-2xl p-6 md:p-8 bg-surface border border-border shadow-stripe flex items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
-          <img src="/icon.svg" width="44" height="44" alt="Ekwly Logo" class="rounded-xl shadow-sm" />
-          <div>
-            <h1 class="text-xl md:text-2xl font-semibold tracking-tight text-main">Ekwly</h1>
-            <p class="text-sm text-muted">Itemised bill calculator and settlement engine.</p>
-          </div>
-        </div>
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Ekwly</title>
 
-        <button type="button" onclick="window.toggleTheme()" class="flex items-center gap-2 px-4 py-2 bg-subtle hover:bg-border border border-border rounded-lg text-sm font-medium transition-colors text-main shadow-sm" aria-label="Toggle Theme">
-          <svg id="theme-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="4"></circle>
-            <path d="M12 2v2"></path>
-            <path d="M12 20v2"></path>
-            <path d="m4.93 4.93 1.41 1.41"></path>
-            <path d="m17.66 17.66 1.41 1.41"></path>
-            <path d="M2 12h2"></path>
-            <path d="M20 12h2"></path>
-            <path d="m6.34 17.66-1.41 1.41"></path>
-            <path d="m19.07 4.93-1.41 1.41"></path>
-          </svg>
-          <span class="hidden sm:inline">Theme</span>
-        </button>
-      </header>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ekwly" />
 
-      <SettlementEngine client:load />
-      
-    </main>
-  </div>
-</Layout>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    
+    <ClientRouter />
+
+    <script is:inline>
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', initialTheme);
+
+      window.toggleTheme = function() {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+      };
+    </script>
+  </head>
+  <body class="bg-page text-main antialiased selection:bg-primary-light selection:text-primary">
+    <!-- Render the app root strictly as a client-side React tree -->
+    <AppRouter client:only="react" />
+  </body>
+</html>
