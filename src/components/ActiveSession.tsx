@@ -415,7 +415,7 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
             <div className="w-10"></div>
           )}
           <h1 className="text-[1.1rem] font-semibold text-main tracking-tight">
-            {currentStep === 1 && 'Session Rules'}
+            {currentStep === 1 && 'Taxes & Extra Charges'}
             {currentStep === 2 && 'Receipt Items'}
             {currentStep === 3 && 'Members'}
             {currentStep === 4 && 'Claims'}
