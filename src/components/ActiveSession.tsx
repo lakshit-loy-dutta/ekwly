@@ -39,10 +39,11 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
 
   // --- 2. HOST INITIALIZATION & GUEST ROUTING ---
   useEffect(() => {
-    if (!sessionId && isHost) {
+    if (isHost) {
+      // Upsert makes this safe to fire even on page reloads
       actions.createSessionInDB?.(currentSessionId);
     }
-  }, []);
+  }, [isHost, currentSessionId, actions]);
 
   useEffect(() => {
     if (!isHost && currentStep === 1) {
