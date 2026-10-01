@@ -60,7 +60,7 @@ export default function AppRouter() {
       <div className="hidden md:flex w-full h-16 bg-surface border-b border-border items-center justify-between px-8 z-40 sticky top-0">
         <div className="flex items-center gap-3">
           <img
-            src="/icon.svg"
+            src="./icon.svg"
             width="32"
             height="32"
             alt="Ekwly Logo"

@@ -51,7 +51,7 @@ export default function Home({ onStartNew, onJoinSession }: Props) {
     <div className="w-full flex flex-col flex-1 px-6">
       <div className="flex flex-col items-center justify-center flex-1 py-12">
         <img
-          src="/icon.svg"
+          src="./icon.svg"
           width="80"
           height="80"
           alt="Ekwly Logo"
