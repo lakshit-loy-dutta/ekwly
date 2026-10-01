@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import QRCode from 'react-qr-code';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, QrCode, Moon } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import type {
   TaxPreset,
   BillItem,
@@ -13,7 +12,6 @@ import { utils, showToast } from '../lib/utils';
 import { exportToPDF } from '../lib/pdf';
 import { useSession } from '../lib/useSession';
 
-import BottomSheet from './ui/BottomSheet';
 import SessionRules from './session/SessionRules';
 import ReceiptEditor from './session/ReceiptEditor';
 import MembersList from './session/MembersList';
@@ -24,12 +22,18 @@ import QuickSplit from './session/QuickSplit';
 interface Props {
   sessionId?: string | null;
   isHost: boolean;
+  currentStep: number;
+  direction: number;
+  navigate: (step: number) => void;
 }
 
-export default function ActiveSession({ sessionId, isHost }: Props) {
-  const [currentStep, setCurrentStep] = useState<number>(1);
-  const [direction, setDirection] = useState<number>(1);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+export default function ActiveSession({
+  sessionId,
+  isHost,
+  currentStep,
+  direction,
+  navigate,
+}: Props) {
   const [currentSessionId] = useState<string>(sessionId || utils.generateId());
 
   // --- 1. MULTIPLAYER SUPABASE HOOK ---
@@ -37,19 +41,12 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
     sessionId ? currentSessionId : null
   );
 
-  // --- 2. HOST INITIALIZATION & GUEST ROUTING ---
+  // --- 2. HOST INITIALIZATION ---
   useEffect(() => {
     if (isHost) {
-      // Upsert makes this safe to fire even on page reloads
       actions.createSessionInDB?.(currentSessionId);
     }
   }, [isHost, currentSessionId, actions]);
-
-  useEffect(() => {
-    if (!isHost && currentStep === 1) {
-      setCurrentStep(3); // Auto-route guests to Members
-    }
-  }, [isHost]);
 
   // --- 3. TRANSFORM DB CLAIMS TO UI FORMAT ---
   const formattedClaims = useMemo(() => {
@@ -102,19 +99,6 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
       }
     }
   }, [items, qsItemId]);
-
-  // --- NAVIGATION & UI ACTIONS ---
-  const navigate = (newStep: number) => {
-    setDirection(newStep > currentStep ? 1 : -1);
-    setCurrentStep(newStep);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const toggleNativeTheme = () => {
-    if (typeof window !== 'undefined' && (window as any).toggleTheme) {
-      (window as any).toggleTheme();
-    }
-  };
 
   const handleToggleSc = (checked: boolean) => {
     setIsScApplicable(checked);
@@ -234,10 +218,8 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
 
     members.forEach((member) => {
       if (qsSelectedMembers.includes(member.id)) {
-        // Assign fraction to selected members
         actions.updateClaimInDB(member.id, item.id, fractionString);
       } else {
-        // Clear claims for anyone NOT selected in the quick split
         if (formattedClaims[member.id]?.[item.id]) {
           actions.updateClaimInDB(member.id, item.id, '');
         }
@@ -402,42 +384,6 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
 
   return (
     <div className="flex flex-col h-full relative bg-page">
-      <div className="flex-none sticky top-0 z-30 flex items-center justify-between px-4 h-14 bg-surface border-b border-border shadow-sm">
-        <div className="flex items-center gap-1">
-          {currentStep > 1 && (isHost || currentStep > 3) ? (
-            <button
-              onClick={() => navigate(currentStep - 1)}
-              className="p-2 -ml-2 rounded-full text-primary active:bg-subtle transition-colors"
-            >
-              <ChevronLeft size={26} strokeWidth={2.5} />
-            </button>
-          ) : (
-            <div className="w-10"></div>
-          )}
-          <h1 className="text-[1.1rem] font-semibold text-main tracking-tight">
-            {currentStep === 1 && 'Taxes & Extra Charges'}
-            {currentStep === 2 && 'Receipt Items'}
-            {currentStep === 3 && 'Members'}
-            {currentStep === 4 && 'Claims'}
-            {currentStep === 5 && 'Bill Summary'}
-          </h1>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={toggleNativeTheme}
-            className="p-2 rounded-full text-muted active:bg-subtle transition-colors"
-          >
-            <Moon size={22} />
-          </button>
-          <button
-            onClick={() => setIsShareModalOpen(true)}
-            className="p-2 -mr-1 rounded-full text-primary active:bg-subtle transition-colors"
-          >
-            <QrCode size={22} />
-          </button>
-        </div>
-      </div>
-
       <div className="flex-1 overflow-x-hidden overflow-y-auto pb-24 relative no-scrollbar">
         <AnimatePresence custom={direction} mode="wait">
           {currentStep === 1 && (
@@ -629,25 +575,6 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
           )}
         </div>
       )}
-
-      <BottomSheet
-        isOpen={isShareModalOpen}
-        onClose={() => setIsShareModalOpen(false)}
-        title="Invite to Session"
-      >
-        <div className="flex flex-col items-center">
-          <p className="text-sm text-muted text-center mb-8">
-            Scan this code from the Ekwly app home screen to join session{' '}
-            <strong className="text-main">{currentSessionId}</strong>.
-          </p>
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-border mb-4">
-            <QRCode
-              value={`${typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}?s=${currentSessionId}`}
-              size={200}
-            />
-          </div>
-        </div>
-      </BottomSheet>
     </div>
   );
 }

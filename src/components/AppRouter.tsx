@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import QRCode from 'react-qr-code';
 import Home from './Home';
 import ActiveSession from './ActiveSession';
 import Auth from './Auth';
+import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
-import { ChevronLeft, User, LogOut, Moon } from 'lucide-react';
+import { ChevronLeft, User, LogOut, Moon, QrCode } from 'lucide-react';
 
 export default function AppRouter() {
   const [currentView, setCurrentView] = useState<'auth' | 'home' | 'session'>('auth');
@@ -12,6 +14,11 @@ export default function AppRouter() {
   const [isHost, setIsHost] = useState<boolean>(false);
   const [user, setUser] = useState<any>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  // Lifted Session State
+  const [currentStep, setCurrentStep] = useState<number>(1);
+  const [direction, setDirection] = useState<number>(1);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -36,7 +43,9 @@ export default function AppRouter() {
       if (sId) {
         setActiveSessionId(sId);
         const hostCheck = localStorage.getItem(`ekwly_host_${sId}`);
-        setIsHost(hostCheck === 'true');
+        const host = hostCheck === 'true';
+        setIsHost(host);
+        setCurrentStep(host ? 1 : 3); // Auto-route guests to Members
         setCurrentView('session');
       } else {
         setCurrentView('home');
@@ -50,16 +59,25 @@ export default function AppRouter() {
     window.history.pushState({}, '', `?s=${newSessionId}`);
     setActiveSessionId(newSessionId);
     setIsHost(true);
+    setCurrentStep(1);
     setCurrentView('session');
   };
 
   const handleJoinSession = (sessionId: string) => {
     showToast(`Joining session: ${sessionId}`, 'success');
     const hostCheck = localStorage.getItem(`ekwly_host_${sessionId}`);
-    setIsHost(hostCheck === 'true');
+    const host = hostCheck === 'true';
+    setIsHost(host);
     window.history.pushState({}, '', `?s=${sessionId}`);
     setActiveSessionId(sessionId);
+    setCurrentStep(host ? 1 : 3);
     setCurrentView('session');
+  };
+
+  const navigateStep = (newStep: number) => {
+    setDirection(newStep > currentStep ? 1 : -1);
+    setCurrentStep(newStep);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleLeaveSession = () => {
@@ -84,33 +102,55 @@ export default function AppRouter() {
 
   return (
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
-      {/* UNIVERSAL MOBILE-FIRST HEADER */}
+      {/* UNIVERSAL HEADER */}
       {currentView !== 'auth' && (
         <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
-          <div className="flex items-center gap-3">
-            {currentView === 'session' ? (
+          {/* Dynamic Left Content */}
+          {currentView === 'session' ? (
+            <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
               <button
-                onClick={handleLeaveSession}
-                className="p-2 -ml-2 hover:bg-subtle rounded-full transition-colors flex items-center text-primary font-semibold"
+                onClick={() => {
+                  if (currentStep > 1 && (isHost || currentStep > 3)) {
+                    navigateStep(currentStep - 1);
+                  } else {
+                    handleLeaveSession();
+                  }
+                }}
+                className="p-2 -ml-2 hover:bg-subtle rounded-full transition-colors flex-shrink-0 text-primary"
               >
                 <ChevronLeft size={24} />
-                <span className="hidden sm:inline">Back</span>
               </button>
-            ) : (
-              <div className="flex items-center gap-3">
-                <img
-                  src="/ekwly/icon.svg"
-                  width="32"
-                  height="32"
-                  alt="Ekwly Logo"
-                  className="rounded-lg shadow-sm"
-                />
-                <h1 className="font-bold text-xl text-main tracking-tight">Ekwly</h1>
-              </div>
-            )}
-          </div>
+              <h1 className="text-[1.05rem] sm:text-[1.1rem] font-semibold text-main tracking-tight truncate">
+                {currentStep === 1 && 'Taxes & Extra Charges'}
+                {currentStep === 2 && 'Receipt Items'}
+                {currentStep === 3 && 'Members'}
+                {currentStep === 4 && 'Claims'}
+                {currentStep === 5 && 'Bill Summary'}
+              </h1>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <img
+                src="/ekwly/icon.svg"
+                width="32"
+                height="32"
+                alt="Ekwly Logo"
+                className="rounded-lg shadow-sm"
+              />
+              <h1 className="font-bold text-xl text-main tracking-tight">Ekwly</h1>
+            </div>
+          )}
 
-          <div className="flex items-center gap-2">
+          {/* Dynamic Right Actions */}
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+            {currentView === 'session' && (
+              <button
+                onClick={() => setIsShareModalOpen(true)}
+                className="p-2 rounded-full text-primary hover:bg-subtle transition-colors"
+              >
+                <QrCode size={20} />
+              </button>
+            )}
             <button
               onClick={toggleNativeTheme}
               className="p-2 hover:bg-subtle rounded-full text-muted transition-colors"
@@ -118,11 +158,11 @@ export default function AppRouter() {
               <Moon size={20} />
             </button>
 
-            {/* AVATAR & PROFILE MENU */}
+            {/* AVATAR MENU */}
             <div className="relative">
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
-                className="w-9 h-9 rounded-full bg-primary-light border-2 border-primary text-primary flex items-center justify-center font-bold overflow-hidden"
+                className="w-9 h-9 rounded-full bg-primary-light border-2 border-primary text-primary flex items-center justify-center font-bold overflow-hidden ml-1"
               >
                 {user?.user_metadata?.avatar_url ? (
                   <img
@@ -158,19 +198,46 @@ export default function AppRouter() {
         </div>
       )}
 
-      {/* MAIN CONTENT AREA */}
+      {/* MAIN CONTENT */}
       <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-hidden no-scrollbar">
         {currentView === 'auth' && <Auth onContinueAsGuest={resolveInitialRoute} />}
         {currentView === 'home' && (
           <Home onStartNew={handleStartNew} onJoinSession={handleJoinSession} />
         )}
-        {currentView === 'session' && <ActiveSession sessionId={activeSessionId} isHost={isHost} />}
+        {currentView === 'session' && (
+          <ActiveSession
+            sessionId={activeSessionId}
+            isHost={isHost}
+            currentStep={currentStep}
+            direction={direction}
+            navigate={navigateStep}
+          />
+        )}
       </div>
 
-      {/* Profile Menu Backdrop to close when clicking outside */}
       {isProfileOpen && (
         <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
       )}
+
+      {/* LIFTED QR CODE MODAL */}
+      <BottomSheet
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        title="Invite to Session"
+      >
+        <div className="flex flex-col items-center">
+          <p className="text-sm text-muted text-center mb-8">
+            Scan this code from the Ekwly app home screen to join session{' '}
+            <strong className="text-main">{activeSessionId}</strong>.
+          </p>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-border mb-4">
+            <QRCode
+              value={`${typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}?s=${activeSessionId}`}
+              size={200}
+            />
+          </div>
+        </div>
+      </BottomSheet>
     </div>
   );
 }

@@ -1,43 +1,63 @@
-# Astro Starter Kit: Minimal
+# Ekwly
 
-```sh
-pnpm create astro@latest -- --template minimal
+**Real-time collaborative bill calculator & settlement engine.**
+
+Ekwly is an offline-capable, mobile-first Progressive Web Application (PWA) designed to eliminate the friction of splitting complex bills at restaurants. It natively handles uneven tax distributions (like Alcohol VAT vs. Food GST), global service charges, proportional discounts, and fractional consumption (e.g., sharing 1/3 of a pizza) across a synchronized real-time multiplayer table.
+
+## Features
+
+- **Real-Time Multiplayer:** Powered by Supabase WebSockets, multiple people can scan a QR code, join a session, and actively edit/claim items simultaneously with instant UI updates.
+- **Identity & Ledger (Phase 3):** Seamless anonymous onboarding with progressive enhancement to full Google OAuth/Magic Link accounts, paving the way for persistent debt tracking.
+- **Complex Math Engine:** Effortlessly splits disparate tax rates (CGST/SGST), proportional percentage discounts (pre/post-tax), and global service charges across only the people who consumed the items.
+- **PWA & Offline Resilience:** Fully installable as a standalone app via Workbox Service Workers, complete with `manifest.webmanifest`, splash screens, and edge-to-edge iOS/Android native UI styling.
+- **Native Camera Integrations:** Uses Capacitor MLKit for high-performance, native QR barcode scanning directly within the web view.
+- **PDF Export Engine:** Generates highly detailed, formatted PDF settlement receipts directly in the browser using `jsPDF`.
+
+## Tech Stack
+
+- **Framework:** [Astro 5](https://astro.build/) & [React 19](https://react.dev/)
+- **Backend/DB:** [Supabase](https://supabase.com/) (PostgreSQL + Realtime + Auth)
+- **Styling & UI:** [Tailwind CSS v4](https://tailwindcss.com/) & [Framer Motion](https://www.framer.com/motion/)
+- **Native Wrap:** [Capacitor 6](https://capacitorjs.com/)
+- **Offline Cache:** `@vite-pwa/astro` (Workbox)
+
+## Getting Started
+
+### 1. Installation
+
+Clone the repository and install the dependencies using `pnpm`:
+
+```bash
+git clone [https://github.com/lakshit-loy-dutta/ekwly.git](https://github.com/lakshit-loy-dutta/ekwly.git)
+cd ekwly
+pnpm install
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+### 2. Environment Variables
 
-## 🚀 Project Structure
+Create a `.env` file in the root directory and add your Supabase credentials:
 
-Inside of your Astro project, you'll see the following folders and files:
-
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+```env
+PUBLIC_SUPABASE_URL=[https://your-project-id.supabase.co](https://your-project-id.supabase.co)
+PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+### 3. Local Development
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+Start the Astro development server.
+Note: Because the app is configured for GitHub Pages subpath deployment (/ekwly/), ensure you access it via the correct URL root.
 
-Any static assets, like images, can be placed in the `public/` directory.
+```bash
+pnpm run dev
+# Open http://localhost:4321/ekwly/
+```
 
-## 🧞 Commands
+### 4. Build for Production
 
-All commands are run from the root of the project, from a terminal:
+To generate the static HTML and Service Worker for deployment:
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
-| `pnpm build`           | Build your production site to `./dist/`          |
-| `pnpm preview`         | Preview your build locally, before deploying     |
-| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `pnpm astro -- --help` | Get help using the Astro CLI                     |
+```bash
+pnpm run build
+```
 
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+_~ Built by Lakshit Loy Dutta_
