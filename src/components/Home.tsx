@@ -1,12 +1,43 @@
+import { useState, useEffect } from 'react';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
+import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
+import { Plus, QrCode, Clock, ChevronRight, Receipt, Loader2 } from 'lucide-react';
 
 interface Props {
   onStartNew: () => void;
   onJoinSession: (sessionId: string) => void;
+  user: any;
 }
 
-export default function Home({ onStartNew, onJoinSession }: Props) {
+export default function Home({ onStartNew, onJoinSession, user }: Props) {
+  const [recentSessions, setRecentSessions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!user || user.is_anonymous) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch sessions hosted by this user
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('host_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (!error && data) {
+        setRecentSessions(data);
+      }
+      setIsLoading(false);
+    };
+
+    fetchHistory();
+  }, [user]);
+
   const startScan = async () => {
     try {
       const { camera } = await BarcodeScanner.requestPermissions();
@@ -16,7 +47,6 @@ export default function Home({ onStartNew, onJoinSession }: Props) {
       }
 
       const { barcodes } = await BarcodeScanner.scan();
-
       if (barcodes.length > 0) {
         const scannedUrl = barcodes[0].displayValue;
         let sessionId = null;
@@ -42,45 +72,94 @@ export default function Home({ onStartNew, onJoinSession }: Props) {
   };
 
   return (
-    <div className="w-full flex flex-col flex-1 px-6 justify-center items-center py-8">
-      {/* Centered Logo & Text */}
-      <div className="flex flex-col items-center justify-center mb-10 mt-auto">
-        <img
-          src="/ekwly/icon.svg"
-          width="80"
-          height="80"
-          alt="Ekwly Logo"
-          className="rounded-2xl shadow-sm mb-5"
-        />
-        <h2 className="text-3xl font-bold tracking-tight text-main mb-2">Ekwly</h2>
-        <p className="text-muted text-center text-sm max-w-xs">
-          Create a new bill session or scan a QR code to join your table.
-        </p>
+    <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page">
+      {/* Header Greeting */}
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-main tracking-tight">
+          {user?.user_metadata?.full_name
+            ? `Welcome, ${user.user_metadata.full_name.split(' ')[0]}`
+            : 'Dashboard'}
+        </h2>
+        <p className="text-muted text-sm mt-1">Manage your splits and settle debts.</p>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex flex-col gap-4 w-full max-w-sm mb-auto">
+      {user?.is_anonymous && (
+        <div className="bg-warning/10 border border-warning/20 rounded-xl p-4 mb-6 flex flex-col gap-1">
+          <h4 className="text-warning-700 font-bold text-sm">Guest Mode Active</h4>
+          <p className="text-warning-700/80 text-xs font-medium">
+            Sign in from the profile menu to permanently save your session history and ledger.
+          </p>
+        </div>
+      )}
+
+      {/* Quick Actions Grid */}
+      <div className="grid grid-cols-2 gap-3 mb-8">
         <button
-          type="button"
           onClick={onStartNew}
-          className="w-full h-16 bg-primary active:bg-primary-hover text-white rounded-2xl shadow-stripe flex flex-col items-center justify-center transition-colors"
+          className="bg-primary active:bg-primary-hover text-white rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-stripe transition-colors h-28"
         >
-          <span className="font-semibold text-lg">Create New Session</span>
-          <span className="text-primary-light text-xs font-medium uppercase tracking-wider">
-            Host
-          </span>
+          <Plus size={28} strokeWidth={2.5} />
+          <span className="font-semibold text-[0.95rem]">New Session</span>
         </button>
 
         <button
-          type="button"
           onClick={startScan}
-          className="w-full h-16 bg-surface active:bg-subtle text-main border-2 border-border rounded-2xl shadow-sm flex flex-col items-center justify-center transition-colors"
+          className="bg-surface active:bg-subtle text-main border border-border rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-28"
         >
-          <span className="font-semibold text-lg">Scan to Join</span>
-          <span className="text-muted text-xs font-medium uppercase tracking-wider">
-            Participant
-          </span>
+          <QrCode size={28} className="text-primary" strokeWidth={2.5} />
+          <span className="font-semibold text-[0.95rem]">Scan QR</span>
         </button>
+      </div>
+
+      {/* Recent Sessions */}
+      <div className="flex flex-col flex-1">
+        <div className="flex items-center gap-2 mb-4">
+          <Clock size={16} className="text-muted" />
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
+            Your Hosted Sessions
+          </h3>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center p-8">
+            <Loader2 className="animate-spin text-primary opacity-50" size={24} />
+          </div>
+        ) : recentSessions.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {recentSessions.map((session) => (
+              <button
+                key={session.id}
+                onClick={() => onJoinSession(session.id)}
+                className="bg-surface border border-border hover:border-primary/50 active:bg-subtle rounded-xl p-4 flex items-center justify-between text-left transition-all shadow-sm"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-primary-light text-primary flex items-center justify-center shrink-0">
+                    <Receipt size={18} />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold text-main text-[0.95rem] truncate">
+                      Session {session.id.toUpperCase()}
+                    </span>
+                    <span className="text-xs text-muted font-medium mt-0.5">
+                      {new Date(session.created_at).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight size={20} className="text-muted opacity-50" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center p-8 bg-surface border border-dashed border-border rounded-xl">
+            <Receipt size={32} className="text-muted opacity-30 mb-3" />
+            <p className="text-sm font-medium text-muted">No sessions yet.</p>
+          </div>
+        )}
       </div>
     </div>
   );

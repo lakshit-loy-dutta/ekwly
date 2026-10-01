@@ -116,7 +116,7 @@ export default function AppRouter() {
                     handleLeaveSession();
                   }
                 }}
-                className="p-2 -ml-2 hover:bg-subtle rounded-full transition-colors flex-shrink-0 text-primary"
+                className="p-2 -ml-2 hover:bg-subtle rounded-full transition-colors shrink-0 text-primary"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -142,7 +142,7 @@ export default function AppRouter() {
           )}
 
           {/* Dynamic Right Actions */}
-          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {currentView === 'session' && (
               <button
                 onClick={() => setIsShareModalOpen(true)}
@@ -202,7 +202,7 @@ export default function AppRouter() {
       <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-hidden no-scrollbar">
         {currentView === 'auth' && <Auth onContinueAsGuest={resolveInitialRoute} />}
         {currentView === 'home' && (
-          <Home onStartNew={handleStartNew} onJoinSession={handleJoinSession} />
+          <Home onStartNew={handleStartNew} onJoinSession={handleJoinSession} user={user} />
         )}
         {currentView === 'session' && (
           <ActiveSession

@@ -7,6 +7,7 @@ export interface DBMember {
   id: string;
   session_id: string;
   name: string;
+  user_id?: string | null;
 }
 export interface DBClaim {
   id: string;
@@ -184,9 +185,17 @@ export function useSession(sessionId: string | null) {
       return null;
     }
 
-    const newMember: DBMember = { id: utils.generateId(), session_id: sessionId, name: trimmed };
-    setMembers((prev) => [...prev, newMember]);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const newMember: DBMember = {
+      id: utils.generateId(),
+      session_id: sessionId,
+      name: trimmed,
+      user_id: user?.id || null,
+    };
 
+    setMembers((prev) => [...prev, newMember]);
     const { error } = await supabase.from('members').insert(newMember);
     if (error) {
       setMembers((prev) => prev.filter((m) => m.id !== newMember.id));
@@ -237,7 +246,14 @@ export function useSession(sessionId: string | null) {
   };
 
   const createSessionInDB = async (id: string) => {
-    const { error } = await supabase.from('sessions').upsert({ id, status: 'draft' });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const { error } = await supabase.from('sessions').upsert({
+      id,
+      status: 'draft',
+      host_id: user?.id || null,
+    });
     if (error) showToast('Cloud Sync Error: Could not initialize session.', 'error');
   };
 
