@@ -61,7 +61,7 @@
 }
 
 input:checked + .slider {
-  background-color: var(--primary);
+  background-color: var(--color-primary);
 }
 
 input:checked + .slider:before {
@@ -97,11 +97,11 @@ input:checked + .slider:before {
 }
 
 .toast.error {
-  background: var(--danger);
+  background: var(--color-danger);
   color: #fff;
 }
 .toast.success {
-  background: var(--success);
+  background: var(--color-success);
   color: #fff;
 }
 .toast.fade-out {
@@ -156,13 +156,13 @@ input:checked + .slider:before {
   gap: 6px;
 }
 .tracker-badge.green {
-  border-left: 4px solid var(--success);
+  border-left: 4px solid var(--color-success);
 }
 .tracker-badge.yellow {
   border-left: 4px solid var(--warning);
 }
 .tracker-badge.red {
-  border-left: 4px solid var(--danger);
+  border-left: 4px solid var(--color-danger);
 }
 .person-card {
   border: 1px solid var(--border);

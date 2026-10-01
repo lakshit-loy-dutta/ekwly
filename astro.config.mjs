@@ -37,6 +37,7 @@ export default defineConfig({
         background_color: '#0b0f19',
         display: 'standalone',
         start_url: '/ekwly/',
+        id: '/ekwly/',
         icons: [
           {
             src: 'icon-192.png',
