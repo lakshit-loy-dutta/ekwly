@@ -1,2 +1,6 @@
 allowBuilds:
   esbuild: true
+packages:
+  - '.'
+overrides:
+  'xcode>uuid': '^14.0.0'
