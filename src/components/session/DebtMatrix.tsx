@@ -184,6 +184,53 @@ export default function DebtMatrix(props: Props) {
         </div>
       </div>
 
+      {/* RESTORED INDIVIDUAL DEBT CARDS */}
+      <div className="px-4 py-3 mt-4">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Individual Debt</h3>
+      </div>
+
+      <div className="flex flex-col gap-6">
+        {Object.entries(props.calculationResult.individualBreakdowns).map(
+          ([person, b]) =>
+            b.totalOwed > 0 && (
+              <div key={person} className="bg-surface border-y border-border flex flex-col">
+                <div className="px-4 py-3 border-b border-border bg-page/50">
+                  <h3 className="font-bold text-main text-base">{person}</h3>
+                </div>
+                <div className="flex flex-col divide-y divide-border/50 px-4">
+                  {b.items.map((i, idx) => (
+                    <div key={idx} className="flex justify-between py-3 text-[0.95rem]">
+                      <span className="text-muted">
+                        {i.name}{' '}
+                        <span className="text-xs font-bold ml-1 bg-page px-1 rounded border border-border">
+                          x{i.qtyString}
+                        </span>
+                      </span>
+                      <span className="font-semibold text-main">{utils.formatMoney(i.cost)}</span>
+                    </div>
+                  ))}
+                  {b.serviceCharge > 0 && (
+                    <div className="flex justify-between py-3 text-[0.95rem]">
+                      <span className="text-muted">Service Charge</span>
+                      <span className="font-semibold text-main">
+                        {utils.formatMoney(b.serviceCharge)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="px-4 py-4 border-t border-border flex justify-between items-center bg-primary/5">
+                  <span className="font-bold text-primary text-[0.95rem] uppercase tracking-wider">
+                    Owes
+                  </span>
+                  <span className="font-bold text-primary text-xl">
+                    {utils.formatMoney(b.totalOwed)}
+                  </span>
+                </div>
+              </div>
+            )
+        )}
+      </div>
+
       {props.isHost && (
         <div className="px-4 mt-8">
           <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-4 shadow-sm">

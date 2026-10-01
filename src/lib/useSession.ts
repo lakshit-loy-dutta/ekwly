@@ -263,17 +263,15 @@ export function useSession(sessionId: string | null) {
   const addItemToDB = async (item: BillItem) => {
     if (!sessionId) return;
     setItems((prev) => [...prev, item]);
-    const { error } = await supabase
-      .from('items')
-      .insert({
-        id: item.id,
-        session_id: sessionId,
-        name: item.name,
-        qty: item.qty,
-        price: item.unitPrice,
-        apply_sc: item.applySC,
-        tax_preset_id: item.taxPresetId,
-      });
+    const { error } = await supabase.from('items').insert({
+      id: item.id,
+      session_id: sessionId,
+      name: item.name,
+      qty: item.qty,
+      price: item.unitPrice,
+      apply_sc: item.applySC,
+      tax_preset_id: item.taxPresetId,
+    });
     if (error) {
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       showToast('Network error: Failed to add item.', 'error');
@@ -329,6 +327,7 @@ export function useSession(sessionId: string | null) {
 
   const lockSessionInDB = async () => {
     if (!sessionId) return;
+    setSessionStatus('locked'); // <-- Optimistic UI update instantly changes the screen
     await supabase.from('sessions').update({ status: 'locked' }).eq('id', sessionId);
   };
 

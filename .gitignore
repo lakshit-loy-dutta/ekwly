@@ -32,4 +32,4 @@ logs/
 *.log
 
 # repomix
-repomix-output.xml
+repomix-output*.xml
