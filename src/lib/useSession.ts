@@ -215,14 +215,21 @@ export function useSession(sessionId: string | null) {
       value,
     };
 
+    const isEmpty = !value || value.trim() === '' || value === '0';
+
+    // Optimistic UI: Instantly remove if empty, otherwise insert/update
     setClaims((prev) => {
+      if (isEmpty) {
+        return prev.filter((c) => !(c.member_id === memberId && c.item_id === itemId));
+      }
       const exists = prev.some((c) => c.member_id === memberId && c.item_id === itemId);
       if (exists)
         return prev.map((c) => (c.member_id === memberId && c.item_id === itemId ? newClaim : c));
       return [...prev, newClaim];
     });
 
-    if (!value || value.trim() === '' || value === '0') {
+    // Background DB Sync
+    if (isEmpty) {
       await supabase.from('claims').delete().match({ member_id: memberId, item_id: itemId });
     } else {
       await supabase.from('claims').upsert(newClaim, { onConflict: 'item_id,member_id' });

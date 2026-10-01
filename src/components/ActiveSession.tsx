@@ -94,6 +94,15 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
   const [qsItemId, setQsItemId] = useState<string>('');
   const [qsSelectedMembers, setQsSelectedMembers] = useState<string[]>([]);
 
+  // --- AUTO-SELECT QUICK SPLIT ITEM ---
+  useEffect(() => {
+    if (items.length > 0) {
+      if (!qsItemId || !items.find((i) => i.id === qsItemId)) {
+        setQsItemId(items[0].id);
+      }
+    }
+  }, [items, qsItemId]);
+
   // --- NAVIGATION & UI ACTIONS ---
   const navigate = (newStep: number) => {
     setDirection(newStep > currentStep ? 1 : -1);
@@ -218,12 +227,21 @@ export default function ActiveSession({ sessionId, isHost }: Props) {
 
   const handleApplyQuickSplit = () => {
     const item = items.find((i) => i.id === qsItemId);
-    if (!item) return;
+    if (!item) return showToast('Please select an item first.', 'error');
     if (qsSelectedMembers.length === 0) return showToast('Select at least one member.', 'error');
 
     const fractionString = utils.getFractionString(item.qty, qsSelectedMembers.length);
-    qsSelectedMembers.forEach((memberId) => {
-      actions.updateClaimInDB(memberId, item.id, fractionString);
+
+    members.forEach((member) => {
+      if (qsSelectedMembers.includes(member.id)) {
+        // Assign fraction to selected members
+        actions.updateClaimInDB(member.id, item.id, fractionString);
+      } else {
+        // Clear claims for anyone NOT selected in the quick split
+        if (formattedClaims[member.id]?.[item.id]) {
+          actions.updateClaimInDB(member.id, item.id, '');
+        }
+      }
     });
 
     setQsSelectedMembers([]);
