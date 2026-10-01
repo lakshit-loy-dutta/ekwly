@@ -2,7 +2,7 @@ name: Deploy Ekwly to GitHub Pages
 
 on:
   push:
-    branches: ['feature/astro-migration']
+    branches: ['main']
   workflow_dispatch:
 
 permissions:
