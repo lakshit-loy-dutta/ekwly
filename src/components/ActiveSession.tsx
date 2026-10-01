@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, QrCode, Moon, Trash2 } from 'lucide-react';
 import type {
   TaxPreset,
   BillItem,
@@ -11,11 +11,13 @@ import type {
 import { utils, showToast } from '../lib/utils';
 import { exportToPDF } from '../lib/pdf';
 import { useSession } from '../lib/useSession';
+import { mathEngine } from '../lib/mathEngine';
 
 import SessionRules from './session/SessionRules';
 import ReceiptEditor from './session/ReceiptEditor';
 import MembersList from './session/MembersList';
 import ClaimManager from './session/ClaimManager';
+import Payments from './session/Payments';
 import DebtMatrix from './session/DebtMatrix';
 import QuickSplit from './session/QuickSplit';
 
@@ -26,6 +28,7 @@ interface Props {
   currentStep: number;
   direction: number;
   navigate: (step: number) => void;
+  onExit: () => void;
 }
 
 export default function ActiveSession({
@@ -35,22 +38,18 @@ export default function ActiveSession({
   currentStep,
   direction,
   navigate,
+  onExit,
 }: Props) {
   const [currentSessionId] = useState<string>(sessionId || utils.generateId());
 
-  // --- 1. MULTIPLAYER SUPABASE HOOK ---
   const { isLoading, sessionStatus, ledger, items, members, claims, actions } = useSession(
     sessionId ? currentSessionId : null
   );
 
-  // --- 2. HOST INITIALIZATION ---
   useEffect(() => {
-    if (isHost && pin) {
-      actions.createSessionInDB?.(currentSessionId, pin); // <-- NEW
-    }
+    if (isHost && pin) actions.createSessionInDB?.(currentSessionId, pin);
   }, [isHost, currentSessionId, pin, actions]);
 
-  // --- 3. TRANSFORM DB CLAIMS TO UI FORMAT ---
   const formattedClaims = useMemo(() => {
     const map: Record<string, Record<string, string>> = {};
     members.forEach((m) => {
@@ -63,7 +62,6 @@ export default function ActiveSession({
     return map;
   }, [claims, members]);
 
-  // --- 4. SESSION STATE ---
   const [serviceChargeRate, setServiceChargeRate] = useState<number>(0);
   const [isScApplicable, setIsScApplicable] = useState<boolean>(false);
   const [scTaxPresetId, setScTaxPresetId] = useState<string>('none');
@@ -78,8 +76,6 @@ export default function ActiveSession({
 
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [receiptTitle, setReceiptTitle] = useState<string>('');
-
-  // --- FORM STATES ---
   const [newTaxName, setNewTaxName] = useState<string>('');
   const [newTaxRate, setNewTaxRate] = useState<string>('');
   const [newTaxSplit, setNewTaxSplit] = useState<boolean>(true);
@@ -93,14 +89,17 @@ export default function ActiveSession({
   const [qsItemId, setQsItemId] = useState<string>('');
   const [qsSelectedMembers, setQsSelectedMembers] = useState<string[]>([]);
 
-  // --- AUTO-SELECT QUICK SPLIT ITEM ---
   useEffect(() => {
     if (items.length > 0) {
-      if (!qsItemId || !items.find((i) => i.id === qsItemId)) {
-        setQsItemId(items[0].id);
-      }
+      if (!qsItemId || !items.find((i) => i.id === qsItemId)) setQsItemId(items[0].id);
     }
   }, [items, qsItemId]);
+
+  const handleDeleteRoom = async () => {
+    if (!window.confirm('Are you sure you want to permanently delete this session?')) return;
+    await actions.deleteActiveSessionInDB?.();
+    onExit(); // FIX: Removed props. prefix
+  };
 
   const handleToggleSc = (checked: boolean) => {
     setIsScApplicable(checked);
@@ -110,7 +109,6 @@ export default function ActiveSession({
     }
   };
 
-  // --- TAX ACTIONS ---
   const handleAddTaxPreset = () => {
     const rate = parseFloat(newTaxRate);
     if (!newTaxName.trim()) return showToast('Preset name is required.', 'error');
@@ -122,7 +120,7 @@ export default function ActiveSession({
     setNewTaxName('');
     setNewTaxRate('');
     setNewTaxSplit(true);
-    showToast(`Added ${newTaxName.trim()} preset.`, 'success');
+    showToast(`Added preset.`, 'success');
   };
 
   const handleRemoveTaxPreset = (id: string) => {
@@ -131,17 +129,16 @@ export default function ActiveSession({
     if (scTaxPresetId === id) setScTaxPresetId('none');
   };
 
-  // --- ITEM ACTIONS (Cloud Synced) ---
   const handleSaveItem = () => {
     const priceParsed = parseFloat(newItemPrice);
     if (!newItemName.trim() || newItemQty <= 0 || isNaN(priceParsed) || priceParsed < 0)
-      return showToast('Please fill in all item fields correctly.', 'error');
+      return showToast('Fill all fields correctly.', 'error');
     const preset = taxPresets.find((t) => t.id === newItemTaxId);
     const taxRate = preset ? preset.rate / 100 : 0;
     const totalBase = newItemQty * priceParsed;
 
     if (editingItemId) {
-      const updatedItem = {
+      actions.updateItemInDB?.({
         id: editingItemId,
         name: newItemName.trim(),
         qty: newItemQty,
@@ -150,8 +147,7 @@ export default function ActiveSession({
         taxPresetId: newItemTaxId,
         applySC: newItemApplySC,
         totalBase,
-      };
-      actions.updateItemInDB?.(updatedItem);
+      });
       setEditingItemId(null);
     } else {
       const newItem = {
@@ -189,7 +185,6 @@ export default function ActiveSession({
     if (qsItemId === id) setQsItemId('');
   };
 
-  // --- MULTIPLAYER DB ACTIONS ---
   const handleAddMember = async () => {
     if (!newMemberName.trim()) return showToast('Name cannot be empty.', 'error');
     await actions.addMemberToDB(newMemberName);
@@ -199,10 +194,6 @@ export default function ActiveSession({
   const handleRemoveMember = (id: string) => {
     actions.removeMemberFromDB(id);
     setQsSelectedMembers(qsSelectedMembers.filter((mid) => mid !== id));
-  };
-
-  const handleUpdateClaim = (memberId: string, itemId: string, value: string) => {
-    actions.updateClaimInDB(memberId, itemId, value);
   };
 
   const toggleQsMember = (id: string) => {
@@ -217,151 +208,53 @@ export default function ActiveSession({
     if (qsSelectedMembers.length === 0) return showToast('Select at least one member.', 'error');
 
     const fractionString = utils.getFractionString(item.qty, qsSelectedMembers.length);
-
     members.forEach((member) => {
-      if (qsSelectedMembers.includes(member.id)) {
+      if (qsSelectedMembers.includes(member.id))
         actions.updateClaimInDB(member.id, item.id, fractionString);
-      } else {
-        if (formattedClaims[member.id]?.[item.id]) {
-          actions.updateClaimInDB(member.id, item.id, '');
-        }
-      }
+      else if (formattedClaims[member.id]?.[item.id])
+        actions.updateClaimInDB(member.id, item.id, '');
     });
-
     setQsSelectedMembers([]);
-    showToast(`Divided ${item.name} evenly.`, 'success');
+    showToast(`Divided evenly.`, 'success');
   };
 
-  // --- FINAL MATH & DEBT MATRIX ---
-  // --- FINAL MATH ENGINE EXTRACTED ---
-  const generateMath = () => {
-    const rawSubTotal = items.reduce((sum, item) => sum + item.totalBase, 0);
-    const parsedDiscount = parseFloat(discountValue) || 0;
-    let preTaxDiscount = 0;
-    let postTaxDiscount = 0;
-    if (discountType !== 'none' && discountMode === 'pre-tax') {
-      preTaxDiscount =
-        discountType === 'percentage' ? rawSubTotal * (parsedDiscount / 100) : parsedDiscount;
-      preTaxDiscount = Math.min(preTaxDiscount, rawSubTotal);
-    }
-    const preTaxMultiplier = rawSubTotal > 0 ? (rawSubTotal - preTaxDiscount) / rawSubTotal : 1;
-
-    let globalSummary: GlobalSummary = {
-      totalQty: 0,
-      rawSubTotal,
-      discountAmount: 0,
+  // --- SPLITWISE GREEDY ALGORITHM ---
+  // --- MATH ENGINE DELEGATION ---
+  const triggerMathCalculation = () => {
+    return mathEngine.generateSplit({
+      items,
+      members,
+      formattedClaims,
+      discountType,
       discountMode,
-      subTotal: 0,
-      taxBreakdown: {},
-      serviceCharge: 0,
-      grandTotal: 0,
-    };
-    const scTaxPreset = taxPresets.find((t) => t.id === scTaxPresetId);
-
-    const addTaxToBreakdown = (
-      preset: TaxPreset | undefined,
-      amount: number,
-      fallbackName: string
-    ) => {
-      if (amount <= 0) return;
-      if (preset) {
-        if (preset.split) {
-          const names = utils.getSplitNames(preset.name);
-          globalSummary.taxBreakdown[names.cgst] =
-            (globalSummary.taxBreakdown[names.cgst] || 0) + amount / 2;
-          globalSummary.taxBreakdown[names.sgst] =
-            (globalSummary.taxBreakdown[names.sgst] || 0) + amount / 2;
-        } else {
-          globalSummary.taxBreakdown[preset.name] =
-            (globalSummary.taxBreakdown[preset.name] || 0) + amount;
-        }
-      } else {
-        globalSummary.taxBreakdown[fallbackName] =
-          (globalSummary.taxBreakdown[fallbackName] || 0) + amount;
-      }
-    };
-
-    items.forEach((item) => {
-      const effectiveBase = item.totalBase * preTaxMultiplier;
-      const itemTaxAmount = effectiveBase * item.taxRate;
-      const itemSC = item.applySC ? effectiveBase * serviceChargeRate : 0;
-      const itemSCTaxAmount = scTaxPreset && itemSC > 0 ? itemSC * (scTaxPreset.rate / 100) : 0;
-      globalSummary.totalQty += item.qty;
-      globalSummary.subTotal += effectiveBase;
-      globalSummary.serviceCharge += itemSC;
-      addTaxToBreakdown(
-        taxPresets.find((t) => t.id === item.taxPresetId),
-        itemTaxAmount,
-        'Other Tax'
-      );
-      addTaxToBreakdown(scTaxPreset, itemSCTaxAmount, 'S.C. Tax');
+      discountValue,
+      taxPresets,
+      scTaxPresetId,
+      serviceChargeRate,
     });
+  };
 
-    let grossTotal =
-      globalSummary.subTotal +
-      globalSummary.serviceCharge +
-      Object.values(globalSummary.taxBreakdown).reduce((a, b) => a + b, 0);
+  const handleGenerateSettlement = () => {
+    const totalPaid = members.reduce((sum, m) => sum + (m.paid_amount || 0), 0);
+    const grandTotal = calculationResult!.globalSummary.grandTotal;
 
-    if (discountType !== 'none' && discountMode === 'post-tax') {
-      postTaxDiscount =
-        discountType === 'percentage' ? grossTotal * (parsedDiscount / 100) : parsedDiscount;
-      postTaxDiscount = Math.min(postTaxDiscount, grossTotal);
+    if (Math.abs(totalPaid - grandTotal) > 0.05) {
+      return showToast('Payments must equal the Grand Total.', 'error');
     }
 
-    globalSummary.discountAmount = discountMode === 'pre-tax' ? preTaxDiscount : postTaxDiscount;
-    globalSummary.grandTotal = grossTotal - postTaxDiscount;
-    const postTaxMultiplier = grossTotal > 0 ? (grossTotal - postTaxDiscount) / grossTotal : 1;
+    const transactions = mathEngine.generateTransactions(
+      members,
+      calculationResult!.individualBreakdowns
+    );
 
-    const individualBreakdowns: Record<string, IndividualBreakdown> = {};
-
-    members.forEach((member) => {
-      let subtotal = 0;
-      let totalScAmount = 0;
-      let consumedItems: { name: string; qtyString: string; cost: number }[] = [];
-      items.forEach((item) => {
-        const consumedQtyString = formattedClaims[member.id]?.[item.id] || '';
-        const consumedQty = utils.parseQty(consumedQtyString);
-        if (consumedQty > 0) {
-          const proportion = consumedQty / item.qty;
-          const effectiveBaseShare = proportion * item.totalBase * preTaxMultiplier;
-          const itemTaxShare = effectiveBaseShare * item.taxRate;
-          const scShare = item.applySC ? effectiveBaseShare * serviceChargeRate : 0;
-          const scTaxShare = scTaxPreset && scShare > 0 ? scShare * (scTaxPreset.rate / 100) : 0;
-          const finalCostShare = effectiveBaseShare + itemTaxShare;
-          const finalScBurden = scShare + scTaxShare;
-          subtotal += finalCostShare;
-          totalScAmount += finalScBurden;
-          consumedItems.push({
-            name: item.name,
-            qtyString: consumedQtyString || consumedQty.toString(),
-            cost: finalCostShare,
-          });
-        }
-      });
-      individualBreakdowns[member.name] = {
-        subtotal,
-        serviceCharge: totalScAmount,
-        totalOwed: (subtotal + totalScAmount) * postTaxMultiplier,
-        items: consumedItems,
-      };
-    });
-    return { individualBreakdowns, globalSummary };
+    if (isHost) actions.saveLedgerToDB?.(transactions);
+    navigate(6); // Move to Debt Matrix
   };
 
-  const handleCalculateDebtMatrix = () => {
-    if (items.length === 0 || members.length === 0)
-      return showToast('Need items and members to calculate.', 'error');
-    const result = generateMath();
-    setCalculationResult(result);
-    if (isHost) actions.saveLedgerToDB?.(result.individualBreakdowns);
-    navigate(5);
-  };
-
-  // Auto-route guests to the final step if they join a locked room
   useEffect(() => {
     if (sessionStatus === 'locked' && items.length > 0 && members.length > 0) {
-      if (!calculationResult) setCalculationResult(generateMath());
-      if (currentStep !== 5) navigate(5);
+      if (!calculationResult) setCalculationResult(triggerMathCalculation());
+      if (currentStep !== 6) navigate(6);
     }
   }, [sessionStatus, items, members]);
 
@@ -380,13 +273,12 @@ export default function ActiveSession({
     exit: (direction: number) => ({ x: direction < 0 ? '100%' : '-100%', opacity: 0 }),
   };
 
-  if (isLoading) {
+  if (isLoading)
     return (
-      <div className="flex h-screen items-center justify-center bg-page">
+      <div className="flex h-screen items-center justify-center">
         <div className="animate-pulse text-primary font-bold">Syncing Session...</div>
       </div>
     );
-  }
 
   return (
     <div className="flex flex-col h-full relative bg-page">
@@ -425,6 +317,7 @@ export default function ActiveSession({
                 setNewTaxRate={setNewTaxRate}
                 newTaxSplit={newTaxSplit}
                 setNewTaxSplit={setNewTaxSplit}
+                handleDeleteRoom={handleDeleteRoom}
               />
             </motion.div>
           )}
@@ -506,13 +399,33 @@ export default function ActiveSession({
                 items={items}
                 members={members}
                 claims={formattedClaims}
-                handleUpdateClaim={handleUpdateClaim}
+                handleUpdateClaim={actions.updateClaimInDB}
               />
             </motion.div>
           )}
           {currentStep === 5 && calculationResult && (
             <motion.div
               key="step5"
+              custom={direction}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            >
+              <Payments
+                isHost={isHost}
+                members={members}
+                grandTotal={calculationResult.globalSummary.grandTotal}
+                handleUpdatePayment={(id, val) =>
+                  actions.updateMemberPaymentInDB?.(id, parseFloat(val) || 0)
+                }
+              />
+            </motion.div>
+          )}
+          {currentStep === 6 && calculationResult && (
+            <motion.div
+              key="step6"
               custom={direction}
               variants={slideVariants}
               initial="enter"
@@ -528,6 +441,7 @@ export default function ActiveSession({
                 ledger={ledger}
                 isHost={isHost}
                 handleLockSession={() => actions.lockSessionInDB?.()}
+                handleUnlockSession={() => actions.unlockSessionInDB?.()}
                 handleToggleSettled={(id, current) =>
                   actions.toggleLedgerSettledInDB?.(id, current)
                 }
@@ -547,12 +461,12 @@ export default function ActiveSession({
         </AnimatePresence>
       </div>
 
-      {currentStep < 5 && (
+      {currentStep < 6 && (
         <div className="fixed bottom-0 w-full max-w-2xl mx-auto p-4 bg-surface/90 backdrop-blur-md border-t border-border z-30 pb-safe">
           {currentStep === 1 && (
             <button
               onClick={() => navigate(2)}
-              className="w-full h-12 bg-primary active:bg-primary-hover text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors text-base shadow-sm"
+              className="w-full h-12 bg-primary text-white font-semibold rounded-xl flex items-center justify-center gap-2"
             >
               Next: Add Items <ChevronRight size={20} />
             </button>
@@ -560,7 +474,7 @@ export default function ActiveSession({
           {currentStep === 2 && (
             <button
               onClick={() => navigate(3)}
-              className="w-full h-12 bg-primary active:bg-primary-hover text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors text-base shadow-sm"
+              className="w-full h-12 bg-primary text-white font-semibold rounded-xl flex items-center justify-center gap-2"
             >
               Next: Members <ChevronRight size={20} />
             </button>
@@ -568,7 +482,7 @@ export default function ActiveSession({
           {currentStep === 3 && (
             <button
               onClick={() => navigate(4)}
-              className="w-full h-12 bg-primary active:bg-primary-hover text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors text-base shadow-sm"
+              className="w-full h-12 bg-primary text-white font-semibold rounded-xl flex items-center justify-center gap-2"
             >
               Next: Claims <ChevronRight size={20} />
             </button>
@@ -577,14 +491,30 @@ export default function ActiveSession({
             <button
               onClick={
                 isSplitComplete
-                  ? handleCalculateDebtMatrix
+                  ? () => {
+                      setCalculationResult(triggerMathCalculation());
+                      navigate(5);
+                    }
                   : () => showToast('Finish splitting all items first.', 'error')
               }
-              className={`w-full h-12 text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors text-base shadow-sm ${isSplitComplete ? 'bg-primary active:bg-primary-hover' : 'bg-border text-muted cursor-not-allowed'}`}
+              className={`w-full h-12 text-white font-semibold rounded-xl flex items-center justify-center gap-2 ${isSplitComplete ? 'bg-primary' : 'bg-border text-muted cursor-not-allowed'}`}
             >
-              {isSplitComplete ? 'Calculate Final Split' : 'Incomplete Claims'}{' '}
+              {isSplitComplete ? 'Next: Enter Payments' : 'Incomplete Claims'}{' '}
               <ChevronRight size={20} />
             </button>
+          )}
+          {currentStep === 5 && isHost && (
+            <button
+              onClick={handleGenerateSettlement}
+              className="w-full h-12 bg-primary text-white font-semibold rounded-xl flex items-center justify-center gap-2 shadow-sm"
+            >
+              Calculate Settlement <ChevronRight size={20} />
+            </button>
+          )}
+          {currentStep === 5 && !isHost && (
+            <div className="w-full h-12 bg-subtle text-muted font-semibold rounded-xl flex items-center justify-center shadow-sm">
+              Waiting for Host to verify payments...
+            </div>
           )}
         </div>
       )}

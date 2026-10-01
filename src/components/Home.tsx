@@ -3,7 +3,16 @@ import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
-import { Plus, QrCode, Clock, ChevronRight, Receipt, Loader2, KeyRound } from 'lucide-react';
+import {
+  Plus,
+  QrCode,
+  Clock,
+  ChevronRight,
+  Receipt,
+  Loader2,
+  KeyRound,
+  Trash2,
+} from 'lucide-react';
 
 interface Props {
   onStartNew: () => void;
@@ -28,7 +37,6 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
         return;
       }
 
-      // 1. Fetch Session History
       const { data: sessionData } = await supabase
         .from('sessions')
         .select('*')
@@ -38,7 +46,6 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
 
       if (sessionData) setRecentSessions(sessionData);
 
-      // 2. Fetch Ledger Balances
       const { data: creditorData } = await supabase
         .from('ledger')
         .select('amount')
@@ -99,6 +106,19 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
     e.preventDefault();
     if (!manualSessionId.trim() || !manualPin.trim()) return showToast('Enter ID and PIN', 'error');
     onJoinSession(manualSessionId.trim().toLowerCase(), manualPin.trim());
+  };
+
+  const handleDeleteSession = async (e: React.MouseEvent, delSessionId: string) => {
+    e.stopPropagation(); // Prevents joining the room when clicking the trash can
+    if (!window.confirm('Permanently delete this session?')) return;
+
+    // Optimistic UI Removal
+    setRecentSessions((prev) => prev.filter((s) => s.id !== delSessionId));
+
+    // A single call to delete the session; the database cascades the rest
+    await supabase.from('sessions').delete().eq('id', delSessionId);
+
+    showToast('Session deleted', 'success');
   };
 
   return (
@@ -207,7 +227,16 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
                     </span>
                   </div>
                 </div>
-                <ChevronRight size={20} className="text-muted opacity-50" />
+
+                <div className="flex items-center gap-3">
+                  <div
+                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    className="p-2 text-muted hover:text-danger hover:bg-danger/10 rounded-full transition-colors"
+                  >
+                    <Trash2 size={18} />
+                  </div>
+                  <ChevronRight size={20} className="text-muted opacity-50" />
+                </div>
               </button>
             ))}
           </div>

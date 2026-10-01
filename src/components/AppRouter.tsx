@@ -256,6 +256,7 @@ export default function AppRouter() {
             currentStep={currentStep}
             direction={direction}
             navigate={navigateStep}
+            onExit={handleLeaveSession} // <-- ADD THIS
           />
         )}
       </div>

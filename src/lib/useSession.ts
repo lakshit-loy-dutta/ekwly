@@ -8,6 +8,7 @@ export interface DBMember {
   session_id: string;
   name: string;
   user_id?: string | null;
+  paid_amount: number;
 }
 export interface DBClaim {
   id: string;
@@ -52,7 +53,8 @@ export function useSession(sessionId: string | null) {
           }))
         );
       }
-      if (membersRes.data) setMembers(membersRes.data);
+      if (membersRes.data)
+        setMembers(membersRes.data.map((m) => ({ ...m, paid_amount: Number(m.paid_amount || 0) })));
       if (claimsRes.data) setClaims(claimsRes.data);
       if (sessionRes.data) setSessionStatus(sessionRes.data.status);
       if (ledgerRes.data) setLedger(ledgerRes.data);
@@ -67,7 +69,6 @@ export function useSession(sessionId: string | null) {
       setIsLoading(false);
       return;
     }
-
     fetchSessionData(false);
 
     const channel = supabase
@@ -75,9 +76,7 @@ export function useSession(sessionId: string | null) {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` },
-        (payload) => {
-          setSessionStatus(payload.new.status);
-        }
+        (payload) => setSessionStatus(payload.new.status)
       )
       .on(
         'postgres_changes',
@@ -96,22 +95,23 @@ export function useSession(sessionId: string | null) {
         (payload) => {
           if (payload.eventType === 'INSERT') {
             const newItem = payload.new as any;
-            setItems((prev) => {
-              if (prev.some((i) => i.id === newItem.id)) return prev;
-              return [
-                ...prev,
-                {
-                  id: newItem.id,
-                  name: newItem.name,
-                  qty: Number(newItem.qty),
-                  unitPrice: Number(newItem.price),
-                  applySC: newItem.apply_sc,
-                  taxPresetId: newItem.tax_preset_id || 'tx-1',
-                  taxRate: 0,
-                  totalBase: Number(newItem.qty) * Number(newItem.price),
-                },
-              ];
-            });
+            setItems((prev) =>
+              prev.some((i) => i.id === newItem.id)
+                ? prev
+                : [
+                    ...prev,
+                    {
+                      id: newItem.id,
+                      name: newItem.name,
+                      qty: Number(newItem.qty),
+                      unitPrice: Number(newItem.price),
+                      applySC: newItem.apply_sc,
+                      taxPresetId: newItem.tax_preset_id || 'tx-1',
+                      taxRate: 0,
+                      totalBase: Number(newItem.qty) * Number(newItem.price),
+                    },
+                  ]
+            );
           }
           if (payload.eventType === 'DELETE')
             setItems((prev) => prev.filter((i) => i.id !== payload.old.id));
@@ -141,7 +141,23 @@ export function useSession(sessionId: string | null) {
         (payload) => {
           if (payload.eventType === 'INSERT')
             setMembers((prev) =>
-              prev.some((m) => m.id === payload.new.id) ? prev : [...prev, payload.new as DBMember]
+              prev.some((m) => m.id === payload.new.id)
+                ? prev
+                : [
+                    ...prev,
+                    {
+                      ...(payload.new as DBMember),
+                      paid_amount: Number(payload.new.paid_amount || 0),
+                    },
+                  ]
+            );
+          if (payload.eventType === 'UPDATE')
+            setMembers((prev) =>
+              prev.map((m) =>
+                m.id === payload.new.id
+                  ? { ...m, paid_amount: Number(payload.new.paid_amount || 0) }
+                  : m
+              )
             );
           if (payload.eventType === 'DELETE')
             setMembers((prev) => prev.filter((m) => m.id !== payload.old.id));
@@ -192,25 +208,21 @@ export function useSession(sessionId: string | null) {
   const addMemberToDB = async (name: string) => {
     if (!sessionId) return null;
     const trimmed = name.trim();
-    if (members.some((m) => m.name.toLowerCase() === trimmed.toLowerCase())) {
-      showToast('Name must be unique.', 'error');
-      return null;
-    }
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    if (members.some((m) => m.name.toLowerCase() === trimmed.toLowerCase()))
+      return showToast('Name must be unique.', 'error');
+
     const newMember: DBMember = {
       id: utils.generateId(),
       session_id: sessionId,
       name: trimmed,
-      user_id: user?.id || null,
+      user_id: null,
+      paid_amount: 0,
     };
     setMembers((prev) => [...prev, newMember]);
     const { error } = await supabase.from('members').insert(newMember);
     if (error) {
       setMembers((prev) => prev.filter((m) => m.id !== newMember.id));
       showToast('Network error: Failed to add member.', 'error');
-      return null;
     }
     return newMember;
   };
@@ -219,8 +231,13 @@ export function useSession(sessionId: string | null) {
     if (!sessionId) return;
     setMembers((prev) => prev.filter((m) => m.id !== memberId));
     setClaims((prev) => prev.filter((c) => c.member_id !== memberId));
-    const { error } = await supabase.from('members').delete().eq('id', memberId);
-    if (error) showToast('Network error while deleting member.', 'error');
+    await supabase.from('members').delete().eq('id', memberId);
+  };
+
+  const updateMemberPaymentInDB = async (memberId: string, amount: number) => {
+    if (!sessionId) return;
+    setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, paid_amount: amount } : m)));
+    await supabase.from('members').update({ paid_amount: amount }).eq('id', memberId);
   };
 
   const updateClaimInDB = async (memberId: string, itemId: string, value: string) => {
@@ -243,21 +260,18 @@ export function useSession(sessionId: string | null) {
       return [...prev, newClaim];
     });
 
-    if (isEmpty) {
+    if (isEmpty)
       await supabase.from('claims').delete().match({ member_id: memberId, item_id: itemId });
-    } else {
-      await supabase.from('claims').upsert(newClaim, { onConflict: 'item_id,member_id' });
-    }
+    else await supabase.from('claims').upsert(newClaim, { onConflict: 'item_id,member_id' });
   };
 
   const createSessionInDB = async (id: string, pin: string) => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const { error } = await supabase
+    await supabase
       .from('sessions')
       .upsert({ id, status: 'draft', pin: pin, host_id: user?.id || null });
-    if (error) showToast('Cloud Sync Error: Could not initialize session.', 'error');
   };
 
   const addItemToDB = async (item: BillItem) => {
@@ -272,16 +286,13 @@ export function useSession(sessionId: string | null) {
       apply_sc: item.applySC,
       tax_preset_id: item.taxPresetId,
     });
-    if (error) {
-      setItems((prev) => prev.filter((i) => i.id !== item.id));
-      showToast('Network error: Failed to add item.', 'error');
-    }
+    if (error) setItems((prev) => prev.filter((i) => i.id !== item.id));
   };
 
   const updateItemInDB = async (item: BillItem) => {
     if (!sessionId) return;
     setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
-    const { error } = await supabase
+    await supabase
       .from('items')
       .update({
         name: item.name,
@@ -291,44 +302,49 @@ export function useSession(sessionId: string | null) {
         tax_preset_id: item.taxPresetId,
       })
       .eq('id', item.id);
-    if (error) showToast('Network error: Failed to update item.', 'error');
   };
 
   const removeItemFromDB = async (itemId: string) => {
     if (!sessionId) return;
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     setClaims((prev) => prev.filter((c) => c.item_id !== itemId));
-    const { error } = await supabase.from('items').delete().eq('id', itemId);
-    if (error) showToast('Network error: Failed to delete item.', 'error');
+    await supabase.from('items').delete().eq('id', itemId);
   };
 
-  const saveLedgerToDB = async (breakdowns: Record<string, any>) => {
+  const saveLedgerToDB = async (transactions: any[]) => {
     if (!sessionId) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
     await supabase.from('ledger').delete().eq('session_id', sessionId);
-    const ledgerEntries = members.reduce<any[]>((acc, m) => {
-      const breakdown = breakdowns[m.name];
-      if (breakdown && breakdown.totalOwed > 0 && m.user_id !== user.id) {
-        acc.push({
-          session_id: sessionId,
-          creditor_id: user.id,
-          debtor_id: m.user_id || null,
-          debtor_name: m.name,
-          amount: breakdown.totalOwed,
-        });
-      }
-      return acc;
-    }, []);
+
+    const ledgerEntries = transactions.map((t) => ({
+      session_id: sessionId,
+      creditor_id: t.creditor_id || null,
+      creditor_name: t.creditor_name,
+      debtor_id: t.debtor_id || null,
+      debtor_name: t.debtor_name,
+      amount: t.amount,
+    }));
+
+    setLedger(ledgerEntries.map((l) => ({ ...l, id: utils.generateId(), settled: false })));
     if (ledgerEntries.length > 0) await supabase.from('ledger').insert(ledgerEntries);
   };
 
   const lockSessionInDB = async () => {
     if (!sessionId) return;
-    setSessionStatus('locked'); // <-- Optimistic UI update instantly changes the screen
+    setSessionStatus('locked');
     await supabase.from('sessions').update({ status: 'locked' }).eq('id', sessionId);
+  };
+
+  const unlockSessionInDB = async () => {
+    if (!sessionId) return;
+    setSessionStatus('draft');
+    await supabase.from('sessions').update({ status: 'draft' }).eq('id', sessionId);
+    await supabase.from('ledger').delete().eq('session_id', sessionId);
+  };
+
+  const deleteActiveSessionInDB = async () => {
+    if (!sessionId) return;
+    // Postgres ON DELETE CASCADE automatically wipes the ledger, claims, members, and items.
+    await supabase.from('sessions').delete().eq('id', sessionId);
   };
 
   const toggleLedgerSettledInDB = async (ledgerId: string, currentStatus: boolean) => {
@@ -353,8 +369,11 @@ export function useSession(sessionId: string | null) {
       addMemberToDB,
       removeMemberFromDB,
       updateClaimInDB,
+      updateMemberPaymentInDB,
       saveLedgerToDB,
       lockSessionInDB,
+      unlockSessionInDB,
+      deleteActiveSessionInDB,
       toggleLedgerSettledInDB,
     },
   };

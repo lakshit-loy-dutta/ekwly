@@ -1,6 +1,6 @@
 import type { CalculationResult } from '../../lib/types';
 import { utils } from '../../lib/utils';
-import { DownloadCloud, LockKeyhole } from 'lucide-react';
+import { DownloadCloud, LockKeyhole, Unlock } from 'lucide-react';
 
 interface Props {
   calculationResult: CalculationResult;
@@ -12,6 +12,7 @@ interface Props {
   handleLockSession: () => void;
   handleToggleSettled: (id: string, current: boolean) => void;
   handleExportPDF: () => void;
+  handleUnlockSession: () => void;
 }
 
 export default function DebtMatrix(props: Props) {
@@ -55,8 +56,12 @@ export default function DebtMatrix(props: Props) {
           {props.ledger.map((l) => (
             <div key={l.id} className="p-4 flex items-center justify-between">
               <div className="flex flex-col">
-                <span className="font-bold text-main text-[1.05rem]">{l.debtor_name}</span>
-                <span className="text-muted text-sm font-medium">
+                <span className="font-bold text-main text-[1.05rem]">
+                  {l.debtor_name}{' '}
+                  <span className="text-muted text-[0.85rem] font-medium mx-1">owes</span>{' '}
+                  {l.creditor_name}
+                </span>
+                <span className="text-muted text-sm font-medium mt-0.5">
                   {utils.formatMoney(l.amount)}
                 </span>
               </div>
@@ -88,7 +93,7 @@ export default function DebtMatrix(props: Props) {
           ))}
         </div>
 
-        <div className="px-4 mt-8">
+        <div className="px-4 mt-8 flex flex-col gap-3">
           <button
             type="button"
             className="h-12 w-full bg-surface active:bg-subtle text-main border border-border rounded-xl font-medium text-[0.95rem] flex items-center justify-center gap-2 transition-colors shadow-sm"
@@ -96,6 +101,16 @@ export default function DebtMatrix(props: Props) {
           >
             <DownloadCloud size={20} className="text-primary" /> Download Receipt
           </button>
+
+          {props.isHost && (
+            <button
+              type="button"
+              className="h-12 w-full bg-page active:bg-subtle text-danger border border-border rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors shadow-sm"
+              onClick={props.handleUnlockSession}
+            >
+              <Unlock size={18} /> Unlock & Edit Bill
+            </button>
+          )}
         </div>
       </div>
     );
