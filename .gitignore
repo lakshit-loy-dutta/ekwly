@@ -1,0 +1,35 @@
+# Dependencies (pnpm/npm)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Astro Build Output
+dist/
+.astro/
+
+# Environment Variables (Critical)
+.env
+.env.*
+!.env.example
+
+# Capacitor / Native Artifacts
+*.keystore
+capacitor.config.ts.timestamp-*
+capacitor.config.json.timestamp-*
+
+# Editor & OS Files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# Logs
+logs/
+*.log
+
+# repomix
+repomix-output.xml
