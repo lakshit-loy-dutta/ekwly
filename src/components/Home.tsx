@@ -46,7 +46,7 @@ export default function Home({ onStartNew, onJoinSession }: Props) {
       {/* Centered Logo & Text */}
       <div className="flex flex-col items-center justify-center mb-10 mt-auto">
         <img
-          src="./icon.svg"
+          src="/ekwly/icon.svg"
           width="80"
           height="80"
           alt="Ekwly Logo"
