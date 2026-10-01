@@ -245,13 +245,14 @@ export function useSession(sessionId: string | null) {
     }
   };
 
-  const createSessionInDB = async (id: string) => {
+  const createSessionInDB = async (id: string, pin: string) => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     const { error } = await supabase.from('sessions').upsert({
       id,
       status: 'draft',
+      pin: pin,
       host_id: user?.id || null,
     });
     if (error) showToast('Cloud Sync Error: Could not initialize session.', 'error');
@@ -299,6 +300,37 @@ export function useSession(sessionId: string | null) {
     if (error) showToast('Network error: Failed to delete item.', 'error');
   };
 
+  const saveLedgerToDB = async (breakdowns: Record<string, any>) => {
+    if (!sessionId) return;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Wipe old ledger entries for this session (if the host recalculates the bill)
+    await supabase.from('ledger').delete().eq('session_id', sessionId);
+
+    // Build the array safely for TypeScript using reduce
+    const ledgerEntries = members.reduce<any[]>((acc, m) => {
+      const breakdown = breakdowns[m.name];
+      // Skip if they owe nothing, or if the member is the Host themselves
+      if (breakdown && breakdown.totalOwed > 0 && m.user_id !== user.id) {
+        acc.push({
+          session_id: sessionId,
+          creditor_id: user.id,
+          debtor_id: m.user_id || null,
+          debtor_name: m.name,
+          amount: breakdown.totalOwed,
+        });
+      }
+      return acc;
+    }, []);
+
+    if (ledgerEntries.length > 0) {
+      await supabase.from('ledger').insert(ledgerEntries);
+    }
+  };
+
   return {
     isLoading,
     items,
@@ -312,6 +344,7 @@ export function useSession(sessionId: string | null) {
       addMemberToDB,
       removeMemberFromDB,
       updateClaimInDB,
+      saveLedgerToDB,
     },
   };
 }

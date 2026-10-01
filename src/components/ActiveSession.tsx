@@ -21,6 +21,7 @@ import QuickSplit from './session/QuickSplit';
 
 interface Props {
   sessionId?: string | null;
+  pin?: string | null;
   isHost: boolean;
   currentStep: number;
   direction: number;
@@ -29,6 +30,7 @@ interface Props {
 
 export default function ActiveSession({
   sessionId,
+  pin,
   isHost,
   currentStep,
   direction,
@@ -43,10 +45,10 @@ export default function ActiveSession({
 
   // --- 2. HOST INITIALIZATION ---
   useEffect(() => {
-    if (isHost) {
-      actions.createSessionInDB?.(currentSessionId);
+    if (isHost && pin) {
+      actions.createSessionInDB?.(currentSessionId, pin); // <-- NEW
     }
-  }, [isHost, currentSessionId, actions]);
+  }, [isHost, currentSessionId, pin, actions]);
 
   // --- 3. TRANSFORM DB CLAIMS TO UI FORMAT ---
   const formattedClaims = useMemo(() => {
@@ -356,6 +358,11 @@ export default function ActiveSession({
     });
 
     setCalculationResult({ individualBreakdowns, globalSummary });
+
+    if (isHost) {
+      actions.saveLedgerToDB?.(individualBreakdowns);
+    }
+
     navigate(5);
   };
 

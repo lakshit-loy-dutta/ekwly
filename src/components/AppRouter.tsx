@@ -11,11 +11,11 @@ import { ChevronLeft, User, LogOut, Moon, QrCode } from 'lucide-react';
 export default function AppRouter() {
   const [currentView, setCurrentView] = useState<'auth' | 'home' | 'session'>('auth');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
   const [user, setUser] = useState<any>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
-  // Lifted Session State
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [direction, setDirection] = useState<number>(1);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -36,17 +36,46 @@ export default function AppRouter() {
     return () => subscription.unsubscribe();
   }, [currentView]);
 
-  const resolveInitialRoute = () => {
+  const resolveInitialRoute = async () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const sId = params.get('s');
+      const pPin = params.get('p');
+
       if (sId) {
-        setActiveSessionId(sId);
         const hostCheck = localStorage.getItem(`ekwly_host_${sId}`);
         const host = hostCheck === 'true';
-        setIsHost(host);
-        setCurrentStep(host ? 1 : 3); // Auto-route guests to Members
-        setCurrentView('session');
+        const savedPin = pPin || localStorage.getItem(`ekwly_pin_${sId}`);
+
+        if (host) {
+          setActiveSessionId(sId);
+          setActiveSessionPin(savedPin || '');
+          setIsHost(true);
+          setCurrentStep(1);
+          setCurrentView('session');
+        } else if (savedPin) {
+          // Verify Guest PIN via Supabase RPC
+          const { data: isValid } = await supabase.rpc('verify_session_pin', {
+            p_session_id: sId,
+            p_pin: savedPin,
+          });
+          if (isValid) {
+            localStorage.setItem(`ekwly_pin_${sId}`, savedPin);
+            setActiveSessionId(sId);
+            setActiveSessionPin(savedPin);
+            setIsHost(false);
+            setCurrentStep(3);
+            setCurrentView('session');
+          } else {
+            showToast('Invalid or expired PIN.', 'error');
+            window.history.pushState({}, '', window.location.pathname);
+            setCurrentView('home');
+          }
+        } else {
+          // Deep link missing PIN, kick to Home to enter manually
+          window.history.pushState({}, '', window.location.pathname);
+          setCurrentView('home');
+        }
       } else {
         setCurrentView('home');
       }
@@ -55,21 +84,40 @@ export default function AppRouter() {
 
   const handleStartNew = () => {
     const newSessionId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+    const newPin = Math.floor(1000 + Math.random() * 9000).toString(); // Generate 4-digit PIN
+
     localStorage.setItem(`ekwly_host_${newSessionId}`, 'true');
-    window.history.pushState({}, '', `?s=${newSessionId}`);
+    localStorage.setItem(`ekwly_pin_${newSessionId}`, newPin);
+
+    window.history.pushState({}, '', `?s=${newSessionId}&p=${newPin}`);
     setActiveSessionId(newSessionId);
+    setActiveSessionPin(newPin);
     setIsHost(true);
     setCurrentStep(1);
     setCurrentView('session');
   };
 
-  const handleJoinSession = (sessionId: string) => {
-    showToast(`Joining session: ${sessionId}`, 'success');
+  const handleJoinSession = async (sessionId: string, pin: string) => {
     const hostCheck = localStorage.getItem(`ekwly_host_${sessionId}`);
     const host = hostCheck === 'true';
-    setIsHost(host);
-    window.history.pushState({}, '', `?s=${sessionId}`);
+
+    if (!host) {
+      const { data: isValid, error } = await supabase.rpc('verify_session_pin', {
+        p_session_id: sessionId,
+        p_pin: pin,
+      });
+      if (!isValid || error) {
+        showToast('Invalid Session ID or PIN', 'error');
+        return;
+      }
+    }
+
+    showToast(`Joining session...`, 'success');
+    localStorage.setItem(`ekwly_pin_${sessionId}`, pin);
+    window.history.pushState({}, '', `?s=${sessionId}&p=${pin}`);
     setActiveSessionId(sessionId);
+    setActiveSessionPin(pin);
+    setIsHost(host);
     setCurrentStep(host ? 1 : 3);
     setCurrentView('session');
   };
@@ -83,6 +131,7 @@ export default function AppRouter() {
   const handleLeaveSession = () => {
     window.history.pushState({}, '', window.location.pathname);
     setActiveSessionId(null);
+    setActiveSessionPin(null);
     setIsHost(false);
     setCurrentView('home');
   };
@@ -102,10 +151,8 @@ export default function AppRouter() {
 
   return (
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
-      {/* UNIVERSAL HEADER */}
       {currentView !== 'auth' && (
         <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
-          {/* Dynamic Left Content */}
           {currentView === 'session' ? (
             <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
               <button
@@ -141,7 +188,6 @@ export default function AppRouter() {
             </div>
           )}
 
-          {/* Dynamic Right Actions */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {currentView === 'session' && (
               <button
@@ -158,7 +204,6 @@ export default function AppRouter() {
               <Moon size={20} />
             </button>
 
-            {/* AVATAR MENU */}
             <div className="relative">
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
@@ -198,7 +243,6 @@ export default function AppRouter() {
         </div>
       )}
 
-      {/* MAIN CONTENT */}
       <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-hidden no-scrollbar">
         {currentView === 'auth' && <Auth onContinueAsGuest={resolveInitialRoute} />}
         {currentView === 'home' && (
@@ -207,6 +251,7 @@ export default function AppRouter() {
         {currentView === 'session' && (
           <ActiveSession
             sessionId={activeSessionId}
+            pin={activeSessionPin}
             isHost={isHost}
             currentStep={currentStep}
             direction={direction}
@@ -219,20 +264,26 @@ export default function AppRouter() {
         <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
       )}
 
-      {/* LIFTED QR CODE MODAL */}
       <BottomSheet
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         title="Invite to Session"
       >
         <div className="flex flex-col items-center">
-          <p className="text-sm text-muted text-center mb-8">
-            Scan this code from the Ekwly app home screen to join session{' '}
-            <strong className="text-main">{activeSessionId}</strong>.
+          <p className="text-sm text-muted text-center mb-4">
+            Scan this code to join session <strong className="text-main">{activeSessionId}</strong>.
           </p>
+          <div className="bg-subtle border border-border rounded-xl px-6 py-3 mb-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted mb-1 text-center">
+              Room PIN
+            </p>
+            <p className="text-3xl font-mono font-bold text-primary tracking-[0.2em]">
+              {activeSessionPin}
+            </p>
+          </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-border mb-4">
             <QRCode
-              value={`${typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}?s=${activeSessionId}`}
+              value={`${typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}?s=${activeSessionId}&p=${activeSessionPin}`}
               size={200}
             />
           </div>

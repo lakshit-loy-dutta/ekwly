@@ -1,68 +1,92 @@
 import { useState, useEffect } from 'react';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
 import { supabase } from '../lib/supabase';
-import { showToast } from '../lib/utils';
-import { Plus, QrCode, Clock, ChevronRight, Receipt, Loader2 } from 'lucide-react';
+import { showToast, utils } from '../lib/utils';
+import BottomSheet from './ui/BottomSheet';
+import { Plus, QrCode, Clock, ChevronRight, Receipt, Loader2, KeyRound } from 'lucide-react';
 
 interface Props {
   onStartNew: () => void;
-  onJoinSession: (sessionId: string) => void;
+  onJoinSession: (sessionId: string, pin: string) => void;
   user: any;
 }
 
 export default function Home({ onStartNew, onJoinSession, user }: Props) {
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
+  const [owedToMe, setOwedToMe] = useState(0);
+  const [iOwe, setIOwe] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [manualSessionId, setManualSessionId] = useState('');
+  const [manualPin, setManualPin] = useState('');
+
   useEffect(() => {
-    const fetchHistory = async () => {
+    const fetchDashboardData = async () => {
       if (!user || user.is_anonymous) {
         setIsLoading(false);
         return;
       }
 
-      // Fetch sessions hosted by this user
-      const { data, error } = await supabase
+      // 1. Fetch Session History
+      const { data: sessionData } = await supabase
         .from('sessions')
         .select('*')
         .eq('host_id', user.id)
         .order('created_at', { ascending: false })
         .limit(10);
 
-      if (!error && data) {
-        setRecentSessions(data);
-      }
+      if (sessionData) setRecentSessions(sessionData);
+
+      // 2. Fetch Ledger Balances
+      const { data: creditorData } = await supabase
+        .from('ledger')
+        .select('amount')
+        .eq('creditor_id', user.id)
+        .eq('settled', false);
+
+      const { data: debtorData } = await supabase
+        .from('ledger')
+        .select('amount')
+        .eq('debtor_id', user.id)
+        .eq('settled', false);
+
+      const totalOwedToMe = creditorData?.reduce((sum, row) => sum + Number(row.amount), 0) || 0;
+      const totalIOwe = debtorData?.reduce((sum, row) => sum + Number(row.amount), 0) || 0;
+
+      setOwedToMe(totalOwedToMe);
+      setIOwe(totalIOwe);
       setIsLoading(false);
     };
 
-    fetchHistory();
+    fetchDashboardData();
   }, [user]);
 
   const startScan = async () => {
     try {
       const { camera } = await BarcodeScanner.requestPermissions();
-      if (camera !== 'granted') {
-        showToast('Camera permission denied', 'error');
-        return;
-      }
+      if (camera !== 'granted') return showToast('Camera permission denied', 'error');
 
       const { barcodes } = await BarcodeScanner.scan();
       if (barcodes.length > 0) {
         const scannedUrl = barcodes[0].displayValue;
         let sessionId = null;
+        let pin = null;
+
         try {
           const url = new URL(scannedUrl);
           sessionId = url.searchParams.get('s');
+          pin = url.searchParams.get('p');
         } catch {
-          sessionId = scannedUrl.includes('?s=')
-            ? scannedUrl.split('?s=')[1]
-            : scannedUrl.split('/').pop();
+          const urlParams = new URLSearchParams(scannedUrl.split('?')[1]);
+          sessionId = urlParams.get('s');
+          pin = urlParams.get('p');
         }
 
-        if (sessionId) {
-          onJoinSession(sessionId);
+        if (sessionId && pin) {
+          onJoinSession(sessionId, pin);
         } else {
-          showToast('Invalid Ekwly QR Code', 'error');
+          showToast('Invalid QR Code. Missing PIN.', 'error');
         }
       }
     } catch (error) {
@@ -71,9 +95,14 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
     }
   };
 
+  const handleManualJoin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualSessionId.trim() || !manualPin.trim()) return showToast('Enter ID and PIN', 'error');
+    onJoinSession(manualSessionId.trim().toLowerCase(), manualPin.trim());
+  };
+
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page">
-      {/* Header Greeting */}
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-main tracking-tight">
           {user?.user_metadata?.full_name
@@ -83,35 +112,58 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
         <p className="text-muted text-sm mt-1">Manage your splits and settle debts.</p>
       </div>
 
-      {user?.is_anonymous && (
+      {user?.is_anonymous ? (
         <div className="bg-warning/10 border border-warning/20 rounded-xl p-4 mb-6 flex flex-col gap-1">
           <h4 className="text-warning-700 font-bold text-sm">Guest Mode Active</h4>
           <p className="text-warning-700/80 text-xs font-medium">
             Sign in from the profile menu to permanently save your session history and ledger.
           </p>
         </div>
+      ) : (
+        <div className="bg-primary text-white rounded-2xl p-5 mb-6 shadow-stripe flex flex-col gap-4">
+          <div className="flex justify-between items-end">
+            <div className="flex flex-col">
+              <span className="text-primary-light/80 text-xs font-bold uppercase tracking-wider mb-1">
+                Total Owed to You
+              </span>
+              <span className="text-3xl font-bold tracking-tight">
+                {utils.formatMoney(owedToMe)}
+              </span>
+            </div>
+          </div>
+          <div className="h-px w-full bg-white/20"></div>
+          <div className="flex justify-between items-center">
+            <span className="text-primary-light/80 text-sm font-medium">You Owe Others</span>
+            <span className="font-semibold">{utils.formatMoney(iOwe)}</span>
+          </div>
+        </div>
       )}
 
-      {/* Quick Actions Grid */}
-      <div className="grid grid-cols-2 gap-3 mb-8">
+      <div className="grid grid-cols-2 gap-3 mb-3">
         <button
           onClick={onStartNew}
-          className="bg-primary active:bg-primary-hover text-white rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-stripe transition-colors h-28"
+          className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
         >
-          <Plus size={28} strokeWidth={2.5} />
+          <Plus size={24} className="text-primary" strokeWidth={2.5} />
           <span className="font-semibold text-[0.95rem]">New Session</span>
         </button>
 
         <button
           onClick={startScan}
-          className="bg-surface active:bg-subtle text-main border border-border rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-28"
+          className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
         >
-          <QrCode size={28} className="text-primary" strokeWidth={2.5} />
+          <QrCode size={24} className="text-primary" strokeWidth={2.5} />
           <span className="font-semibold text-[0.95rem]">Scan QR</span>
         </button>
       </div>
 
-      {/* Recent Sessions */}
+      <button
+        onClick={() => setIsJoinModalOpen(true)}
+        className="w-full h-12 bg-surface active:bg-subtle text-main border border-border rounded-xl flex items-center justify-center gap-2 font-medium transition-colors mb-8 shadow-sm"
+      >
+        <KeyRound size={18} className="text-muted" /> Join with ID & PIN
+      </button>
+
       <div className="flex flex-col flex-1">
         <div className="flex items-center gap-2 mb-4">
           <Clock size={16} className="text-muted" />
@@ -129,8 +181,13 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
             {recentSessions.map((session) => (
               <button
                 key={session.id}
-                onClick={() => onJoinSession(session.id)}
-                className="bg-surface border border-border hover:border-primary/50 active:bg-subtle rounded-xl p-4 flex items-center justify-between text-left transition-all shadow-sm"
+                onClick={() =>
+                  onJoinSession(
+                    session.id,
+                    session.pin || localStorage.getItem(`ekwly_pin_${session.id}`) || ''
+                  )
+                }
+                className="bg-surface border border-border hover:border-primary/50 active:bg-subtle rounded-xl p-4 flex items-center justify-between text-left transition-all shadow-sm shrink-0"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-primary-light text-primary flex items-center justify-center shrink-0">
@@ -161,6 +218,49 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
           </div>
         )}
       </div>
+
+      <BottomSheet
+        isOpen={isJoinModalOpen}
+        onClose={() => setIsJoinModalOpen(false)}
+        title="Join Session"
+      >
+        <form onSubmit={handleManualJoin} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-muted uppercase tracking-widest">
+              Session ID
+            </label>
+            <input
+              type="text"
+              value={manualSessionId}
+              onChange={(e) => setManualSessionId(e.target.value)}
+              placeholder="e.g. kz2x9a"
+              className="w-full h-12 bg-page border border-border rounded-xl px-4 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              required
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-muted uppercase tracking-widest">
+              4-Digit PIN
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              value={manualPin}
+              onChange={(e) => setManualPin(e.target.value)}
+              placeholder="e.g. 4821"
+              className="w-full h-12 bg-page border border-border rounded-xl px-4 font-mono font-bold tracking-widest text-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            className="h-14 mt-4 w-full bg-primary active:bg-primary-hover text-white rounded-xl font-bold shadow-sm transition-colors"
+          >
+            Enter Room
+          </button>
+        </form>
+      </BottomSheet>
     </div>
   );
 }
