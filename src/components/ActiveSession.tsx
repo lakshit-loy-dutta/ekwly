@@ -39,7 +39,7 @@ export default function ActiveSession({
   const [currentSessionId] = useState<string>(sessionId || utils.generateId());
 
   // --- 1. MULTIPLAYER SUPABASE HOOK ---
-  const { isLoading, items, members, claims, actions } = useSession(
+  const { isLoading, sessionStatus, ledger, items, members, claims, actions } = useSession(
     sessionId ? currentSessionId : null
   );
 
@@ -233,13 +233,10 @@ export default function ActiveSession({
   };
 
   // --- FINAL MATH & DEBT MATRIX ---
-  const handleCalculateDebtMatrix = () => {
-    if (items.length === 0 || members.length === 0)
-      return showToast('Need items and members to calculate.', 'error');
-
+  // --- FINAL MATH ENGINE EXTRACTED ---
+  const generateMath = () => {
     const rawSubTotal = items.reduce((sum, item) => sum + item.totalBase, 0);
     const parsedDiscount = parseFloat(discountValue) || 0;
-
     let preTaxDiscount = 0;
     let postTaxDiscount = 0;
     if (discountType !== 'none' && discountMode === 'pre-tax') {
@@ -289,7 +286,6 @@ export default function ActiveSession({
       const itemTaxAmount = effectiveBase * item.taxRate;
       const itemSC = item.applySC ? effectiveBase * serviceChargeRate : 0;
       const itemSCTaxAmount = scTaxPreset && itemSC > 0 ? itemSC * (scTaxPreset.rate / 100) : 0;
-
       globalSummary.totalQty += item.qty;
       globalSummary.subTotal += effectiveBase;
       globalSummary.serviceCharge += itemSC;
@@ -322,11 +318,9 @@ export default function ActiveSession({
       let subtotal = 0;
       let totalScAmount = 0;
       let consumedItems: { name: string; qtyString: string; cost: number }[] = [];
-
       items.forEach((item) => {
         const consumedQtyString = formattedClaims[member.id]?.[item.id] || '';
         const consumedQty = utils.parseQty(consumedQtyString);
-
         if (consumedQty > 0) {
           const proportion = consumedQty / item.qty;
           const effectiveBaseShare = proportion * item.totalBase * preTaxMultiplier;
@@ -335,7 +329,6 @@ export default function ActiveSession({
           const scTaxShare = scTaxPreset && scShare > 0 ? scShare * (scTaxPreset.rate / 100) : 0;
           const finalCostShare = effectiveBaseShare + itemTaxShare;
           const finalScBurden = scShare + scTaxShare;
-
           subtotal += finalCostShare;
           totalScAmount += finalScBurden;
           consumedItems.push({
@@ -345,26 +338,32 @@ export default function ActiveSession({
           });
         }
       });
-
-      const intermediateOwed = subtotal + totalScAmount;
-      const finalOwed = intermediateOwed * postTaxMultiplier;
-
       individualBreakdowns[member.name] = {
         subtotal,
         serviceCharge: totalScAmount,
-        totalOwed: finalOwed,
+        totalOwed: (subtotal + totalScAmount) * postTaxMultiplier,
         items: consumedItems,
       };
     });
+    return { individualBreakdowns, globalSummary };
+  };
 
-    setCalculationResult({ individualBreakdowns, globalSummary });
-
-    if (isHost) {
-      actions.saveLedgerToDB?.(individualBreakdowns);
-    }
-
+  const handleCalculateDebtMatrix = () => {
+    if (items.length === 0 || members.length === 0)
+      return showToast('Need items and members to calculate.', 'error');
+    const result = generateMath();
+    setCalculationResult(result);
+    if (isHost) actions.saveLedgerToDB?.(result.individualBreakdowns);
     navigate(5);
   };
+
+  // Auto-route guests to the final step if they join a locked room
+  useEffect(() => {
+    if (sessionStatus === 'locked' && items.length > 0 && members.length > 0) {
+      if (!calculationResult) setCalculationResult(generateMath());
+      if (currentStep !== 5) navigate(5);
+    }
+  }, [sessionStatus, items, members]);
 
   const isSplitComplete =
     items.length > 0 &&
@@ -525,6 +524,13 @@ export default function ActiveSession({
                 calculationResult={calculationResult}
                 receiptTitle={receiptTitle}
                 setReceiptTitle={setReceiptTitle}
+                sessionStatus={sessionStatus}
+                ledger={ledger}
+                isHost={isHost}
+                handleLockSession={() => actions.lockSessionInDB?.()}
+                handleToggleSettled={(id, current) =>
+                  actions.toggleLedgerSettledInDB?.(id, current)
+                }
                 handleExportPDF={() =>
                   exportToPDF(
                     calculationResult,

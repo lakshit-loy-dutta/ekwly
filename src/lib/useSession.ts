@@ -19,23 +19,23 @@ export interface DBClaim {
 
 export function useSession(sessionId: string | null) {
   const [isLoading, setIsLoading] = useState(true);
-
+  const [sessionStatus, setSessionStatus] = useState<'draft' | 'locked' | 'archived'>('draft');
   const [items, setItems] = useState<BillItem[]>([]);
   const [members, setMembers] = useState<DBMember[]>([]);
   const [claims, setClaims] = useState<DBClaim[]>([]);
+  const [ledger, setLedger] = useState<any[]>([]);
 
-  // --- THE RECONCILIATION ENGINE ---
-  // Fetches the absolute latest truth from the database.
-  // If isBackground is true, it won't trigger the full-screen loading UI.
   const fetchSessionData = useCallback(
     async (isBackground = false) => {
       if (!sessionId) return;
       if (!isBackground) setIsLoading(true);
 
-      const [itemsRes, membersRes, claimsRes] = await Promise.all([
+      const [itemsRes, membersRes, claimsRes, sessionRes, ledgerRes] = await Promise.all([
         supabase.from('items').select('*').eq('session_id', sessionId),
         supabase.from('members').select('*').eq('session_id', sessionId),
         supabase.from('claims').select('*').eq('session_id', sessionId),
+        supabase.from('sessions').select('status').eq('id', sessionId).single(),
+        supabase.from('ledger').select('*').eq('session_id', sessionId),
       ]);
 
       if (itemsRes.data) {
@@ -54,25 +54,42 @@ export function useSession(sessionId: string | null) {
       }
       if (membersRes.data) setMembers(membersRes.data);
       if (claimsRes.data) setClaims(claimsRes.data);
+      if (sessionRes.data) setSessionStatus(sessionRes.data.status);
+      if (ledgerRes.data) setLedger(ledgerRes.data);
 
       if (!isBackground) setIsLoading(false);
     },
     [sessionId]
   );
 
-  // 1. INITIAL LOAD & WEBSOCKET SUBSCRIPTIONS
   useEffect(() => {
     if (!sessionId) {
       setIsLoading(false);
       return;
     }
 
-    // Initial Mount Fetch
     fetchSessionData(false);
 
-    // 2. REAL-TIME MULTIPLAYER SYNC
     const channel = supabase
       .channel(`session-${sessionId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` },
+        (payload) => {
+          setSessionStatus(payload.new.status);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ledger', filter: `session_id=eq.${sessionId}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') setLedger((prev) => [...prev, payload.new]);
+          if (payload.eventType === 'UPDATE')
+            setLedger((prev) => prev.map((l) => (l.id === payload.new.id ? payload.new : l)));
+          if (payload.eventType === 'DELETE')
+            setLedger((prev) => prev.filter((l) => l.id !== payload.old.id));
+        }
+      )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items', filter: `session_id=eq.${sessionId}` },
@@ -158,14 +175,10 @@ export function useSession(sessionId: string | null) {
         }
       )
       .subscribe((status) => {
-        // Re-fetch state if the websocket drops and successfully reconnects
         if (status === 'SUBSCRIBED') fetchSessionData(true);
       });
 
-    // 3. LIFECYCLE RECOVERY LISTENERS (Mobile sleep/wake resilience)
-    const handleWakeUp = () => {
-      fetchSessionData(true);
-    };
+    const handleWakeUp = () => fetchSessionData(true);
     window.addEventListener('focus', handleWakeUp);
     window.addEventListener('online', handleWakeUp);
 
@@ -176,7 +189,6 @@ export function useSession(sessionId: string | null) {
     };
   }, [sessionId, fetchSessionData]);
 
-  // 4. OPTIMISTIC MUTATION ACTIONS
   const addMemberToDB = async (name: string) => {
     if (!sessionId) return null;
     const trimmed = name.trim();
@@ -184,7 +196,6 @@ export function useSession(sessionId: string | null) {
       showToast('Name must be unique.', 'error');
       return null;
     }
-
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -194,7 +205,6 @@ export function useSession(sessionId: string | null) {
       name: trimmed,
       user_id: user?.id || null,
     };
-
     setMembers((prev) => [...prev, newMember]);
     const { error } = await supabase.from('members').insert(newMember);
     if (error) {
@@ -223,21 +233,16 @@ export function useSession(sessionId: string | null) {
       item_id: itemId,
       value,
     };
-
     const isEmpty = !value || value.trim() === '' || value === '0';
 
-    // Optimistic UI: Instantly remove if empty, otherwise insert/update
     setClaims((prev) => {
-      if (isEmpty) {
-        return prev.filter((c) => !(c.member_id === memberId && c.item_id === itemId));
-      }
+      if (isEmpty) return prev.filter((c) => !(c.member_id === memberId && c.item_id === itemId));
       const exists = prev.some((c) => c.member_id === memberId && c.item_id === itemId);
       if (exists)
         return prev.map((c) => (c.member_id === memberId && c.item_id === itemId ? newClaim : c));
       return [...prev, newClaim];
     });
 
-    // Background DB Sync
     if (isEmpty) {
       await supabase.from('claims').delete().match({ member_id: memberId, item_id: itemId });
     } else {
@@ -249,27 +254,26 @@ export function useSession(sessionId: string | null) {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const { error } = await supabase.from('sessions').upsert({
-      id,
-      status: 'draft',
-      pin: pin,
-      host_id: user?.id || null,
-    });
+    const { error } = await supabase
+      .from('sessions')
+      .upsert({ id, status: 'draft', pin: pin, host_id: user?.id || null });
     if (error) showToast('Cloud Sync Error: Could not initialize session.', 'error');
   };
 
   const addItemToDB = async (item: BillItem) => {
     if (!sessionId) return;
     setItems((prev) => [...prev, item]);
-    const { error } = await supabase.from('items').insert({
-      id: item.id,
-      session_id: sessionId,
-      name: item.name,
-      qty: item.qty,
-      price: item.unitPrice,
-      apply_sc: item.applySC,
-      tax_preset_id: item.taxPresetId,
-    });
+    const { error } = await supabase
+      .from('items')
+      .insert({
+        id: item.id,
+        session_id: sessionId,
+        name: item.name,
+        qty: item.qty,
+        price: item.unitPrice,
+        apply_sc: item.applySC,
+        tax_preset_id: item.taxPresetId,
+      });
     if (error) {
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       showToast('Network error: Failed to add item.', 'error');
@@ -306,14 +310,9 @@ export function useSession(sessionId: string | null) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-
-    // Wipe old ledger entries for this session (if the host recalculates the bill)
     await supabase.from('ledger').delete().eq('session_id', sessionId);
-
-    // Build the array safely for TypeScript using reduce
     const ledgerEntries = members.reduce<any[]>((acc, m) => {
       const breakdown = breakdowns[m.name];
-      // Skip if they owe nothing, or if the member is the Host themselves
       if (breakdown && breakdown.totalOwed > 0 && m.user_id !== user.id) {
         acc.push({
           session_id: sessionId,
@@ -325,14 +324,25 @@ export function useSession(sessionId: string | null) {
       }
       return acc;
     }, []);
+    if (ledgerEntries.length > 0) await supabase.from('ledger').insert(ledgerEntries);
+  };
 
-    if (ledgerEntries.length > 0) {
-      await supabase.from('ledger').insert(ledgerEntries);
-    }
+  const lockSessionInDB = async () => {
+    if (!sessionId) return;
+    await supabase.from('sessions').update({ status: 'locked' }).eq('id', sessionId);
+  };
+
+  const toggleLedgerSettledInDB = async (ledgerId: string, currentStatus: boolean) => {
+    setLedger((prev) =>
+      prev.map((l) => (l.id === ledgerId ? { ...l, settled: !currentStatus } : l))
+    );
+    await supabase.from('ledger').update({ settled: !currentStatus }).eq('id', ledgerId);
   };
 
   return {
     isLoading,
+    sessionStatus,
+    ledger,
     items,
     members,
     claims,
@@ -345,6 +355,8 @@ export function useSession(sessionId: string | null) {
       removeMemberFromDB,
       updateClaimInDB,
       saveLedgerToDB,
+      lockSessionInDB,
+      toggleLedgerSettledInDB,
     },
   };
 }
