@@ -447,6 +447,7 @@ export default function ActiveSession({
                 sessionStatus={sessionStatus}
                 ledger={ledger}
                 isHost={isHost}
+                currentUserId={currentUserId}
                 handleLockSession={() => actions.lockSessionInDB?.()}
                 handleUnlockSession={() => actions.unlockSessionInDB?.()}
                 handleToggleSettled={(id, current) =>

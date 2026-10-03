@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react';
 import type { CalculationResult } from '../../lib/types';
 import { utils } from '../../lib/utils';
-import { DownloadCloud, LockKeyhole, Unlock, Home } from 'lucide-react';
+import { DownloadCloud, LockKeyhole, Unlock, Home, Smartphone } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 interface Props {
   calculationResult: CalculationResult;
@@ -9,6 +11,7 @@ interface Props {
   sessionStatus: 'draft' | 'locked' | 'archived';
   ledger: any[];
   isHost: boolean;
+  currentUserId: string | null;
   handleLockSession: () => void;
   handleToggleSettled: (id: string, current: boolean) => void;
   handleExportPDF: () => void;
@@ -17,6 +20,27 @@ interface Props {
 }
 
 export default function DebtMatrix(props: Props) {
+  const [upiMap, setUpiMap] = useState<Record<string, string>>({});
+
+  // Fetch UPI IDs for anyone who is owed money in this specific session
+  useEffect(() => {
+    const fetchUpis = async () => {
+      if (props.sessionStatus !== 'locked' || props.ledger.length === 0) return;
+
+      const creditorIds = props.ledger.map((l) => l.creditor_id).filter(Boolean);
+      if (creditorIds.length === 0) return;
+
+      const { data } = await supabase.from('profiles').select('id, upi_id').in('id', creditorIds);
+      const map: Record<string, string> = {};
+      data?.forEach((p) => {
+        if (p.upi_id) map[p.id] = p.upi_id;
+      });
+      setUpiMap(map);
+    };
+
+    fetchUpis();
+  }, [props.sessionStatus, props.ledger]);
+
   // --- LOCKED STATE: COLLECTION TRAY ---
   if (props.sessionStatus === 'locked') {
     const totalExpected = props.ledger.reduce((sum, l) => sum + Number(l.amount), 0);
@@ -54,44 +78,62 @@ export default function DebtMatrix(props: Props) {
           {props.ledger.length === 0 && (
             <div className="p-8 text-center text-sm text-muted">No one owes money.</div>
           )}
-          {props.ledger.map((l) => (
-            <div key={l.id} className="p-4 flex items-center justify-between">
-              <div className="flex flex-col">
-                <span className="font-bold text-main text-[1.05rem]">
-                  {l.debtor_name}{' '}
-                  <span className="text-muted text-[0.85rem] font-medium mx-1">owes</span>{' '}
-                  {l.creditor_name}
-                </span>
-                <span className="text-muted text-sm font-medium mt-0.5">
-                  {utils.formatMoney(l.amount)}
-                </span>
-              </div>
 
-              {props.isHost ? (
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <span
-                    className={`text-xs font-bold uppercase tracking-wider ${l.settled ? 'text-success' : 'text-muted'}`}
-                  >
-                    {l.settled ? 'Paid' : 'Unpaid'}
-                  </span>
-                  <div className="toggle-switch">
-                    <input
-                      type="checkbox"
-                      checked={l.settled}
-                      onChange={() => props.handleToggleSettled(l.id, l.settled)}
-                    />
-                    <span className="slider"></span>
+          {props.ledger.map((l) => {
+            const creditorUpi = l.creditor_id ? upiMap[l.creditor_id] : null;
+            const amICreditor = l.creditor_id === props.currentUserId;
+
+            return (
+              <div key={l.id} className="p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="font-bold text-main text-[1.05rem]">
+                      {l.debtor_name}{' '}
+                      <span className="text-muted text-[0.85rem] font-medium mx-1">owes</span>{' '}
+                      {l.creditor_name}
+                    </span>
+                    <span className="text-muted text-sm font-medium mt-0.5">
+                      {utils.formatMoney(l.amount)}
+                    </span>
                   </div>
-                </label>
-              ) : (
-                <div
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider ${l.settled ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning-700'}`}
-                >
-                  {l.settled ? 'Paid' : 'Unpaid'}
+
+                  {props.isHost || amICreditor ? (
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <span
+                        className={`text-xs font-bold uppercase tracking-wider ${l.settled ? 'text-success' : 'text-muted'}`}
+                      >
+                        {l.settled ? 'Paid' : 'Unpaid'}
+                      </span>
+                      <div className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={l.settled}
+                          onChange={() => props.handleToggleSettled(l.id, l.settled)}
+                        />
+                        <span className="slider"></span>
+                      </div>
+                    </label>
+                  ) : (
+                    <div
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider ${l.settled ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning-700'}`}
+                    >
+                      {l.settled ? 'Paid' : 'Unpaid'}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* THE PHASE 4 MAGIC: NATIVE UPI DEEP LINK */}
+                {creditorUpi && !l.settled && !amICreditor && (
+                  <a
+                    href={`upi://pay?pa=${creditorUpi}&pn=${encodeURIComponent(l.creditor_name)}&am=${l.amount}&cu=INR`}
+                    className="w-full h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors mt-1"
+                  >
+                    <Smartphone size={18} /> Pay {utils.formatMoney(l.amount)} via UPI
+                  </a>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div className="px-4 mt-8 flex flex-col gap-3">
@@ -114,7 +156,7 @@ export default function DebtMatrix(props: Props) {
           {props.isHost && (
             <button
               type="button"
-              className="h-12 w-full bg-page active:bg-subtle text-danger border border-border rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors shadow-sm"
+              className="h-12 w-full bg-page active:bg-subtle text-danger border border-border rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors shadow-sm mt-4"
               onClick={props.handleUnlockSession}
             >
               <Unlock size={18} /> Unlock & Edit Bill
@@ -208,7 +250,6 @@ export default function DebtMatrix(props: Props) {
         </div>
       </div>
 
-      {/* RESTORED INDIVIDUAL DEBT CARDS */}
       <div className="px-4 py-3 mt-4">
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Individual Debt</h3>
       </div>

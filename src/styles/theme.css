@@ -1,49 +1,55 @@
 @theme {
-	/* Stripe "Blurple" & Accents */
-	--color-primary: #635bff;
-	--color-primary-hover: #0a2540;
-	--color-primary-light: #f3f3ff;
+  /* The Color Azure Palette */
+  --color-primary: #0080ff;
+  --color-primary-hover: #004589;
+  --color-primary-light: rgba(0, 128, 255, 0.15);
 
-	--color-page: var(--bg-page);
-	--color-surface: var(--bg-surface);
-	--color-subtle: var(--bg-subtle);
+  /* Restoring standard functional colors for financial clarity */
+  --color-danger: #df1b41;
+  --color-danger-light: #fbeaee;
+  --color-success: #10b981;
+  --color-success-light: #d1fae5;
 
-	--color-main: var(--text-main);
-	--color-muted: var(--text-muted);
-	--color-border: var(--border);
-	--color-border-hover: var(--border-hover);
+  --color-page: var(--bg-page);
+  --color-surface: var(--bg-surface);
+  --color-subtle: var(--bg-subtle);
 
-	--color-danger: #df1b41;
-	--color-danger-light: #fbeaee;
-	--color-success: #00d924;
-	--color-success-light: #e6fbea;
+  --color-main: var(--text-main);
+  --color-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
 
-	--radius-lg: 16px;
-	--radius-md: 10px;
-	--radius-sm: 6px;
+  --radius-lg: 16px;
+  --radius-md: 10px;
+  --radius-sm: 6px;
 
-	--shadow-stripe:
-		0 2px 5px -1px rgba(50, 50, 93, 0.05),
-		0 1px 3px -1px rgba(0, 0, 0, 0.05);
+  --shadow-stripe: 0 2px 5px -1px rgba(0, 30, 59, 0.08), 0 1px 3px -1px rgba(0, 30, 59, 0.04);
 }
 
 :root {
-	--bg-page: #f6f9fc;
-	--bg-surface: #ffffff;
-	--bg-subtle: #f6f9fc;
-	--text-main: #0a2540;
-	--text-muted: #425466;
-	--border: #e6ebf1;
-	--border-hover: #d3dce6;
-	--input-h: 44px;
+  /* LIGHT MODE: Crisp & Professional */
+  --bg-page: #f2f8ff; /* Extremely faint blue tint */
+  --bg-surface: #ffffff; /* Pure white cards */
+  --bg-subtle: #d8ebff; /* Lightest Azure for badges/secondary surfaces */
+
+  --text-main: #001e3b; /* Deepest Azure Navy */
+  --text-muted: #004589; /* Dark Azure */
+
+  --border: #d8ebff;
+  --border-hover: #89c4ff; /* Sky Blue */
+
+  --input-h: 44px;
 }
 
-[data-theme="dark"] {
-	--bg-page: #0b0f19;
-	--bg-surface: #141a28;
-	--bg-subtle: #1c2438;
-	--text-main: #ffffff;
-	--text-muted: #8f9cb5;
-	--border: #2a3447;
-	--border-hover: #3e4c66;
+[data-theme='dark'] {
+  /* DARK MODE: OLED-Friendly Deep Slate/Black */
+  --bg-page: #050914; /* Extremely dark, near-black canvas */
+  --bg-surface: #0f1724; /* Slightly elevated dark slate for cards */
+  --bg-subtle: #001e3b; /* The original Deep Navy used only for subtle accents */
+
+  --text-main: #ffffff; /* Pure White */
+  --text-muted: #89c4ff; /* Sky Blue */
+
+  --border: #1c2738; /* Crisp, dark slate borders */
+  --border-hover: #0080ff; /* Vibrant Azure */
 }
