@@ -21,10 +21,11 @@ import {
 interface Props {
   onStartNew: () => void;
   onJoinSession: (sessionId: string, pin: string) => void;
+  onViewLedger: () => void;
   user: SupabaseUser | null;
 }
 
-export default function Home({ onStartNew, onJoinSession, user }: Props) {
+export default function Home({ onStartNew, onJoinSession, onViewLedger, user }: Props) {
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
   const [owedToMe, setOwedToMe] = useState(0);
   const [iOwe, setIOwe] = useState(0);
@@ -224,8 +225,11 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
           </p>
         </div>
       ) : (
-        <div className="bg-primary text-white rounded-2xl p-5 mb-6 shadow-stripe flex flex-col gap-4">
-          <div className="flex justify-between items-end">
+        <button
+          onClick={onViewLedger}
+          className="w-full text-left bg-primary active:bg-primary-hover text-white rounded-2xl p-5 mb-6 shadow-stripe flex flex-col gap-4 transition-colors relative overflow-hidden"
+        >
+          <div className="flex justify-between items-end relative z-10">
             <div className="flex flex-col">
               <span className="text-white/80 text-xs font-bold uppercase tracking-wider mb-1">
                 Total Owed to You
@@ -234,13 +238,16 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
                 {utils.formatMoney(owedToMe)}
               </span>
             </div>
+            <div className="flex items-center gap-1 text-white/90 text-sm font-bold bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-sm">
+              View Ledger <ChevronRight size={16} />
+            </div>
           </div>
-          <div className="h-px w-full bg-white/20"></div>
-          <div className="flex justify-between items-center">
+          <div className="h-px w-full bg-white/20 relative z-10"></div>
+          <div className="flex justify-between items-center relative z-10">
             <span className="text-white/80 text-sm font-medium">You Owe Others</span>
             <span className="font-semibold">{utils.formatMoney(iOwe)}</span>
           </div>
-        </div>
+        </button>
       )}
 
       <div className="grid grid-cols-2 gap-3 mb-3">

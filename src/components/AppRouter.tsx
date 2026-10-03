@@ -6,6 +6,7 @@ import ActiveSession from './ActiveSession';
 import Auth from './Auth';
 import Profile from './Profile';
 import Friends from './Friends';
+import Ledger from './Ledger';
 import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
@@ -13,7 +14,7 @@ import { ChevronLeft, User, Users, LogOut, Moon, QrCode, Home as HomeIcon } from
 
 export default function AppRouter() {
   const [currentView, setCurrentView] = useState<
-    'auth' | 'home' | 'session' | 'profile' | 'friends'
+    'auth' | 'home' | 'session' | 'profile' | 'friends' | 'ledger'
   >('auth');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
@@ -305,10 +306,16 @@ export default function AppRouter() {
       <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-hidden no-scrollbar">
         {currentView === 'auth' && <Auth onContinueAsGuest={resolveInitialRoute} />}
         {currentView === 'home' && (
-          <Home onStartNew={handleStartNew} onJoinSession={handleJoinSession} user={user} />
+          <Home
+            onStartNew={handleStartNew}
+            onJoinSession={handleJoinSession}
+            onViewLedger={() => setCurrentView('ledger')}
+            user={user}
+          />
         )}
         {currentView === 'profile' && <Profile user={user} onBack={() => setCurrentView('home')} />}
         {currentView === 'friends' && <Friends user={user} onBack={() => setCurrentView('home')} />}
+        {currentView === 'ledger' && <Ledger user={user} onBack={() => setCurrentView('home')} />}
         {currentView === 'session' && (
           <ActiveSession
             sessionId={activeSessionId}
