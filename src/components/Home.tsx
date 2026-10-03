@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
+import { Html5Qrcode } from 'html5-qrcode';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
@@ -12,6 +14,7 @@ import {
   Loader2,
   KeyRound,
   Trash2,
+  X,
 } from 'lucide-react';
 
 interface Props {
@@ -29,6 +32,10 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [manualSessionId, setManualSessionId] = useState('');
   const [manualPin, setManualPin] = useState('');
+
+  // --- HYBRID SCANNER STATE ---
+  const [isWebScanning, setIsWebScanning] = useState(false);
+  const qrRef = useRef<Html5Qrcode | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -67,38 +74,94 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
     };
 
     fetchDashboardData();
+
+    // Cleanup web scanner if component unmounts unexpectedly
+    return () => {
+      if (qrRef.current?.isScanning) {
+        qrRef.current.stop().catch(console.error);
+      }
+    };
   }, [user]);
 
+  // --- CORE URL PROCESSOR ---
+  const processScannedUrl = (scannedUrl: string) => {
+    let sessionId = null;
+    let pin = null;
+
+    try {
+      const url = new URL(scannedUrl);
+      sessionId = url.searchParams.get('s');
+      pin = url.searchParams.get('p');
+    } catch {
+      const urlParams = new URLSearchParams(scannedUrl.split('?')[1]);
+      sessionId = urlParams.get('s');
+      pin = urlParams.get('p');
+    }
+
+    if (sessionId && pin) {
+      onJoinSession(sessionId, pin);
+    } else {
+      showToast('Invalid QR Code. Missing PIN.', 'error');
+    }
+  };
+
+  // --- WEB SCANNER LOGIC ---
+  const startWebScan = () => {
+    setIsWebScanning(true);
+    // Timeout gives React a millisecond to render the #qr-reader div before attaching the camera
+    setTimeout(async () => {
+      try {
+        qrRef.current = new Html5Qrcode('qr-reader');
+        await qrRef.current.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => {
+            stopWebScan();
+            processScannedUrl(decodedText);
+          },
+          (error) => {
+            /* Ignore standard tracking frame errors */
+          }
+        );
+      } catch (err) {
+        console.error(err);
+        setIsWebScanning(false);
+        showToast('Camera permission denied or unavailable.', 'error');
+      }
+    }, 100);
+  };
+
+  const stopWebScan = async () => {
+    try {
+      if (qrRef.current?.isScanning) {
+        await qrRef.current.stop();
+        qrRef.current.clear();
+      }
+    } catch (err) {
+      console.error('Error stopping web scanner', err);
+    } finally {
+      setIsWebScanning(false);
+    }
+  };
+
+  // --- HYBRID ROUTER ---
   const startScan = async () => {
+    if (!Capacitor.isNativePlatform()) {
+      startWebScan();
+      return;
+    }
+
     try {
       const { camera } = await BarcodeScanner.requestPermissions();
       if (camera !== 'granted') return showToast('Camera permission denied', 'error');
 
       const { barcodes } = await BarcodeScanner.scan();
       if (barcodes.length > 0) {
-        const scannedUrl = barcodes[0].displayValue;
-        let sessionId = null;
-        let pin = null;
-
-        try {
-          const url = new URL(scannedUrl);
-          sessionId = url.searchParams.get('s');
-          pin = url.searchParams.get('p');
-        } catch {
-          const urlParams = new URLSearchParams(scannedUrl.split('?')[1]);
-          sessionId = urlParams.get('s');
-          pin = urlParams.get('p');
-        }
-
-        if (sessionId && pin) {
-          onJoinSession(sessionId, pin);
-        } else {
-          showToast('Invalid QR Code. Missing PIN.', 'error');
-        }
+        processScannedUrl(barcodes[0].displayValue);
       }
     } catch (error) {
       console.error(error);
-      showToast('Error launching scanner', 'error');
+      showToast('Error launching native scanner', 'error');
     }
   };
 
@@ -109,17 +172,36 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
   };
 
   const handleDeleteSession = async (e: React.MouseEvent, delSessionId: string) => {
-    e.stopPropagation(); // Prevents joining the room when clicking the trash can
+    e.stopPropagation();
     if (!window.confirm('Permanently delete this session?')) return;
 
-    // Optimistic UI Removal
     setRecentSessions((prev) => prev.filter((s) => s.id !== delSessionId));
 
-    // A single call to delete the session; the database cascades the rest
     await supabase.from('sessions').delete().eq('id', delSessionId);
-
     showToast('Session deleted', 'success');
   };
+
+  // --- WEB CAMERA FULLSCREEN OVERLAY ---
+  if (isWebScanning) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-6">
+        <button
+          onClick={stopWebScan}
+          className="absolute top-12 right-6 z-50 p-3 bg-white/20 rounded-full text-white backdrop-blur-md transition-colors active:bg-white/40"
+        >
+          <X size={24} />
+        </button>
+        <h2 className="text-white text-xl font-bold mb-8 text-center">Scan Room QR</h2>
+        <div
+          id="qr-reader"
+          className="w-full max-w-sm rounded-3xl overflow-hidden border-2 border-primary bg-black shadow-[0_0_40px_rgba(99,91,255,0.3)]"
+        ></div>
+        <p className="text-white/60 mt-8 text-sm font-medium text-center">
+          Align the QR code within the frame.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page">

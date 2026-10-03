@@ -87,7 +87,7 @@ export default function Profile({ user, onBack }: Props) {
         <p className="text-muted text-sm font-medium">Manage your identity and payments</p>
       </div>
 
-      <form onSubmit={handleSave} className="flex flex-col gap-6 w-full max-w-md mx-auto">
+      <form onSubmit={handleSave} className="flex flex-col gap-6 w-full">
         {/* Public Identity */}
         <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
           <div className="flex items-center gap-2 mb-1">

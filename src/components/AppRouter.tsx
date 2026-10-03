@@ -29,13 +29,14 @@ export default function AppRouter() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user && currentView === 'auth') resolveInitialRoute();
+      // Only resolve the route when explicitly signing in
+      if (event === 'SIGNED_IN') resolveInitialRoute();
     });
 
     return () => subscription.unsubscribe();
-  }, [currentView]);
+  }, []);
 
   const resolveInitialRoute = async () => {
     if (typeof window !== 'undefined') {
