@@ -70,7 +70,7 @@ export default function MembersList(props: Props) {
               onChange={(e) => props.setNewMemberName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && onManualAdd()}
               placeholder="Search or add name..."
-              className="w-full h-11 pl-9 pr-3 text-sm font-medium bg-page border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              className="w-full h-11 pl-10! pr-3 text-sm font-medium bg-page border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
             />
           </div>
           <button

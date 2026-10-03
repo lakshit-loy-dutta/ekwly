@@ -58,7 +58,7 @@ export default function Payments(props: Props) {
                 placeholder="0"
                 min="0"
                 step="0.01"
-                className="w-full h-11 bg-page border border-border rounded-lg pl-8 pr-3 font-semibold text-main focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
+                className="w-full h-11 bg-page border border-border rounded-lg pl-9! pr-3 font-semibold text-main focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
               />
             </div>
           </div>

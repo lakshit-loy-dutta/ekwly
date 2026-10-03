@@ -1,6 +1,6 @@
 import type { CalculationResult } from '../../lib/types';
 import { utils } from '../../lib/utils';
-import { DownloadCloud, LockKeyhole, Unlock } from 'lucide-react';
+import { DownloadCloud, LockKeyhole, Unlock, Home } from 'lucide-react';
 
 interface Props {
   calculationResult: CalculationResult;
@@ -13,6 +13,7 @@ interface Props {
   handleToggleSettled: (id: string, current: boolean) => void;
   handleExportPDF: () => void;
   handleUnlockSession: () => void;
+  handleGoHome: () => void;
 }
 
 export default function DebtMatrix(props: Props) {
@@ -100,6 +101,14 @@ export default function DebtMatrix(props: Props) {
             onClick={props.handleExportPDF}
           >
             <DownloadCloud size={20} className="text-primary" /> Download Receipt
+          </button>
+
+          <button
+            type="button"
+            className="h-12 w-full bg-page active:bg-subtle text-main border border-border rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors shadow-sm"
+            onClick={props.handleGoHome}
+          >
+            <Home size={18} className="text-muted" /> Return to Dashboard
           </button>
 
           {props.isHost && (

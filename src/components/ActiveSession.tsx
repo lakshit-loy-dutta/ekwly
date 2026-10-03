@@ -462,6 +462,7 @@ export default function ActiveSession({
                     sessionRules.serviceChargeRate
                   )
                 }
+                handleGoHome={onExit}
               />
             </motion.div>
           )}

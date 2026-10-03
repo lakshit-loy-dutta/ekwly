@@ -305,15 +305,13 @@ export function useSession(sessionId: string | null) {
   const addTaxPresetToDB = async (preset: TaxPreset) => {
     if (!sessionId) return;
     setTaxPresets((prev) => [...prev, preset]);
-    await supabase
-      .from('tax_presets')
-      .insert({
-        id: preset.id,
-        session_id: sessionId,
-        name: preset.name,
-        rate: preset.rate,
-        split: preset.split,
-      });
+    await supabase.from('tax_presets').insert({
+      id: preset.id,
+      session_id: sessionId,
+      name: preset.name,
+      rate: preset.rate,
+      split: preset.split,
+    });
   };
 
   const removeTaxPresetFromDB = async (id: string) => {
@@ -332,25 +330,18 @@ export function useSession(sessionId: string | null) {
 
     if (user) {
       const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
-      const { data: existing } = await supabase
-        .from('members')
-        .select('id')
-        .eq('session_id', id)
-        .eq('user_id', user.id);
-      if (!existing || existing.length === 0) {
-        await supabase
-          .from('members')
-          .insert({
-            id: utils.generateId(),
-            session_id: id,
-            name: `${hostName} (Host)`,
-            user_id: user.id,
-            paid_amount: 0,
-          });
-      }
+      const hostMemberId = `host-${id}-${user.id}`;
+
+      // Upsert using a deterministic ID completely prevents double inserts
+      await supabase.from('members').upsert({
+        id: hostMemberId,
+        session_id: id,
+        name: `${hostName} (Host)`,
+        user_id: user.id,
+        paid_amount: 0,
+      });
     }
 
-    // Auto-inject default tax presets
     const { data: existingTaxes } = await supabase
       .from('tax_presets')
       .select('id')
@@ -434,17 +425,15 @@ export function useSession(sessionId: string | null) {
   const addItemToDB = async (item: BillItem) => {
     if (!sessionId) return;
     setItems((prev) => [...prev, item]);
-    const { error } = await supabase
-      .from('items')
-      .insert({
-        id: item.id,
-        session_id: sessionId,
-        name: item.name,
-        qty: item.qty,
-        price: item.unitPrice,
-        apply_sc: item.applySC,
-        tax_preset_id: item.taxPresetId,
-      });
+    const { error } = await supabase.from('items').insert({
+      id: item.id,
+      session_id: sessionId,
+      name: item.name,
+      qty: item.qty,
+      price: item.unitPrice,
+      apply_sc: item.applySC,
+      tax_preset_id: item.taxPresetId,
+    });
     if (error) setItems((prev) => prev.filter((i) => i.id !== item.id));
   };
 
