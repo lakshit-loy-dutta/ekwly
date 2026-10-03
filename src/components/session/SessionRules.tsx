@@ -24,7 +24,6 @@ interface Props {
   setNewTaxSplit: (val: boolean) => void;
   handleAddTaxPreset: () => void;
   handleRemoveTaxPreset: (id: string) => void;
-  handleDeleteRoom: () => void;
 }
 
 export default function SessionRules(props: Props) {
@@ -244,19 +243,6 @@ export default function SessionRules(props: Props) {
           Active Presets ({props.taxPresets.length})
         </h3>
       </div>
-
-      {/* DANGER ZONE (NEW) */}
-      {props.isHost && (
-        <div className="px-4 py-8 mt-8 border-t border-border">
-          <button
-            type="button"
-            className="h-12 w-full bg-danger/10 active:bg-danger/20 text-danger rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors"
-            onClick={props.handleDeleteRoom}
-          >
-            <Trash2 size={18} /> Delete Session
-          </button>
-        </div>
-      )}
 
       <div className="bg-surface border-y border-border divide-y divide-border">
         {props.taxPresets.map((t) => (

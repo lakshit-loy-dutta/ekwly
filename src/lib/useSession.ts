@@ -25,6 +25,11 @@ export function useSession(sessionId: string | null) {
   const [members, setMembers] = useState<DBMember[]>([]);
   const [claims, setClaims] = useState<DBClaim[]>([]);
   const [ledger, setLedger] = useState<any[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id || null));
+  }, []);
 
   const fetchSessionData = useCallback(
     async (isBackground = false) => {
@@ -272,6 +277,39 @@ export function useSession(sessionId: string | null) {
     await supabase
       .from('sessions')
       .upsert({ id, status: 'draft', pin: pin, host_id: user?.id || null });
+
+    // Auto-inject the host into the members list
+    if (user) {
+      const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
+      const { data: existing } = await supabase
+        .from('members')
+        .select('id')
+        .eq('session_id', id)
+        .eq('user_id', user.id);
+      if (!existing || existing.length === 0) {
+        await supabase.from('members').insert({
+          id: utils.generateId(),
+          session_id: id,
+          name: `${hostName} (Host)`,
+          user_id: user.id,
+          paid_amount: 0,
+        });
+      }
+    }
+  };
+
+  const claimMemberIdentity = async (memberId: string) => {
+    if (!sessionId) return;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return showToast('Sign in to claim a profile.', 'error');
+    if (members.some((m) => m.user_id === user.id))
+      return showToast('You are already at this table.', 'error');
+
+    setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, user_id: user.id } : m)));
+    await supabase.from('members').update({ user_id: user.id }).eq('id', memberId);
+    showToast('Profile linked successfully!', 'success');
   };
 
   const addItemToDB = async (item: BillItem) => {
@@ -361,6 +399,7 @@ export function useSession(sessionId: string | null) {
     items,
     members,
     claims,
+    currentUserId, // <-- ADDED
     actions: {
       createSessionInDB,
       addItemToDB,
@@ -375,6 +414,7 @@ export function useSession(sessionId: string | null) {
       unlockSessionInDB,
       deleteActiveSessionInDB,
       toggleLedgerSettledInDB,
+      claimMemberIdentity, // <-- ADDED
     },
   };
 }

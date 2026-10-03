@@ -42,9 +42,8 @@ export default function ActiveSession({
 }: Props) {
   const [currentSessionId] = useState<string>(sessionId || utils.generateId());
 
-  const { isLoading, sessionStatus, ledger, items, members, claims, actions } = useSession(
-    sessionId ? currentSessionId : null
-  );
+  const { isLoading, sessionStatus, ledger, items, members, claims, currentUserId, actions } =
+    useSession(sessionId ? currentSessionId : null);
 
   useEffect(() => {
     if (isHost && pin) actions.createSessionInDB?.(currentSessionId, pin);
@@ -94,12 +93,6 @@ export default function ActiveSession({
       if (!qsItemId || !items.find((i) => i.id === qsItemId)) setQsItemId(items[0].id);
     }
   }, [items, qsItemId]);
-
-  const handleDeleteRoom = async () => {
-    if (!window.confirm('Are you sure you want to permanently delete this session?')) return;
-    await actions.deleteActiveSessionInDB?.();
-    onExit(); // FIX: Removed props. prefix
-  };
 
   const handleToggleSc = (checked: boolean) => {
     setIsScApplicable(checked);
@@ -317,7 +310,6 @@ export default function ActiveSession({
                 setNewTaxRate={setNewTaxRate}
                 newTaxSplit={newTaxSplit}
                 setNewTaxSplit={setNewTaxSplit}
-                handleDeleteRoom={handleDeleteRoom}
               />
             </motion.div>
           )}
@@ -370,6 +362,8 @@ export default function ActiveSession({
                 setNewMemberName={setNewMemberName}
                 handleAddMember={handleAddMember}
                 handleRemoveMember={handleRemoveMember}
+                currentUserId={currentUserId}
+                handleClaimProfile={actions.claimMemberIdentity!}
               />
             </motion.div>
           )}

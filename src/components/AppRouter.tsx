@@ -3,13 +3,14 @@ import QRCode from 'react-qr-code';
 import Home from './Home';
 import ActiveSession from './ActiveSession';
 import Auth from './Auth';
+import Profile from './Profile';
 import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
-import { ChevronLeft, User, LogOut, Moon, QrCode } from 'lucide-react';
+import { ChevronLeft, User, LogOut, Moon, QrCode, Home as HomeIcon } from 'lucide-react';
 
 export default function AppRouter() {
-  const [currentView, setCurrentView] = useState<'auth' | 'home' | 'session'>('auth');
+  const [currentView, setCurrentView] = useState<'auth' | 'home' | 'session' | 'profile'>('auth');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
@@ -54,7 +55,6 @@ export default function AppRouter() {
           setCurrentStep(1);
           setCurrentView('session');
         } else if (savedPin) {
-          // Verify Guest PIN via Supabase RPC
           const { data: isValid } = await supabase.rpc('verify_session_pin', {
             p_session_id: sId,
             p_pin: savedPin,
@@ -72,7 +72,6 @@ export default function AppRouter() {
             setCurrentView('home');
           }
         } else {
-          // Deep link missing PIN, kick to Home to enter manually
           window.history.pushState({}, '', window.location.pathname);
           setCurrentView('home');
         }
@@ -84,7 +83,7 @@ export default function AppRouter() {
 
   const handleStartNew = () => {
     const newSessionId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-    const newPin = Math.floor(1000 + Math.random() * 9000).toString(); // Generate 4-digit PIN
+    const newPin = Math.floor(1000 + Math.random() * 9000).toString();
 
     localStorage.setItem(`ekwly_host_${newSessionId}`, 'true');
     localStorage.setItem(`ekwly_pin_${newSessionId}`, newPin);
@@ -153,11 +152,13 @@ export default function AppRouter() {
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
       {currentView !== 'auth' && (
         <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
-          {currentView === 'session' ? (
+          {currentView === 'session' || currentView === 'profile' ? (
             <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
               <button
                 onClick={() => {
-                  if (currentStep > 1 && (isHost || currentStep > 3)) {
+                  if (currentView === 'profile') {
+                    setCurrentView('home');
+                  } else if (currentStep > 1 && (isHost || currentStep > 3)) {
                     navigateStep(currentStep - 1);
                   } else {
                     handleLeaveSession();
@@ -168,11 +169,13 @@ export default function AppRouter() {
                 <ChevronLeft size={24} />
               </button>
               <h1 className="text-[1.05rem] sm:text-[1.1rem] font-semibold text-main tracking-tight truncate">
-                {currentStep === 1 && 'Taxes & Extra Charges'}
-                {currentStep === 2 && 'Receipt Items'}
-                {currentStep === 3 && 'Members'}
-                {currentStep === 4 && 'Claims'}
-                {currentStep === 5 && 'Bill Summary'}
+                {currentView === 'profile' && 'Your Profile'}
+                {currentView === 'session' && currentStep === 1 && 'Taxes & Extra Charges'}
+                {currentView === 'session' && currentStep === 2 && 'Receipt Items'}
+                {currentView === 'session' && currentStep === 3 && 'Members'}
+                {currentView === 'session' && currentStep === 4 && 'Claims'}
+                {currentView === 'session' && currentStep === 5 && 'Payments'}
+                {currentView === 'session' && currentStep === 6 && 'Bill Summary'}
               </h1>
             </div>
           ) : (
@@ -190,12 +193,20 @@ export default function AppRouter() {
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {currentView === 'session' && (
-              <button
-                onClick={() => setIsShareModalOpen(true)}
-                className="p-2 rounded-full text-primary hover:bg-subtle transition-colors"
-              >
-                <QrCode size={20} />
-              </button>
+              <>
+                <button
+                  onClick={() => setIsShareModalOpen(true)}
+                  className="p-2 rounded-full text-primary hover:bg-subtle transition-colors"
+                >
+                  <QrCode size={20} />
+                </button>
+                <button
+                  onClick={handleLeaveSession}
+                  className="p-2 rounded-full text-danger hover:bg-danger/10 transition-colors"
+                >
+                  <HomeIcon size={20} />
+                </button>
+              </>
             )}
             <button
               onClick={toggleNativeTheme}
@@ -231,8 +242,17 @@ export default function AppRouter() {
                     </p>
                   </div>
                   <button
+                    onClick={() => {
+                      setIsProfileOpen(false);
+                      setCurrentView('profile');
+                    }}
+                    className="px-4 py-2 text-left text-sm font-semibold text-main hover:bg-subtle flex items-center gap-2 mx-2 rounded-md transition-colors"
+                  >
+                    <User size={16} className="text-muted" /> Edit Profile
+                  </button>
+                  <button
                     onClick={handleSignOut}
-                    className="px-4 py-2 text-left text-sm font-semibold text-danger hover:bg-danger/10 flex items-center gap-2 mx-2 rounded-md transition-colors"
+                    className="px-4 py-2 text-left text-sm font-semibold text-danger hover:bg-danger/10 flex items-center gap-2 mx-2 rounded-md transition-colors mt-1"
                   >
                     <LogOut size={16} /> Sign Out
                   </button>
@@ -248,6 +268,7 @@ export default function AppRouter() {
         {currentView === 'home' && (
           <Home onStartNew={handleStartNew} onJoinSession={handleJoinSession} user={user} />
         )}
+        {currentView === 'profile' && <Profile user={user} onBack={() => setCurrentView('home')} />}
         {currentView === 'session' && (
           <ActiveSession
             sessionId={activeSessionId}
@@ -256,7 +277,7 @@ export default function AppRouter() {
             currentStep={currentStep}
             direction={direction}
             navigate={navigateStep}
-            onExit={handleLeaveSession} // <-- ADD THIS
+            onExit={handleLeaveSession}
           />
         )}
       </div>
