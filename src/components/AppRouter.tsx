@@ -183,11 +183,11 @@ export default function AppRouter() {
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
       {currentView !== 'auth' && (
         <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
-          {currentView === 'session' || currentView === 'profile' ? (
+          {['session', 'profile', 'friends', 'ledger'].includes(currentView) ? (
             <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
               <button
                 onClick={() => {
-                  if (currentView === 'profile') {
+                  if (['profile', 'friends', 'ledger'].includes(currentView)) {
                     setCurrentView('home');
                   } else if (currentStep > 1 && (isHost || currentStep > 3)) {
                     navigateStep(currentStep - 1);
@@ -201,6 +201,8 @@ export default function AppRouter() {
               </button>
               <h1 className="text-[1.05rem] sm:text-[1.1rem] font-semibold text-main tracking-tight truncate">
                 {currentView === 'profile' && 'Your Profile'}
+                {currentView === 'friends' && 'Friends List'}
+                {currentView === 'ledger' && 'Global Ledger'}
                 {currentView === 'session' && currentStep === 1 && 'Taxes & Extra Charges'}
                 {currentView === 'session' && currentStep === 2 && 'Receipt Items'}
                 {currentView === 'session' && currentStep === 3 && 'Members'}

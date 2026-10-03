@@ -139,7 +139,7 @@ export default function Ledger({ user, onBack }: Props) {
               </div>
               <button
                 onClick={() => handleSettleUp(entry, true)}
-                className="h-9 px-4 bg-success/10 text-success hover:bg-success hover:text-white active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5"
+                className="h-9 px-4 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
               >
                 <CheckCircle2 size={16} /> Settle
               </button>
@@ -178,9 +178,9 @@ export default function Ledger({ user, onBack }: Props) {
               </div>
               <button
                 onClick={() => handleSettleUp(entry, false)}
-                className="h-9 px-4 bg-page border border-border text-main hover:bg-subtle active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
+                className="h-9 px-4 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
               >
-                <CheckCircle2 size={16} className="text-muted" /> Mark Paid
+                <CheckCircle2 size={16} /> Mark Paid
               </button>
             </div>
           ))
