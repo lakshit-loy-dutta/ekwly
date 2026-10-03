@@ -22,7 +22,6 @@ interface Props {
 export default function DebtMatrix(props: Props) {
   const [upiMap, setUpiMap] = useState<Record<string, string>>({});
 
-  // Fetch UPI IDs for anyone who is owed money in this specific session
   useEffect(() => {
     const fetchUpis = async () => {
       if (props.sessionStatus !== 'locked' || props.ledger.length === 0) return;

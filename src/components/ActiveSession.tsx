@@ -52,7 +52,7 @@ export default function ActiveSession({
 
   useEffect(() => {
     if (isHost && pin) actions.createSessionInDB?.(currentSessionId, pin);
-  }, [isHost, currentSessionId, pin, actions]);
+  }, [isHost, currentSessionId, pin]);
 
   const formattedClaims = useMemo(() => {
     const map: Record<string, Record<string, string>> = {};

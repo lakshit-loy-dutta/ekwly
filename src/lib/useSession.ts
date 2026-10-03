@@ -324,32 +324,51 @@ export function useSession(sessionId: string | null) {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    await supabase
+
+    // 1. SAFE SESSION CREATION: Check if it exists before writing so we NEVER overwrite a locked room
+    const { data: existingSession } = await supabase
       .from('sessions')
-      .upsert({ id, status: 'draft', pin: pin, host_id: user?.id || null });
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
 
-    if (user) {
-      const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
-      const hostId = `host-${id}-${user.id}`; // Deterministic ID prevents duplicates
-
-      const newHostMember = {
-        id: hostId,
-        session_id: id,
-        name: `${hostName} (Host)`,
-        user_id: user.id,
-        paid_amount: 0,
-      };
-
-      // Optimistic UI updates the screen instantly without waiting for WebSockets
-      setMembers((prev) => (prev.some((m) => m.id === hostId) ? prev : [...prev, newHostMember]));
-      await supabase.from('members').upsert(newHostMember);
+    if (!existingSession) {
+      await supabase
+        .from('sessions')
+        .insert({ id, status: 'draft', pin: pin, host_id: user?.id || null });
     }
 
-    // Auto-inject default tax presets with Deterministic IDs
+    // 2. SAFE HOST CREATION: Only insert the Host if they aren't already at the table
+    if (user) {
+      const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
+      const hostId = `host-${id}-${user.id}`;
+
+      const { data: existingHost } = await supabase
+        .from('members')
+        .select('id')
+        .eq('id', hostId)
+        .maybeSingle();
+
+      if (!existingHost) {
+        const newHostMember = {
+          id: hostId,
+          session_id: id,
+          name: `${hostName} (Host)`,
+          user_id: user.id,
+          paid_amount: 0,
+        };
+
+        setMembers((prev) => (prev.some((m) => m.id === hostId) ? prev : [...prev, newHostMember]));
+        await supabase.from('members').insert(newHostMember);
+      }
+    }
+
+    // 3. SAFE TAX CREATION
     const { data: existingTaxes } = await supabase
       .from('tax_presets')
       .select('id')
       .eq('session_id', id);
+
     if (!existingTaxes || existingTaxes.length === 0) {
       const defaultTaxes = [
         { id: `tax-gst-${id}`, session_id: id, name: 'Food GST', rate: 5, split: true },
