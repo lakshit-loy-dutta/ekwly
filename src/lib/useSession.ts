@@ -166,7 +166,12 @@ export function useSession(sessionId: string | null) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'ledger', filter: `session_id=eq.${sessionId}` },
         (payload) => {
-          if (payload.eventType === 'INSERT') setLedger((prev) => [...prev, payload.new]);
+          if (payload.eventType === 'INSERT') {
+            // NEW: Explicit check prevents the exact same debt from stacking twice
+            setLedger((prev) =>
+              prev.some((l) => l.id === payload.new.id) ? prev : [...prev, payload.new]
+            );
+          }
           if (payload.eventType === 'UPDATE')
             setLedger((prev) => prev.map((l) => (l.id === payload.new.id ? payload.new : l)));
           if (payload.eventType === 'DELETE')
@@ -490,7 +495,7 @@ export function useSession(sessionId: string | null) {
   const saveLedgerToDB = async (transactions: Transaction[]) => {
     if (!sessionId) return;
 
-    // 1. Wipe the old ledger (This now works thanks to the new SQL policy)
+    // Wipe old math
     await supabase.from('ledger').delete().eq('session_id', sessionId);
 
     const ledgerEntries = transactions.map((t) => ({
@@ -503,9 +508,18 @@ export function useSession(sessionId: string | null) {
       settled: false,
     }));
 
-    // 2. Push to Supabase and let the WebSockets automatically populate the screen
     if (ledgerEntries.length > 0) {
-      await supabase.from('ledger').insert(ledgerEntries);
+      // Use .select() to grab the true inserted rows immediately
+      const { data, error } = await supabase.from('ledger').insert(ledgerEntries).select();
+
+      if (data) {
+        setLedger(data); // Instantly populates the UI before it navigates
+      }
+      if (error) {
+        console.error('Ledger save error:', error);
+      }
+    } else {
+      setLedger([]);
     }
   };
 

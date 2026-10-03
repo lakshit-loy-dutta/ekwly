@@ -98,7 +98,7 @@ export default function Friends({ user, onBack }: Props) {
           <div className="p-10 flex flex-col items-center justify-center text-center">
             <UserPlus size={32} className="text-muted opacity-40 mb-3" />
             <p className="text-main font-bold text-[0.95rem] mb-1">No friends yet</p>
-            <p className="text-muted text-sm max-w-[200px]">
+            <p className="text-muted text-sm max-w-50">
               Share your invite link from your profile to connect with people.
             </p>
           </div>
