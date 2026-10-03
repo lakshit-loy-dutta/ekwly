@@ -77,7 +77,7 @@ export default function QuickSplit(props: Props) {
         <button
           type="button"
           disabled={!props.qsItemId || props.qsSelectedMembers.length === 0}
-          className="h-12 mt-2 w-full bg-main disabled:bg-border disabled:text-muted active:bg-main/80 text-surface rounded-xl font-bold text-[0.95rem] transition-colors shadow-sm"
+          className="h-12 mt-2 w-full bg-primary disabled:bg-border disabled:text-muted active:bg-primary-hover text-white rounded-xl font-bold text-[0.95rem] transition-colors shadow-sm"
           onClick={props.handleApplyQuickSplit}
         >
           Apply Even Split

@@ -122,14 +122,20 @@ export default function DebtMatrix(props: Props) {
                 </div>
 
                 {/* THE PHASE 4 MAGIC: NATIVE UPI DEEP LINK */}
-                {creditorUpi && !l.settled && !amICreditor && (
-                  <a
-                    href={`upi://pay?pa=${creditorUpi}&pn=${encodeURIComponent(l.creditor_name)}&am=${l.amount}&cu=INR`}
-                    className="w-full h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors mt-1"
-                  >
-                    <Smartphone size={18} /> Pay {utils.formatMoney(l.amount)} via UPI
-                  </a>
-                )}
+                {creditorUpi &&
+                  !l.settled &&
+                  (amICreditor ? (
+                    <div className="w-full h-12 bg-subtle text-muted border border-border rounded-xl font-bold text-[0.85rem] flex items-center justify-center gap-2 mt-2">
+                      <Smartphone size={18} /> Guests will see your UPI button here
+                    </div>
+                  ) : (
+                    <a
+                      href={`upi://pay?pa=${creditorUpi}&pn=${encodeURIComponent(l.creditor_name)}&am=${l.amount}&cu=INR`}
+                      className="w-full h-12 bg-primary active:bg-primary-hover text-white rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors mt-2 shadow-sm"
+                    >
+                      <Smartphone size={18} /> Pay {utils.formatMoney(l.amount)} via UPI
+                    </a>
+                  ))}
               </div>
             );
           })}

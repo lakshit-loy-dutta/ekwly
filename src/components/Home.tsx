@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
 import { Html5Qrcode } from 'html5-qrcode';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
@@ -20,7 +21,7 @@ import {
 interface Props {
   onStartNew: () => void;
   onJoinSession: (sessionId: string, pin: string) => void;
-  user: any;
+  user: SupabaseUser | null;
 }
 
 export default function Home({ onStartNew, onJoinSession, user }: Props) {

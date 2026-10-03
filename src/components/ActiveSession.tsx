@@ -1,11 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, QrCode, Moon } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import type { CalculationResult } from '../lib/types';
 import { utils, showToast } from '../lib/utils';
 import { exportToPDF } from '../lib/pdf';
-import { useSession } from '../lib/useSession';
 import { mathEngine } from '../lib/mathEngine';
+import { SessionProvider, useSessionContext } from '../lib/SessionContext';
 
 import SessionRules from './session/SessionRules';
 import ReceiptEditor from './session/ReceiptEditor';
@@ -25,18 +25,15 @@ interface Props {
   onExit: () => void;
 }
 
-export default function ActiveSession({
+// 1. INNER COMPONENT: Consumes the global context cleanly
+function ActiveSessionCore({
   sessionId,
   pin,
-  isHost,
   currentStep,
   direction,
   navigate,
   onExit,
-}: Props) {
-  const [currentSessionId] = useState<string>(sessionId || utils.generateId());
-
-  // 1. Hook into Global Database State
+}: Props & { sessionId: string }) {
   const {
     isLoading,
     sessionStatus,
@@ -47,12 +44,17 @@ export default function ActiveSession({
     members,
     claims,
     currentUserId,
+    isHost,
     actions,
-  } = useSession(sessionId ? currentSessionId : null);
+  } = useSessionContext();
 
+  // Safe Room Initialization
   useEffect(() => {
-    if (isHost && pin) actions.createSessionInDB?.(currentSessionId, pin);
-  }, [isHost, currentSessionId, pin]);
+    if (isHost && pin && sessionId) {
+      actions.createSessionInDB?.(sessionId, pin);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHost, sessionId, pin]);
 
   const formattedClaims = useMemo(() => {
     const map: Record<string, Record<string, string>> = {};
@@ -66,47 +68,10 @@ export default function ActiveSession({
     return map;
   }, [claims, members]);
 
-  // 2. Local State for Fast Typing Inputs (Debounced to DB)
-  const [localDiscount, setLocalDiscount] = useState<string>('');
-  const [localScRate, setLocalScRate] = useState<number>(0);
-
-  useEffect(() => {
-    setLocalDiscount(sessionRules.discountValue);
-  }, [sessionRules.discountValue]);
-  useEffect(() => {
-    setLocalScRate(sessionRules.serviceChargeRate * 100);
-  }, [sessionRules.serviceChargeRate]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localDiscount !== sessionRules.discountValue)
-        actions.updateSessionRulesInDB({ discountValue: localDiscount });
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [localDiscount, sessionRules.discountValue]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const parsed = localScRate / 100;
-      if (parsed !== sessionRules.serviceChargeRate)
-        actions.updateSessionRulesInDB({ serviceChargeRate: parsed });
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [localScRate, sessionRules.serviceChargeRate]);
-
-  // 3. UI Component States
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [receiptTitle, setReceiptTitle] = useState<string>('');
-  const [newTaxName, setNewTaxName] = useState<string>('');
-  const [newTaxRate, setNewTaxRate] = useState<string>('');
-  const [newTaxSplit, setNewTaxSplit] = useState<boolean>(true);
-  const [newItemName, setNewItemName] = useState<string>('');
-  const [newItemQty, setNewItemQty] = useState<number>(1);
-  const [newItemPrice, setNewItemPrice] = useState<string>('');
-  const [newItemTaxId, setNewItemTaxId] = useState<string>('tx-1');
-  const [newItemApplySC, setNewItemApplySC] = useState<boolean>(true);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [newMemberName, setNewMemberName] = useState<string>('');
+
+  // Quick Split State (Needs to stay here because it spans multiple components in Step 4)
   const [qsItemId, setQsItemId] = useState<string>('');
   const [qsSelectedMembers, setQsSelectedMembers] = useState<string[]>([]);
 
@@ -114,91 +79,6 @@ export default function ActiveSession({
     if (items.length > 0 && (!qsItemId || !items.find((i) => i.id === qsItemId)))
       setQsItemId(items[0].id);
   }, [items, qsItemId]);
-
-  // 4. Input Handlers
-  const handleAddTaxPreset = () => {
-    const rate = parseFloat(newTaxRate);
-    if (!newTaxName.trim()) return showToast('Preset name is required.', 'error');
-    if (isNaN(rate) || rate < 0) return showToast('Valid tax rate is required.', 'error');
-    actions.addTaxPresetToDB({
-      id: utils.generateId(),
-      name: newTaxName.trim(),
-      rate,
-      split: newTaxSplit,
-    });
-    setNewTaxName('');
-    setNewTaxRate('');
-    setNewTaxSplit(true);
-    showToast(`Added preset.`, 'success');
-  };
-
-  const handleSaveItem = () => {
-    const priceParsed = parseFloat(newItemPrice);
-    if (!newItemName.trim() || newItemQty <= 0 || isNaN(priceParsed) || priceParsed < 0)
-      return showToast('Fill all fields correctly.', 'error');
-    const preset = taxPresets.find((t) => t.id === newItemTaxId);
-    const taxRate = preset ? preset.rate / 100 : 0;
-    const totalBase = newItemQty * priceParsed;
-
-    if (editingItemId) {
-      actions.updateItemInDB?.({
-        id: editingItemId,
-        name: newItemName.trim(),
-        qty: newItemQty,
-        unitPrice: priceParsed,
-        taxRate,
-        taxPresetId: newItemTaxId,
-        applySC: newItemApplySC,
-        totalBase,
-      });
-      setEditingItemId(null);
-    } else {
-      const newItem = {
-        id: utils.generateId(),
-        name: newItemName.trim(),
-        qty: newItemQty,
-        unitPrice: priceParsed,
-        taxRate,
-        taxPresetId: newItemTaxId,
-        applySC: newItemApplySC,
-        totalBase,
-      };
-      actions.addItemToDB?.(newItem);
-      if (!qsItemId) setQsItemId(newItem.id);
-    }
-    setNewItemName('');
-    setNewItemQty(1);
-    setNewItemPrice('');
-  };
-
-  const handleEditItem = (id: string) => {
-    const item = items.find((i) => i.id === id);
-    if (!item) return;
-    setNewItemName(item.name);
-    setNewItemQty(item.qty);
-    setNewItemPrice(item.unitPrice.toString());
-    setNewItemTaxId(item.taxPresetId);
-    setNewItemApplySC(item.applySC);
-    setEditingItemId(id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleRemoveItem = (id: string) => {
-    actions.removeItemFromDB?.(id);
-    if (qsItemId === id) setQsItemId('');
-  };
-
-  const handleAddMember = async (selectedName?: string, selectedUserId?: string) => {
-    const finalName = selectedName || newMemberName;
-    if (!finalName.trim()) return showToast('Name cannot be empty.', 'error');
-    await actions.addMemberToDB(finalName, selectedUserId);
-    setNewMemberName('');
-  };
-
-  const handleRemoveMember = (id: string) => {
-    actions.removeMemberFromDB(id);
-    setQsSelectedMembers(qsSelectedMembers.filter((mid) => mid !== id));
-  };
 
   const toggleQsMember = (id: string) => {
     setQsSelectedMembers((prev) =>
@@ -222,7 +102,6 @@ export default function ActiveSession({
     showToast(`Divided evenly.`, 'success');
   };
 
-  // 5. Math Engine Triggers
   const triggerMathCalculation = () => {
     return mathEngine.generateSplit({
       items,
@@ -254,10 +133,14 @@ export default function ActiveSession({
 
   useEffect(() => {
     if (sessionStatus === 'locked' && items.length > 0 && members.length > 0) {
-      if (!calculationResult) setCalculationResult(triggerMathCalculation());
-      if (currentStep !== 6) navigate(6);
+      setCalculationResult(triggerMathCalculation());
     }
-  }, [sessionStatus, items, members]);
+  }, [sessionStatus, items, members, formattedClaims, sessionRules, taxPresets]);
+
+  useEffect(() => {
+    if (sessionStatus === 'locked' && currentStep !== 6) navigate(6);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionStatus]);
 
   const isSplitComplete =
     items.length > 0 &&
@@ -295,35 +178,7 @@ export default function ActiveSession({
               exit="exit"
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             >
-              <SessionRules
-                isHost={isHost}
-                isScApplicable={sessionRules.isScApplicable}
-                handleToggleSc={(checked) =>
-                  actions.updateSessionRulesInDB({
-                    isScApplicable: checked,
-                    ...(!checked ? { serviceChargeRate: 0, scTaxPresetId: 'none' } : {}),
-                  })
-                }
-                serviceChargeRate={localScRate}
-                setServiceChargeRate={setLocalScRate}
-                scTaxPresetId={sessionRules.scTaxPresetId}
-                setScTaxPresetId={(val) => actions.updateSessionRulesInDB({ scTaxPresetId: val })}
-                discountType={sessionRules.discountType}
-                setDiscountType={(val) => actions.updateSessionRulesInDB({ discountType: val })}
-                discountValue={localDiscount}
-                setDiscountValue={setLocalDiscount}
-                discountMode={sessionRules.discountMode}
-                setDiscountMode={(val) => actions.updateSessionRulesInDB({ discountMode: val })}
-                taxPresets={taxPresets}
-                handleAddTaxPreset={handleAddTaxPreset}
-                handleRemoveTaxPreset={actions.removeTaxPresetFromDB}
-                newTaxName={newTaxName}
-                setNewTaxName={setNewTaxName}
-                newTaxRate={newTaxRate}
-                setNewTaxRate={setNewTaxRate}
-                newTaxSplit={newTaxSplit}
-                setNewTaxSplit={setNewTaxSplit}
-              />
+              <SessionRules />
             </motion.div>
           )}
           {currentStep === 2 && (
@@ -336,27 +191,7 @@ export default function ActiveSession({
               exit="exit"
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             >
-              <ReceiptEditor
-                isHost={isHost}
-                items={items}
-                taxPresets={taxPresets}
-                serviceChargeRate={sessionRules.serviceChargeRate}
-                scTaxPresetId={sessionRules.scTaxPresetId}
-                newItemName={newItemName}
-                setNewItemName={setNewItemName}
-                newItemQty={newItemQty}
-                setNewItemQty={setNewItemQty}
-                newItemPrice={newItemPrice}
-                setNewItemPrice={setNewItemPrice}
-                newItemTaxId={newItemTaxId}
-                setNewItemTaxId={setNewItemTaxId}
-                newItemApplySC={newItemApplySC}
-                setNewItemApplySC={setNewItemApplySC}
-                editingItemId={editingItemId}
-                handleSaveItem={handleSaveItem}
-                handleEditItem={handleEditItem}
-                handleRemoveItem={handleRemoveItem}
-              />
+              <ReceiptEditor />
             </motion.div>
           )}
           {currentStep === 3 && (
@@ -369,15 +204,7 @@ export default function ActiveSession({
               exit="exit"
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             >
-              <MembersList
-                members={members}
-                newMemberName={newMemberName}
-                setNewMemberName={setNewMemberName}
-                handleAddMember={handleAddMember}
-                handleRemoveMember={handleRemoveMember}
-                currentUserId={currentUserId}
-                handleClaimProfile={actions.claimMemberIdentity}
-              />
+              <MembersList />
             </motion.div>
           )}
           {currentStep === 4 && (
@@ -528,5 +355,16 @@ export default function ActiveSession({
         </div>
       )}
     </div>
+  );
+}
+
+// 2. OUTER COMPONENT: Wraps the core in the Context Provider
+export default function ActiveSession(props: Props) {
+  const [currentSessionId] = useState<string>(props.sessionId || utils.generateId());
+
+  return (
+    <SessionProvider sessionId={currentSessionId} isHost={props.isHost}>
+      <ActiveSessionCore {...props} sessionId={currentSessionId} />
+    </SessionProvider>
   );
 }

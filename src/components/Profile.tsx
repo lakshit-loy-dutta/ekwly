@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
 import { User, ShieldCheck, CreditCard, Mail, Smartphone, Loader2 } from 'lucide-react';
 
 interface Props {
-  user: any;
+  user: SupabaseUser | null;
   onBack: () => void;
 }
 
@@ -40,6 +41,7 @@ export default function Profile({ user, onBack }: Props) {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     if (!name.trim()) return showToast('Display name is required', 'error');
 
     setIsSaving(true);

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import QRCode from 'react-qr-code';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import Home from './Home';
 import ActiveSession from './ActiveSession';
 import Auth from './Auth';
@@ -14,7 +15,7 @@ export default function AppRouter() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   const [currentStep, setCurrentStep] = useState<number>(1);
