@@ -59,9 +59,12 @@ export const exportToPDF = (
 
     const scTaxPreset = taxPresets.find((t) => t.id === scTaxPresetId);
     const masterTableData = items.map((i) => {
+      const preset = taxPresets.find((t) => t.id === i.taxPresetId);
+      const dynamicTaxRate = preset ? preset.rate / 100 : 0;
+
       const finalTotal =
         i.totalBase +
-        i.totalBase * i.taxRate +
+        i.totalBase * dynamicTaxRate +
         (i.applySC
           ? i.totalBase * serviceChargeRate * (1 + (scTaxPreset ? scTaxPreset.rate / 100 : 0))
           : 0);
@@ -69,7 +72,7 @@ export const exportToPDF = (
         i.name,
         i.qty.toString(),
         `Rs. ${i.unitPrice.toFixed(2)}`,
-        `${(i.taxRate * 100).toFixed(1).replace(/\.0$/, '')}% ${i.applySC ? '+ SC' : ''}`,
+        `${(dynamicTaxRate * 100).toFixed(1).replace(/\.0$/, '')}% ${i.applySC ? '+ SC' : ''}`,
         `Rs. ${finalTotal.toFixed(2)}`,
       ];
     });

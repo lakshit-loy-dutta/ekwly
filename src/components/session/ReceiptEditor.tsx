@@ -170,10 +170,12 @@ export default function ReceiptEditor() {
           <div className="p-8 text-center text-muted text-sm">No items added yet.</div>
         ) : (
           items.map((item) => {
-            const itemTaxAmount = item.totalBase * item.taxRate;
+            const taxPreset = taxPresets.find((t) => t.id === item.taxPresetId);
+            const dynamicTaxRate = taxPreset ? taxPreset.rate / 100 : 0;
+
+            const itemTaxAmount = item.totalBase * dynamicTaxRate;
             const itemSC = item.applySC ? item.totalBase * sessionRules.serviceChargeRate : 0;
             const finalItemTotal = item.totalBase + itemTaxAmount + itemSC;
-            const taxPreset = taxPresets.find((t) => t.id === item.taxPresetId);
             const taxName = taxPreset ? `${taxPreset.name} (${taxPreset.rate}%)` : 'Custom Tax';
 
             return (

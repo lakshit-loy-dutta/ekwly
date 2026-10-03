@@ -501,7 +501,7 @@ export function useSession(sessionId: string | null) {
       settled: false,
     }));
 
-    setLedger(ledgerEntries.map((l) => ({ ...l, id: utils.generateId() })));
+    // REMOVED setLedger(...) to stop the WebSocket collision
     if (ledgerEntries.length > 0) await supabase.from('ledger').insert(ledgerEntries);
   };
 

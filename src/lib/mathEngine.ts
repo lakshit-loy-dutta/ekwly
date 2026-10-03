@@ -84,17 +84,18 @@ export const mathEngine = {
 
     items.forEach((item) => {
       const effectiveBase = item.totalBase * preTaxMultiplier;
-      const itemTaxAmount = effectiveBase * item.taxRate;
+      const preset = taxPresets.find((t) => t.id === item.taxPresetId);
+      const dynamicTaxRate = preset ? preset.rate / 100 : 0;
+
+      const itemTaxAmount = effectiveBase * dynamicTaxRate;
       const itemSC = item.applySC ? effectiveBase * serviceChargeRate : 0;
       const itemSCTaxAmount = scTaxPreset && itemSC > 0 ? itemSC * (scTaxPreset.rate / 100) : 0;
+
       globalSummary.totalQty += item.qty;
       globalSummary.subTotal += effectiveBase;
       globalSummary.serviceCharge += itemSC;
-      addTaxToBreakdown(
-        taxPresets.find((t) => t.id === item.taxPresetId),
-        itemTaxAmount,
-        'Other Tax'
-      );
+
+      addTaxToBreakdown(preset, itemTaxAmount, 'Other Tax');
       addTaxToBreakdown(scTaxPreset, itemSCTaxAmount, 'S.C. Tax');
     });
 
@@ -120,12 +121,17 @@ export const mathEngine = {
         const consumedQty = utils.parseQty(formattedClaims[member.id]?.[item.id] || '');
         if (consumedQty > 0) {
           const effectiveBaseShare = (consumedQty / item.qty) * item.totalBase * preTaxMultiplier;
-          const itemTaxShare = effectiveBaseShare * item.taxRate;
+          const preset = taxPresets.find((t) => t.id === item.taxPresetId);
+          const dynamicTaxRate = preset ? preset.rate / 100 : 0;
+
+          const itemTaxAmount = effectiveBaseShare * dynamicTaxRate;
           const scShare = item.applySC ? effectiveBaseShare * serviceChargeRate : 0;
           const scTaxShare = scTaxPreset && scShare > 0 ? scShare * (scTaxPreset.rate / 100) : 0;
-          const finalCostShare = effectiveBaseShare + itemTaxShare;
+
+          const finalCostShare = effectiveBaseShare + itemTaxAmount;
           subtotal += finalCostShare;
           totalScAmount += scShare + scTaxShare;
+
           consumedItems.push({
             name: item.name,
             qtyString: formattedClaims[member.id]?.[item.id] || consumedQty.toString(),
