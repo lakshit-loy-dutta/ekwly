@@ -330,28 +330,34 @@ export function useSession(sessionId: string | null) {
 
     if (user) {
       const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
-      const hostMemberId = `host-${id}-${user.id}`;
+      const hostId = `host-${id}-${user.id}`; // Deterministic ID prevents duplicates
 
-      // Upsert using a deterministic ID completely prevents double inserts
-      await supabase.from('members').upsert({
-        id: hostMemberId,
+      const newHostMember = {
+        id: hostId,
         session_id: id,
         name: `${hostName} (Host)`,
         user_id: user.id,
         paid_amount: 0,
-      });
+      };
+
+      // Optimistic UI updates the screen instantly without waiting for WebSockets
+      setMembers((prev) => (prev.some((m) => m.id === hostId) ? prev : [...prev, newHostMember]));
+      await supabase.from('members').upsert(newHostMember);
     }
 
+    // Auto-inject default tax presets with Deterministic IDs
     const { data: existingTaxes } = await supabase
       .from('tax_presets')
       .select('id')
       .eq('session_id', id);
     if (!existingTaxes || existingTaxes.length === 0) {
-      await supabase.from('tax_presets').insert([
-        { id: utils.generateId(), session_id: id, name: 'Food GST', rate: 5, split: true },
-        { id: utils.generateId(), session_id: id, name: 'Alcohol VAT', rate: 6, split: false },
-        { id: utils.generateId(), session_id: id, name: 'Exempt', rate: 0, split: false },
-      ]);
+      const defaultTaxes = [
+        { id: `tax-gst-${id}`, session_id: id, name: 'Food GST', rate: 5, split: true },
+        { id: `tax-vat-${id}`, session_id: id, name: 'Alcohol VAT', rate: 6, split: false },
+        { id: `tax-exempt-${id}`, session_id: id, name: 'Exempt', rate: 0, split: false },
+      ];
+      setTaxPresets((prev) => (prev.length > 0 ? prev : defaultTaxes));
+      await supabase.from('tax_presets').upsert(defaultTaxes);
     }
   };
 
@@ -462,6 +468,7 @@ export function useSession(sessionId: string | null) {
   const saveLedgerToDB = async (transactions: any[]) => {
     if (!sessionId) return;
     await supabase.from('ledger').delete().eq('session_id', sessionId);
+
     const ledgerEntries = transactions.map((t) => ({
       session_id: sessionId,
       creditor_id: t.creditor_id || null,
@@ -469,8 +476,10 @@ export function useSession(sessionId: string | null) {
       debtor_id: t.debtor_id || null,
       debtor_name: t.debtor_name,
       amount: t.amount,
+      settled: false,
     }));
-    setLedger(ledgerEntries.map((l) => ({ ...l, id: utils.generateId(), settled: false })));
+
+    setLedger(ledgerEntries.map((l) => ({ ...l, id: utils.generateId() })));
     if (ledgerEntries.length > 0) await supabase.from('ledger').insert(ledgerEntries);
   };
 

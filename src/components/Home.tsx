@@ -297,15 +297,19 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
                   </div>
                   <div className="flex flex-col min-w-0">
                     <span className="font-bold text-main text-[0.95rem] truncate">
-                      Session {session.id.toUpperCase()}
-                    </span>
-                    <span className="text-xs text-muted font-medium mt-0.5">
                       {new Date(session.created_at).toLocaleDateString(undefined, {
+                        weekday: 'short',
                         month: 'short',
                         day: 'numeric',
+                      })}{' '}
+                      Session
+                    </span>
+                    <span className="text-xs text-muted font-medium mt-0.5">
+                      {new Date(session.created_at).toLocaleTimeString(undefined, {
                         hour: 'numeric',
                         minute: '2-digit',
-                      })}
+                      })}{' '}
+                      • Room ID: {session.id.toUpperCase()}
                     </span>
                   </div>
                 </div>
