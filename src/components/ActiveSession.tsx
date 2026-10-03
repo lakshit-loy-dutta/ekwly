@@ -1,13 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, QrCode, Moon, Trash2 } from 'lucide-react';
-import type {
-  TaxPreset,
-  BillItem,
-  IndividualBreakdown,
-  GlobalSummary,
-  CalculationResult,
-} from '../lib/types';
+import { ChevronLeft, ChevronRight, QrCode, Moon } from 'lucide-react';
+import type { CalculationResult } from '../lib/types';
 import { utils, showToast } from '../lib/utils';
 import { exportToPDF } from '../lib/pdf';
 import { useSession } from '../lib/useSession';
@@ -42,8 +36,19 @@ export default function ActiveSession({
 }: Props) {
   const [currentSessionId] = useState<string>(sessionId || utils.generateId());
 
-  const { isLoading, sessionStatus, ledger, items, members, claims, currentUserId, actions } =
-    useSession(sessionId ? currentSessionId : null);
+  // 1. Hook into Global Database State
+  const {
+    isLoading,
+    sessionStatus,
+    sessionRules,
+    taxPresets,
+    ledger,
+    items,
+    members,
+    claims,
+    currentUserId,
+    actions,
+  } = useSession(sessionId ? currentSessionId : null);
 
   useEffect(() => {
     if (isHost && pin) actions.createSessionInDB?.(currentSessionId, pin);
@@ -61,18 +66,35 @@ export default function ActiveSession({
     return map;
   }, [claims, members]);
 
-  const [serviceChargeRate, setServiceChargeRate] = useState<number>(0);
-  const [isScApplicable, setIsScApplicable] = useState<boolean>(false);
-  const [scTaxPresetId, setScTaxPresetId] = useState<string>('none');
-  const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'flat'>('none');
-  const [discountValue, setDiscountValue] = useState<string>('');
-  const [discountMode, setDiscountMode] = useState<'pre-tax' | 'post-tax'>('post-tax');
-  const [taxPresets, setTaxPresets] = useState<TaxPreset[]>([
-    { id: 'tx-1', name: 'Food GST', rate: 5, split: true },
-    { id: 'tx-2', name: 'Alcohol VAT', rate: 6, split: false },
-    { id: 'tx-4', name: 'Exempt', rate: 0, split: false },
-  ]);
+  // 2. Local State for Fast Typing Inputs (Debounced to DB)
+  const [localDiscount, setLocalDiscount] = useState<string>('');
+  const [localScRate, setLocalScRate] = useState<number>(0);
 
+  useEffect(() => {
+    setLocalDiscount(sessionRules.discountValue);
+  }, [sessionRules.discountValue]);
+  useEffect(() => {
+    setLocalScRate(sessionRules.serviceChargeRate * 100);
+  }, [sessionRules.serviceChargeRate]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localDiscount !== sessionRules.discountValue)
+        actions.updateSessionRulesInDB({ discountValue: localDiscount });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localDiscount, sessionRules.discountValue]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const parsed = localScRate / 100;
+      if (parsed !== sessionRules.serviceChargeRate)
+        actions.updateSessionRulesInDB({ serviceChargeRate: parsed });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localScRate, sessionRules.serviceChargeRate]);
+
+  // 3. UI Component States
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [receiptTitle, setReceiptTitle] = useState<string>('');
   const [newTaxName, setNewTaxName] = useState<string>('');
@@ -89,37 +111,25 @@ export default function ActiveSession({
   const [qsSelectedMembers, setQsSelectedMembers] = useState<string[]>([]);
 
   useEffect(() => {
-    if (items.length > 0) {
-      if (!qsItemId || !items.find((i) => i.id === qsItemId)) setQsItemId(items[0].id);
-    }
+    if (items.length > 0 && (!qsItemId || !items.find((i) => i.id === qsItemId)))
+      setQsItemId(items[0].id);
   }, [items, qsItemId]);
 
-  const handleToggleSc = (checked: boolean) => {
-    setIsScApplicable(checked);
-    if (!checked) {
-      setServiceChargeRate(0);
-      setScTaxPresetId('none');
-    }
-  };
-
+  // 4. Input Handlers
   const handleAddTaxPreset = () => {
     const rate = parseFloat(newTaxRate);
     if (!newTaxName.trim()) return showToast('Preset name is required.', 'error');
     if (isNaN(rate) || rate < 0) return showToast('Valid tax rate is required.', 'error');
-    setTaxPresets([
-      ...taxPresets,
-      { id: utils.generateId(), name: newTaxName.trim(), rate, split: newTaxSplit },
-    ]);
+    actions.addTaxPresetToDB({
+      id: utils.generateId(),
+      name: newTaxName.trim(),
+      rate,
+      split: newTaxSplit,
+    });
     setNewTaxName('');
     setNewTaxRate('');
     setNewTaxSplit(true);
     showToast(`Added preset.`, 'success');
-  };
-
-  const handleRemoveTaxPreset = (id: string) => {
-    if (taxPresets.length <= 1) return showToast('You must have at least one tax preset.', 'error');
-    setTaxPresets(taxPresets.filter((t) => t.id !== id));
-    if (scTaxPresetId === id) setScTaxPresetId('none');
   };
 
   const handleSaveItem = () => {
@@ -181,9 +191,8 @@ export default function ActiveSession({
   const handleAddMember = async (selectedName?: string, selectedUserId?: string) => {
     const finalName = selectedName || newMemberName;
     if (!finalName.trim()) return showToast('Name cannot be empty.', 'error');
-
     await actions.addMemberToDB(finalName, selectedUserId);
-    setNewMemberName(''); // Clear the input field after adding
+    setNewMemberName('');
   };
 
   const handleRemoveMember = (id: string) => {
@@ -213,19 +222,18 @@ export default function ActiveSession({
     showToast(`Divided evenly.`, 'success');
   };
 
-  // --- SPLITWISE GREEDY ALGORITHM ---
-  // --- MATH ENGINE DELEGATION ---
+  // 5. Math Engine Triggers
   const triggerMathCalculation = () => {
     return mathEngine.generateSplit({
       items,
       members,
       formattedClaims,
-      discountType,
-      discountMode,
-      discountValue,
+      discountType: sessionRules.discountType,
+      discountMode: sessionRules.discountMode,
+      discountValue: sessionRules.discountValue,
       taxPresets,
-      scTaxPresetId,
-      serviceChargeRate,
+      scTaxPresetId: sessionRules.scTaxPresetId,
+      serviceChargeRate: sessionRules.serviceChargeRate,
     });
   };
 
@@ -233,17 +241,15 @@ export default function ActiveSession({
     const totalPaid = members.reduce((sum, m) => sum + (m.paid_amount || 0), 0);
     const grandTotal = calculationResult!.globalSummary.grandTotal;
 
-    if (Math.abs(totalPaid - grandTotal) > 0.05) {
+    if (Math.abs(totalPaid - grandTotal) > 0.05)
       return showToast('Payments must equal the Grand Total.', 'error');
-    }
 
     const transactions = mathEngine.generateTransactions(
       members,
       calculationResult!.individualBreakdowns
     );
-
     if (isHost) actions.saveLedgerToDB?.(transactions);
-    navigate(6); // Move to Debt Matrix
+    navigate(6);
   };
 
   useEffect(() => {
@@ -291,21 +297,26 @@ export default function ActiveSession({
             >
               <SessionRules
                 isHost={isHost}
-                isScApplicable={isScApplicable}
-                handleToggleSc={handleToggleSc}
-                serviceChargeRate={serviceChargeRate}
-                setServiceChargeRate={setServiceChargeRate}
-                scTaxPresetId={scTaxPresetId}
-                setScTaxPresetId={setScTaxPresetId}
-                discountType={discountType}
-                setDiscountType={setDiscountType}
-                discountValue={discountValue}
-                setDiscountValue={setDiscountValue}
-                discountMode={discountMode}
-                setDiscountMode={setDiscountMode}
+                isScApplicable={sessionRules.isScApplicable}
+                handleToggleSc={(checked) =>
+                  actions.updateSessionRulesInDB({
+                    isScApplicable: checked,
+                    ...(!checked ? { serviceChargeRate: 0, scTaxPresetId: 'none' } : {}),
+                  })
+                }
+                serviceChargeRate={localScRate}
+                setServiceChargeRate={setLocalScRate}
+                scTaxPresetId={sessionRules.scTaxPresetId}
+                setScTaxPresetId={(val) => actions.updateSessionRulesInDB({ scTaxPresetId: val })}
+                discountType={sessionRules.discountType}
+                setDiscountType={(val) => actions.updateSessionRulesInDB({ discountType: val })}
+                discountValue={localDiscount}
+                setDiscountValue={setLocalDiscount}
+                discountMode={sessionRules.discountMode}
+                setDiscountMode={(val) => actions.updateSessionRulesInDB({ discountMode: val })}
                 taxPresets={taxPresets}
                 handleAddTaxPreset={handleAddTaxPreset}
-                handleRemoveTaxPreset={handleRemoveTaxPreset}
+                handleRemoveTaxPreset={actions.removeTaxPresetFromDB}
                 newTaxName={newTaxName}
                 setNewTaxName={setNewTaxName}
                 newTaxRate={newTaxRate}
@@ -329,8 +340,8 @@ export default function ActiveSession({
                 isHost={isHost}
                 items={items}
                 taxPresets={taxPresets}
-                serviceChargeRate={serviceChargeRate}
-                scTaxPresetId={scTaxPresetId}
+                serviceChargeRate={sessionRules.serviceChargeRate}
+                scTaxPresetId={sessionRules.scTaxPresetId}
                 newItemName={newItemName}
                 setNewItemName={setNewItemName}
                 newItemQty={newItemQty}
@@ -365,7 +376,7 @@ export default function ActiveSession({
                 handleAddMember={handleAddMember}
                 handleRemoveMember={handleRemoveMember}
                 currentUserId={currentUserId}
-                handleClaimProfile={actions.claimMemberIdentity!}
+                handleClaimProfile={actions.claimMemberIdentity}
               />
             </motion.div>
           )}
@@ -447,8 +458,8 @@ export default function ActiveSession({
                     receiptTitle,
                     items,
                     taxPresets,
-                    scTaxPresetId,
-                    serviceChargeRate
+                    sessionRules.scTaxPresetId,
+                    sessionRules.serviceChargeRate
                   )
                 }
               />
