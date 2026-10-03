@@ -75,6 +75,11 @@ function ActiveSessionCore({
   const [qsItemId, setQsItemId] = useState<string>('');
   const [qsSelectedMembers, setQsSelectedMembers] = useState<string[]>([]);
 
+  // Clean up ghost selections if a member is deleted
+  useEffect(() => {
+    setQsSelectedMembers((prev) => prev.filter((id) => members.some((m) => m.id === id)));
+  }, [members]);
+
   useEffect(() => {
     if (items.length > 0 && (!qsItemId || !items.find((i) => i.id === qsItemId)))
       setQsItemId(items[0].id);

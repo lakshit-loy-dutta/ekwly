@@ -226,7 +226,7 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
         <div className="bg-primary text-white rounded-2xl p-5 mb-6 shadow-stripe flex flex-col gap-4">
           <div className="flex justify-between items-end">
             <div className="flex flex-col">
-              <span className="text-primary-light/80 text-xs font-bold uppercase tracking-wider mb-1">
+              <span className="text-white/80 text-xs font-bold uppercase tracking-wider mb-1">
                 Total Owed to You
               </span>
               <span className="text-3xl font-bold tracking-tight">
@@ -236,7 +236,7 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
           </div>
           <div className="h-px w-full bg-white/20"></div>
           <div className="flex justify-between items-center">
-            <span className="text-primary-light/80 text-sm font-medium">You Owe Others</span>
+            <span className="text-white/80 text-sm font-medium">You Owe Others</span>
             <span className="font-semibold">{utils.formatMoney(iOwe)}</span>
           </div>
         </div>

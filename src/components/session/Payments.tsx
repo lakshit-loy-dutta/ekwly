@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
 import { AlertCircle } from 'lucide-react';
@@ -7,6 +8,43 @@ interface Props {
   members: DBMember[];
   grandTotal: number;
   handleUpdatePayment: (memberId: string, amount: string) => void;
+}
+
+// Mobile-First Input Shield: Prevents DB broadcasts from erasing decimals mid-keystroke
+function PaymentInput({
+  m,
+  isHost,
+  onChange,
+}: {
+  m: DBMember;
+  isHost: boolean;
+  onChange: (val: string) => void;
+}) {
+  const [localVal, setLocalVal] = useState(m.paid_amount ? m.paid_amount.toString() : '');
+
+  useEffect(() => {
+    const parsedLocal = parseFloat(localVal) || 0;
+    if (Math.abs(parsedLocal - (m.paid_amount || 0)) > 0.01) {
+      setLocalVal(m.paid_amount ? m.paid_amount.toString() : '');
+    }
+  }, [m.paid_amount]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalVal(e.target.value);
+    onChange(e.target.value);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      disabled={!isHost}
+      value={localVal}
+      onChange={handleChange}
+      placeholder="0.00"
+      className="w-full h-11 bg-page border border-border rounded-lg pl-9! pr-3 font-semibold text-main focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
+    />
+  );
 }
 
 export default function Payments(props: Props) {
@@ -19,11 +57,10 @@ export default function Payments(props: Props) {
   return (
     <div className="w-full flex flex-col pb-8">
       <div className="bg-primary px-4 py-8 text-white flex flex-col items-center justify-center text-center shadow-sm">
-        <h3 className="text-primary-light/80 text-xs font-bold uppercase tracking-widest mb-1">
+        <h3 className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1">
           Total Bill
         </h3>
         <div className="text-4xl font-bold mb-4">{utils.formatMoney(props.grandTotal)}</div>
-
         <div
           className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 ${isBalanced ? 'bg-success/20 text-success-light' : isOverpaid ? 'bg-danger/20 text-danger-light' : 'bg-white/10'}`}
         >
@@ -50,15 +87,10 @@ export default function Payments(props: Props) {
               <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted font-bold text-[0.95rem]">
                 ₹
               </div>
-              <input
-                type="number"
-                disabled={!props.isHost}
-                value={m.paid_amount || ''}
-                onChange={(e) => props.handleUpdatePayment(m.id, e.target.value)}
-                placeholder="0"
-                min="0"
-                step="0.01"
-                className="w-full h-11 bg-page border border-border rounded-lg pl-9! pr-3 font-semibold text-main focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
+              <PaymentInput
+                m={m}
+                isHost={props.isHost}
+                onChange={(val) => props.handleUpdatePayment(m.id, val)}
               />
             </div>
           </div>

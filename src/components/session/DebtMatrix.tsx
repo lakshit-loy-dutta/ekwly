@@ -52,14 +52,10 @@ export default function DebtMatrix(props: Props) {
       <div className="w-full flex flex-col pb-8">
         <div className="bg-primary px-6 py-8 text-white flex flex-col items-center justify-center text-center shadow-stripe">
           <h2 className="text-2xl font-bold mb-2">Collection Tray</h2>
-          <p className="text-primary-light/80 text-sm mb-6">
-            Session is locked. Waiting on payments.
-          </p>
+          <p className="text-white/80 text-sm mb-6">Session is locked. Waiting on payments.</p>
           <div className="text-4xl font-bold mb-3">
             {utils.formatMoney(totalCollected)}{' '}
-            <span className="text-xl text-primary-light/60">
-              / {utils.formatMoney(totalExpected)}
-            </span>
+            <span className="text-xl text-white/60">/ {utils.formatMoney(totalExpected)}</span>
           </div>
           <div className="w-full max-w-xs bg-black/20 h-2.5 rounded-full overflow-hidden">
             <div
@@ -122,20 +118,14 @@ export default function DebtMatrix(props: Props) {
                 </div>
 
                 {/* THE PHASE 4 MAGIC: NATIVE UPI DEEP LINK */}
-                {creditorUpi &&
-                  !l.settled &&
-                  (amICreditor ? (
-                    <div className="w-full h-12 bg-subtle text-muted border border-border rounded-xl font-bold text-[0.85rem] flex items-center justify-center gap-2 mt-2">
-                      <Smartphone size={18} /> Guests will see your UPI button here
-                    </div>
-                  ) : (
-                    <a
-                      href={`upi://pay?pa=${creditorUpi}&pn=${encodeURIComponent(l.creditor_name)}&am=${l.amount}&cu=INR`}
-                      className="w-full h-12 bg-primary active:bg-primary-hover text-white rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors mt-2 shadow-sm"
-                    >
-                      <Smartphone size={18} /> Pay {utils.formatMoney(l.amount)} via UPI
-                    </a>
-                  ))}
+                {creditorUpi && !l.settled && !amICreditor && (
+                  <a
+                    href={`upi://pay?pa=${creditorUpi}&pn=${encodeURIComponent(l.creditor_name)}&am=${l.amount}&cu=INR`}
+                    className="w-full h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors mt-1"
+                  >
+                    <Smartphone size={18} /> Pay {utils.formatMoney(l.amount)} via UPI
+                  </a>
+                )}
               </div>
             );
           })}
@@ -305,6 +295,13 @@ export default function DebtMatrix(props: Props) {
         <div className="px-4 mt-8">
           <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-4 shadow-sm">
             <h3 className="text-sm font-bold text-main">Finalize Ledger</h3>
+            <input
+              type="text"
+              value={props.receiptTitle}
+              onChange={(e) => props.setReceiptTitle(e.target.value)}
+              placeholder="Receipt Title (e.g. Dinner at Bob's)"
+              className="w-full h-11 bg-page border border-border rounded-lg px-3 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
+            />
             <button
               type="button"
               className="h-12 w-full bg-primary active:bg-primary-hover text-white rounded-lg font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors shadow-sm"

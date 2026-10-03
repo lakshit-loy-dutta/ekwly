@@ -7,6 +7,7 @@ import type {
   CalculationResult,
 } from './types';
 import type { DBMember } from './useSession';
+import type { Transaction } from './types';
 
 interface EngineParams {
   items: BillItem[];
@@ -157,7 +158,7 @@ export const mathEngine = {
       .filter((b) => b.balance > 0.01)
       .sort((a, b) => b.balance - a.balance);
 
-    const transactions: any[] = [];
+    const transactions: Transaction[] = [];
     let d = 0;
     let c = 0;
 
@@ -167,9 +168,9 @@ export const mathEngine = {
       const amount = Math.min(-debtor.balance, creditor.balance);
 
       transactions.push({
-        creditor_id: creditor.user_id,
+        creditor_id: creditor.user_id || null,
         creditor_name: creditor.name,
-        debtor_id: debtor.user_id,
+        debtor_id: debtor.user_id || null,
         debtor_name: debtor.name,
         amount: utils.round2(amount),
       });

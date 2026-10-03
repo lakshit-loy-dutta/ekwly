@@ -44,6 +44,7 @@ export function useSession(sessionId: string | null) {
   const [taxPresets, setTaxPresets] = useState<TaxPreset[]>([]);
   const [items, setItems] = useState<BillItem[]>([]);
   const [members, setMembers] = useState<DBMember[]>([]);
+  const [hostId, setHostId] = useState<string | null>(null);
   const [claims, setClaims] = useState<DBClaim[]>([]);
   const [ledger, setLedger] = useState<any[]>([]);
 
@@ -67,6 +68,7 @@ export function useSession(sessionId: string | null) {
 
       if (sessionRes.data) {
         setSessionStatus(sessionRes.data.status);
+        setHostId(sessionRes.data.host_id);
         setSessionRules({
           isScApplicable: Boolean(sessionRes.data.is_sc_applicable),
           serviceChargeRate: Number(sessionRes.data.service_charge_rate || 0),
@@ -122,6 +124,7 @@ export function useSession(sessionId: string | null) {
         { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` },
         (payload) => {
           setSessionStatus(payload.new.status);
+          setHostId(payload.new.host_id);
           setSessionRules({
             isScApplicable: Boolean(payload.new.is_sc_applicable),
             serviceChargeRate: Number(payload.new.service_charge_rate || 0),
@@ -353,7 +356,7 @@ export function useSession(sessionId: string | null) {
         const newHostMember = {
           id: hostId,
           session_id: id,
-          name: `${hostName} (Host)`,
+          name: hostName,
           user_id: user.id,
           paid_amount: 0,
         };
@@ -537,6 +540,7 @@ export function useSession(sessionId: string | null) {
     members,
     claims,
     currentUserId,
+    hostId,
     actions: {
       createSessionInDB,
       updateSessionRulesInDB,

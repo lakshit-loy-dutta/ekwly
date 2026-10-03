@@ -4,12 +4,18 @@ import { supabase } from '../../lib/supabase';
 import { showToast } from '../../lib/utils';
 import { useSessionContext } from '../../lib/SessionContext';
 
+interface SearchProfile {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+}
+
 export default function MembersList() {
-  const { members, currentUserId, actions } = useSessionContext();
+  const { members, currentUserId, hostId, actions } = useSessionContext();
 
   // Local State Encapsulation
   const [newMemberName, setNewMemberName] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchProfile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -123,6 +129,11 @@ export default function MembersList() {
             <div key={m.id} className="flex items-center justify-between p-4">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-main text-[1.05rem]">{m.name}</span>
+                {m.user_id === hostId && (
+                  <span className="text-[0.65rem] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider border border-amber-500/20">
+                    Host
+                  </span>
+                )}
                 {isMe && (
                   <span className="text-[0.65rem] font-bold text-success bg-success-light px-1.5 py-0.5 rounded uppercase tracking-wider">
                     You
