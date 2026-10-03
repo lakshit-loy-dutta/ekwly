@@ -45,6 +45,7 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
         return;
       }
 
+      // 1. Fetch Recent Sessions
       const { data: sessionData } = await supabase
         .from('sessions')
         .select('*')
@@ -54,20 +55,20 @@ export default function Home({ onStartNew, onJoinSession, user }: Props) {
 
       if (sessionData) setRecentSessions(sessionData);
 
+      // 2. Fetch Aggregated Debts from our new SQL View
       const { data: creditorData } = await supabase
-        .from('ledger')
-        .select('amount')
-        .eq('creditor_id', user.id)
-        .eq('settled', false);
+        .from('global_ledger')
+        .select('debtor_name, total_owed')
+        .eq('creditor_id', user.id);
 
       const { data: debtorData } = await supabase
-        .from('ledger')
-        .select('amount')
-        .eq('debtor_id', user.id)
-        .eq('settled', false);
+        .from('global_ledger')
+        .select('creditor_name, total_owed')
+        .eq('debtor_id', user.id);
 
-      const totalOwedToMe = creditorData?.reduce((sum, row) => sum + Number(row.amount), 0) || 0;
-      const totalIOwe = debtorData?.reduce((sum, row) => sum + Number(row.amount), 0) || 0;
+      const totalOwedToMe =
+        creditorData?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0;
+      const totalIOwe = debtorData?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0;
 
       setOwedToMe(totalOwedToMe);
       setIOwe(totalIOwe);

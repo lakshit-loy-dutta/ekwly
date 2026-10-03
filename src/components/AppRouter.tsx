@@ -5,13 +5,16 @@ import Home from './Home';
 import ActiveSession from './ActiveSession';
 import Auth from './Auth';
 import Profile from './Profile';
+import Friends from './Friends';
 import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
-import { ChevronLeft, User, LogOut, Moon, QrCode, Home as HomeIcon } from 'lucide-react';
+import { ChevronLeft, User, Users, LogOut, Moon, QrCode, Home as HomeIcon } from 'lucide-react';
 
 export default function AppRouter() {
-  const [currentView, setCurrentView] = useState<'auth' | 'home' | 'session' | 'profile'>('auth');
+  const [currentView, setCurrentView] = useState<
+    'auth' | 'home' | 'session' | 'profile' | 'friends'
+  >('auth');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
@@ -44,6 +47,31 @@ export default function AppRouter() {
       const params = new URLSearchParams(window.location.search);
       const sId = params.get('s');
       const pPin = params.get('p');
+      const addFriendId = params.get('add_friend');
+
+      // --- NEW: Handle Friend Invites ---
+      if (addFriendId) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user && !session.user.is_anonymous) {
+          if (session.user.id === addFriendId) {
+            showToast("You can't add yourself as a friend.", 'default');
+          } else {
+            // Insert the connection. We don't care if it errors due to a unique constraint (already friends).
+            await supabase
+              .from('connections')
+              .insert({ user_id: session.user.id, friend_id: addFriendId });
+            showToast('Friend added successfully!', 'success');
+          }
+        } else {
+          showToast('Sign in to add this friend.', 'error');
+        }
+        // Strip the parameter from the URL to clean it up
+        window.history.pushState({}, '', window.location.pathname);
+        setCurrentView('friends');
+        return;
+      }
 
       if (sId) {
         const hostCheck = localStorage.getItem(`ekwly_host_${sId}`);
@@ -246,6 +274,15 @@ export default function AppRouter() {
                   <button
                     onClick={() => {
                       setIsProfileOpen(false);
+                      setCurrentView('friends');
+                    }}
+                    className="px-4 py-2 text-left text-sm font-semibold text-main hover:bg-subtle flex items-center gap-2 mx-2 rounded-md transition-colors"
+                  >
+                    <Users size={16} className="text-muted" /> Friends List
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsProfileOpen(false);
                       setCurrentView('profile');
                     }}
                     className="px-4 py-2 text-left text-sm font-semibold text-main hover:bg-subtle flex items-center gap-2 mx-2 rounded-md transition-colors"
@@ -271,6 +308,7 @@ export default function AppRouter() {
           <Home onStartNew={handleStartNew} onJoinSession={handleJoinSession} user={user} />
         )}
         {currentView === 'profile' && <Profile user={user} onBack={() => setCurrentView('home')} />}
+        {currentView === 'friends' && <Friends user={user} onBack={() => setCurrentView('home')} />}
         {currentView === 'session' && (
           <ActiveSession
             sessionId={activeSessionId}

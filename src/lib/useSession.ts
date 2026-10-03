@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabase';
 import { showToast, utils } from './utils';
-import type { BillItem, TaxPreset } from './types';
+import type { BillItem, TaxPreset, Transaction } from './types';
 
 export interface DBMember {
   id: string;
@@ -487,8 +487,10 @@ export function useSession(sessionId: string | null) {
     await supabase.from('items').delete().eq('id', itemId);
   };
 
-  const saveLedgerToDB = async (transactions: any[]) => {
+  const saveLedgerToDB = async (transactions: Transaction[]) => {
     if (!sessionId) return;
+
+    // 1. Wipe the old ledger (This now works thanks to the new SQL policy)
     await supabase.from('ledger').delete().eq('session_id', sessionId);
 
     const ledgerEntries = transactions.map((t) => ({
@@ -501,8 +503,10 @@ export function useSession(sessionId: string | null) {
       settled: false,
     }));
 
-    // REMOVED setLedger(...) to stop the WebSocket collision
-    if (ledgerEntries.length > 0) await supabase.from('ledger').insert(ledgerEntries);
+    // 2. Push to Supabase and let the WebSockets automatically populate the screen
+    if (ledgerEntries.length > 0) {
+      await supabase.from('ledger').insert(ledgerEntries);
+    }
   };
 
   const lockSessionInDB = async () => {
