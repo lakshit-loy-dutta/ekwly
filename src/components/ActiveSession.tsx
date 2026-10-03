@@ -178,10 +178,12 @@ export default function ActiveSession({
     if (qsItemId === id) setQsItemId('');
   };
 
-  const handleAddMember = async () => {
-    if (!newMemberName.trim()) return showToast('Name cannot be empty.', 'error');
-    await actions.addMemberToDB(newMemberName);
-    setNewMemberName('');
+  const handleAddMember = async (selectedName?: string, selectedUserId?: string) => {
+    const finalName = selectedName || newMemberName;
+    if (!finalName.trim()) return showToast('Name cannot be empty.', 'error');
+
+    await actions.addMemberToDB(finalName, selectedUserId);
+    setNewMemberName(''); // Clear the input field after adding
   };
 
   const handleRemoveMember = (id: string) => {

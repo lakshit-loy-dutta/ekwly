@@ -210,7 +210,7 @@ export function useSession(sessionId: string | null) {
     };
   }, [sessionId, fetchSessionData]);
 
-  const addMemberToDB = async (name: string) => {
+  const addMemberToDB = async (name: string, overrideUserId?: string) => {
     if (!sessionId) return null;
     const trimmed = name.trim();
     if (members.some((m) => m.name.toLowerCase() === trimmed.toLowerCase()))
@@ -220,9 +220,10 @@ export function useSession(sessionId: string | null) {
       id: utils.generateId(),
       session_id: sessionId,
       name: trimmed,
-      user_id: null,
+      user_id: overrideUserId || null,
       paid_amount: 0,
     };
+
     setMembers((prev) => [...prev, newMember]);
     const { error } = await supabase.from('members').insert(newMember);
     if (error) {
