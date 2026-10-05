@@ -1,114 +1,29 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, Trash2, Info, Search, Loader2 } from 'lucide-react';
-import BottomSheet from '../ui/BottomSheet';
+import { ChevronDown, Trash2, Search, Loader2 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
 import { showToast, utils } from '../../lib/utils';
-import { supabase } from '../../lib/supabase';
+import MagicScanner from './MagicScanner';
+import HelpTip from '../ui/HelpTip';
+import ToggleSwitch from '../ui/ToggleSwitch';
 
 export default function SessionRules() {
-  // 1. Pull directly from Context instead of Props!
   const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
 
   const [localVenue, setLocalVenue] = useState<string>(sessionRules.venueName);
-
-  // --- NEW: AUTOCOMPLETE STATE ---
   const [venueResults, setVenueResults] = useState<any[]>([]);
   const [isSearchingVenue, setIsSearchingVenue] = useState(false);
   const [showVenueDropdown, setShowVenueDropdown] = useState(false);
 
-  useEffect(() => {
-    if (localVenue.trim().length < 2 || !isHost) {
-      setVenueResults([]);
-      setShowVenueDropdown(false);
-      return;
-    }
-
-    const searchDb = async () => {
-      setIsSearchingVenue(true);
-      const { data } = await supabase.rpc('search_venues', { search_term: localVenue.trim() });
-
-      if (data && data.length > 0) {
-        // Hide dropdown if the user has fully typed the exact match
-        if (data[0].name.toLowerCase() === localVenue.trim().toLowerCase()) {
-          setShowVenueDropdown(false);
-        } else {
-          setVenueResults(data);
-          setShowVenueDropdown(true);
-        }
-      } else {
-        setShowVenueDropdown(false);
-      }
-      setIsSearchingVenue(false);
-    };
-
-    const delayDebounceFn = setTimeout(() => searchDb(), 350);
-    return () => clearTimeout(delayDebounceFn);
-  }, [localVenue, isHost]);
-
-  const handleSelectVenue = async (venue: any) => {
-    setLocalVenue(venue.name);
-    setShowVenueDropdown(false);
-
-    const parsedScRate = Number(venue.service_charge_rate || 0);
-    setLocalScRate(parsedScRate * 100);
-
-    actions.updateSessionRulesInDB({
-      venueName: venue.name,
-      isScApplicable: parsedScRate > 0,
-      serviceChargeRate: parsedScRate,
-    });
-
-    if (venue.tax_presets && Array.isArray(venue.tax_presets)) {
-      // 1. Clear old generic taxes
-      for (const t of taxPresets) {
-        await actions.removeTaxPresetFromDB(t.id);
-      }
-      // 2. Inject the historical crowdsourced taxes
-      for (const t of venue.tax_presets) {
-        await actions.addTaxPresetToDB({
-          id: utils.generateId(),
-          name: t.name,
-          rate: t.rate,
-          split: t.split,
-        });
-      }
-      showToast(`${venue.name} rules applied!`, 'success');
-    }
-  };
-
-  useEffect(() => {
-    setLocalVenue(sessionRules.venueName);
-  }, [sessionRules.venueName]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localVenue !== sessionRules.venueName) {
-        actions.updateSessionRulesInDB({ venueName: localVenue });
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [localVenue, sessionRules.venueName, actions]);
-
-  // 2. Local State Encapsulation (ActiveSession no longer cares about this)
   const [localDiscount, setLocalDiscount] = useState<string>(sessionRules.discountValue);
   const [localScRate, setLocalScRate] = useState<number>(sessionRules.serviceChargeRate * 100);
   const [newTaxName, setNewTaxName] = useState<string>('');
   const [newTaxRate, setNewTaxRate] = useState<string>('');
   const [newTaxSplit, setNewTaxSplit] = useState<boolean>(true);
-  const [showTutorial, setShowTutorial] = useState(false);
 
   useEffect(() => {
-    if (isHost && !localStorage.getItem('ekwly_tax_tutorial_seen')) {
-      setShowTutorial(true);
-    }
-  }, [isHost]);
-
-  const dismissTutorial = () => {
-    localStorage.setItem('ekwly_tax_tutorial_seen', 'true');
-    setShowTutorial(false);
-  };
-
-  // 3. Debounced Database Writes moved internally
+    setLocalVenue(sessionRules.venueName);
+  }, [sessionRules.venueName]);
   useEffect(() => {
     setLocalDiscount(sessionRules.discountValue);
   }, [sessionRules.discountValue]);
@@ -118,9 +33,16 @@ export default function SessionRules() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (localDiscount !== sessionRules.discountValue) {
+      if (localVenue !== sessionRules.venueName)
+        actions.updateSessionRulesInDB({ venueName: localVenue });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localVenue, sessionRules.venueName, actions]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localDiscount !== sessionRules.discountValue)
         actions.updateSessionRulesInDB({ discountValue: localDiscount });
-      }
     }, 500);
     return () => clearTimeout(timer);
   }, [localDiscount, sessionRules.discountValue, actions]);
@@ -128,12 +50,59 @@ export default function SessionRules() {
   useEffect(() => {
     const timer = setTimeout(() => {
       const parsed = localScRate / 100;
-      if (parsed !== sessionRules.serviceChargeRate) {
+      if (parsed !== sessionRules.serviceChargeRate)
         actions.updateSessionRulesInDB({ serviceChargeRate: parsed });
-      }
     }, 500);
     return () => clearTimeout(timer);
   }, [localScRate, sessionRules.serviceChargeRate, actions]);
+
+  useEffect(() => {
+    if (localVenue.trim().length < 2 || !isHost) {
+      setVenueResults([]);
+      setShowVenueDropdown(false);
+      return;
+    }
+    const searchDb = async () => {
+      setIsSearchingVenue(true);
+      const { data } = await supabase.rpc('search_venues', { search_term: localVenue.trim() });
+      if (data && data.length > 0) {
+        if (data[0].name.toLowerCase() === localVenue.trim().toLowerCase())
+          setShowVenueDropdown(false);
+        else {
+          setVenueResults(data);
+          setShowVenueDropdown(true);
+        }
+      } else setShowVenueDropdown(false);
+      setIsSearchingVenue(false);
+    };
+    const delayDebounceFn = setTimeout(() => searchDb(), 350);
+    return () => clearTimeout(delayDebounceFn);
+  }, [localVenue, isHost]);
+
+  const handleSelectVenue = async (venue: any) => {
+    setLocalVenue(venue.name);
+    setShowVenueDropdown(false);
+    const parsedScRate = Number(venue.service_charge_rate || 0);
+    setLocalScRate(parsedScRate * 100);
+
+    actions.updateSessionRulesInDB({
+      venueName: venue.name,
+      isScApplicable: parsedScRate > 0,
+      serviceChargeRate: parsedScRate,
+    });
+    if (venue.tax_presets && Array.isArray(venue.tax_presets)) {
+      for (const t of taxPresets) await actions.removeTaxPresetFromDB(t.id);
+      for (const t of venue.tax_presets) {
+        await actions.addTaxPresetToDB({
+          id: utils.generateId(),
+          name: t.name,
+          rate: t.rate,
+          split: t.split !== false,
+        });
+      }
+      showToast(`${venue.name} rules applied!`, 'success');
+    }
+  };
 
   const handleAddTaxPreset = () => {
     const rate = parseFloat(newTaxRate);
@@ -152,10 +121,14 @@ export default function SessionRules() {
   };
 
   return (
-    <div className="w-full flex flex-col">
+    <div className="w-full flex flex-col pb-8">
+      {/* THE ISOLATED MAGIC SCANNER COMPONENT */}
+      <MagicScanner />
+
       {/* VENUE NAME SECTION */}
-      <div className="px-4 py-3 mt-2 flex items-center justify-between">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Location</h3>
+      <div className="px-4 py-3 mt-2">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">Location</h3>
+        <HelpTip text="Search for a known restaurant to instantly load their complex tax rules and unlock the Magic Menu autocomplete in the next step." />
       </div>
       <div className="bg-surface border-y border-border px-4 py-4 flex flex-col relative z-20">
         <div className="relative w-full">
@@ -174,8 +147,6 @@ export default function SessionRules() {
             placeholder="Where are you eating? (e.g., Toit Brewpub)"
             className="w-full h-12 bg-page border border-border rounded-xl px-4 pl-10! font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
           />
-
-          {/* THE MAGIC AUTOCOMPLETE DROPDOWN */}
           {showVenueDropdown && venueResults.length > 0 && (
             <div className="absolute top-14 left-0 right-0 bg-surface border border-border rounded-xl shadow-lg z-30 flex flex-col overflow-hidden max-h-60 overflow-y-auto">
               <div className="px-3 py-2 bg-page/50 border-b border-border text-[0.65rem] font-bold uppercase tracking-widest text-muted">
@@ -197,46 +168,34 @@ export default function SessionRules() {
             </div>
           )}
         </div>
-        <p className="text-[0.75rem] text-muted mt-2 font-medium">
-          Select a known venue to instantly auto-fill their tax structure.
-        </p>
       </div>
+
       {/* SERVICE CHARGE SECTION */}
-      <div className="px-4 py-3 mt-2 flex items-center justify-between">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Service Charge</h3>
-        {isHost && (
-          <button
-            onClick={() => setShowTutorial(true)}
-            className="text-primary p-1 active:opacity-70"
-          >
-            <Info size={16} />
-          </button>
-        )}
+      <div className="px-4 py-3 mt-4">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">
+          Service Charge
+        </h3>
+        <HelpTip text="This is a global fee applied across the entire bill. Set the rate here, and then enable it on a per-item basis in Step 2." />
       </div>
       <div className="bg-surface border-y border-border px-4 py-2 flex flex-col">
         <label className="flex items-center justify-between py-3 cursor-pointer">
           <span className="text-[0.95rem] font-medium text-main">Enable Service Charge</span>
           {isHost ? (
-            <div className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={sessionRules.isScApplicable}
-                onChange={(e) =>
-                  actions.updateSessionRulesInDB({
-                    isScApplicable: e.target.checked,
-                    ...(!e.target.checked ? { serviceChargeRate: 0, scTaxPresetId: 'none' } : {}),
-                  })
-                }
-              />
-              <span className="slider"></span>
-            </div>
+            <ToggleSwitch
+              checked={sessionRules.isScApplicable}
+              onChange={(val) =>
+                actions.updateSessionRulesInDB({
+                  isScApplicable: val,
+                  ...(!val ? { serviceChargeRate: 0, scTaxPresetId: 'none' } : {}),
+                })
+              }
+            />
           ) : (
             <span className="text-sm font-bold text-muted">
               {sessionRules.isScApplicable ? 'ON' : 'OFF'}
             </span>
           )}
         </label>
-
         {sessionRules.isScApplicable && (
           <div className="grid grid-cols-2 gap-4 py-4 border-t border-border mt-1">
             <div className="flex flex-col gap-1.5">
@@ -249,7 +208,7 @@ export default function SessionRules() {
                   min="0"
                   step="0.1"
                   onChange={(e) => setLocalScRate(parseFloat(e.target.value) || 0)}
-                  className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium"
                 />
               ) : (
                 <div className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium flex items-center">
@@ -262,7 +221,7 @@ export default function SessionRules() {
               {isHost ? (
                 <div className="relative">
                   <select
-                    className="w-full h-10 pl-3 pr-8 appearance-none bg-page border border-border rounded-lg text-[0.95rem] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className="w-full h-10 pl-3 pr-8 appearance-none bg-page border border-border rounded-lg text-[0.95rem] font-medium"
                     value={sessionRules.scTaxPresetId}
                     onChange={(e) =>
                       actions.updateSessionRulesInDB({ scTaxPresetId: e.target.value })
@@ -291,7 +250,8 @@ export default function SessionRules() {
 
       {/* DISCOUNT SECTION */}
       <div className="px-4 py-3 mt-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Discount</h3>
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">Discount</h3>
+        <HelpTip text="Specify if the restaurant's discount was subtracted before taxes were calculated (Pre-Tax) or taken off the final grand total (Post-Tax)." />
       </div>
       <div className="bg-surface border-y border-border px-4 py-4 flex flex-col gap-4">
         <div className="flex items-center gap-1 bg-page p-1 rounded-lg border border-border">
@@ -307,7 +267,6 @@ export default function SessionRules() {
             </button>
           ))}
         </div>
-
         {sessionRules.discountType !== 'none' && (
           <div className="flex flex-col gap-4 pt-2 border-t border-border mt-1">
             <div className="flex items-center gap-1 bg-page p-1 rounded-lg border border-border">
@@ -326,7 +285,6 @@ export default function SessionRules() {
                 Post-Tax
               </button>
             </div>
-
             <div className="flex items-center justify-between">
               <label className="text-[0.95rem] font-medium text-main">Discount Value</label>
               <div className="relative w-32">
@@ -347,7 +305,7 @@ export default function SessionRules() {
                     paddingRight: sessionRules.discountType === 'percentage' ? '28px' : '12px',
                     textAlign: sessionRules.discountType === 'flat' ? 'left' : 'right',
                   }}
-                  className="w-full h-10 bg-page border border-border rounded-lg text-[0.95rem] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
+                  className="w-full h-10 bg-page border border-border rounded-lg text-[0.95rem] font-medium"
                 />
                 {sessionRules.discountType === 'percentage' && (
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-muted font-bold text-[0.95rem]">
@@ -364,9 +322,10 @@ export default function SessionRules() {
       {isHost && (
         <>
           <div className="px-4 py-3 mt-4">
-            <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
-              Add Tax Preset
+            <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">
+              Manual Tax Setup
             </h3>
+            <HelpTip text="Create specific tax brackets (like 5% GST or 20% VAT) so you can accurately assign them to individual items in the next step." />
           </div>
           <div className="bg-surface border-y border-border px-4 py-4 flex flex-col gap-4">
             <div className="grid grid-cols-12 gap-3">
@@ -377,7 +336,7 @@ export default function SessionRules() {
                   value={newTaxName}
                   onChange={(e) => setNewTaxName(e.target.value)}
                   placeholder="e.g. GST"
-                  className="w-full h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  className="w-full h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium"
                 />
               </div>
               <div className="col-span-7 sm:col-span-3 flex flex-col gap-1.5">
@@ -389,7 +348,7 @@ export default function SessionRules() {
                   placeholder="0"
                   min="0"
                   step="0.1"
-                  className="w-full h-10 px-3 text-center bg-page border border-border rounded-lg text-[0.95rem] font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  className="w-full h-10 px-3 text-center bg-page border border-border rounded-lg text-[0.95rem] font-medium"
                 />
               </div>
               <div className="col-span-5 sm:col-span-2 flex flex-col gap-1.5">
@@ -398,13 +357,8 @@ export default function SessionRules() {
                 </label>
                 <div className="flex-1 flex items-center justify-center sm:justify-start">
                   <label className="flex items-center gap-2 cursor-pointer w-full justify-center">
-                    <div className="toggle-switch scale-90">
-                      <input
-                        type="checkbox"
-                        checked={newTaxSplit}
-                        onChange={(e) => setNewTaxSplit(e.target.checked)}
-                      />
-                      <span className="slider"></span>
+                    <div className="scale-90">
+                      <ToggleSwitch checked={newTaxSplit} onChange={setNewTaxSplit} />
                     </div>
                     <span className="text-xs font-bold text-muted uppercase">Split</span>
                   </label>
@@ -413,7 +367,7 @@ export default function SessionRules() {
             </div>
             <button
               type="button"
-              className="h-10 w-full bg-primary active:bg-primary-hover text-white rounded-lg font-medium text-sm transition-colors shadow-sm mt-1"
+              className="h-10 w-full bg-primary active:bg-primary-hover text-white rounded-lg font-medium text-sm shadow-sm mt-1"
               onClick={handleAddTaxPreset}
             >
               Add Preset
@@ -428,7 +382,7 @@ export default function SessionRules() {
           Active Presets ({taxPresets.length})
         </h3>
       </div>
-      <div className="bg-surface border-y border-border divide-y divide-border">
+      <div className="bg-surface border-y border-border divide-y divide-border pb-6">
         {taxPresets.map((t) => (
           <div key={t.id} className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-2">
@@ -453,40 +407,6 @@ export default function SessionRules() {
           </div>
         ))}
       </div>
-      {/* FIRST TIME TUTORIAL */}
-      <BottomSheet
-        isOpen={showTutorial}
-        onClose={dismissTutorial}
-        title="How Ekwly Calculates Taxes"
-      >
-        <div className="flex flex-col gap-4 text-[0.95rem] text-main leading-relaxed">
-          <p>
-            Restaurant bills can be confusing. Here is exactly how to set up your room so the math
-            matches the receipt perfectly:
-          </p>
-          <ul className="flex flex-col gap-3 ml-4 list-disc text-muted">
-            <li>
-              <strong className="text-main">Service Charge (S.C.):</strong> This is a global fee
-              applied to the entire bill. Turn it on here in Step 1.
-            </li>
-            <li>
-              <strong className="text-main">Tax Presets:</strong> Define your taxes here in Step 1
-              (e.g., 5% Food GST, 20% Alcohol VAT).
-            </li>
-            <li>
-              <strong className="text-main">Applying Taxes:</strong> In Step 2, as you add each
-              item, you assign it the correct Tax Preset. Ekwly handles all the fractional math for
-              you!
-            </li>
-          </ul>
-          <button
-            onClick={dismissTutorial}
-            className="mt-4 w-full h-12 bg-primary text-white rounded-xl font-bold active:scale-95 transition-all shadow-sm"
-          >
-            Got it, let's start!
-          </button>
-        </div>
-      </BottomSheet>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Capacitor } from '@capacitor/core';
-import { Camera } from '@capacitor/camera';
 import { utils, showToast } from '../../lib/utils';
-import { Edit2, Trash2, ChevronDown, Camera as CameraIcon, Loader2 } from 'lucide-react'; // Added Camera & Loader2
-import { useSessionContext } from '../../lib/SessionContext';
+import { Edit2, Trash2, ChevronDown, Search, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useSessionContext } from '../../lib/SessionContext';
+import ToggleSwitch from '../ui/ToggleSwitch';
+import HelpTip from '../ui/HelpTip';
 
 export default function ReceiptEditor() {
   const { isHost, items, taxPresets, sessionRules, actions } = useSessionContext();
@@ -15,12 +15,17 @@ export default function ReceiptEditor() {
   const [newItemTaxId, setNewItemTaxId] = useState<string>('tx-1');
   const [newItemApplySC, setNewItemApplySC] = useState<boolean>(true);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
   const [itemResults, setItemResults] = useState<any[]>([]);
   const [showItemDropdown, setShowItemDropdown] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
-    // Only search if they've typed 2+ chars AND a venue is selected in Step 1
+    if (taxPresets.length > 0 && !taxPresets.some((t) => t.id === newItemTaxId)) {
+      setNewItemTaxId(taxPresets[0].id);
+    }
+  }, [taxPresets, newItemTaxId]);
+
+  useEffect(() => {
     if (newItemName.trim().length < 2 || !sessionRules.venueName) {
       setItemResults([]);
       setShowItemDropdown(false);
@@ -55,141 +60,6 @@ export default function ReceiptEditor() {
     setShowItemDropdown(false);
   };
 
-  // Converts File OR Blob to Base64
-  const fileToBase64 = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onload = () => {
-        let encoded = reader.result as string;
-        encoded = encoded.replace(/^data:(.*,)?/, '');
-        if (encoded.length % 4 > 0) {
-          encoded += '='.repeat(4 - (encoded.length % 4));
-        }
-        resolve(encoded);
-      };
-      reader.onerror = reject;
-    });
-  };
-
-  const initiateScan = async (e?: React.ChangeEvent<HTMLInputElement>) => {
-    setIsScanning(true);
-    showToast('Analyzing receipt with AI...', 'default');
-
-    try {
-      let base64Image = '';
-
-      if (Capacitor.isNativePlatform()) {
-        // MODERN CAPACITOR 7/8 NATIVE FLOW (No Deprecations)
-        const image = await Camera.takePhoto({
-          quality: 90,
-          includeMetadata: false, // Prevents EXIF bloat
-        });
-
-        if (!image.uri) throw new Error('Failed to capture image');
-
-        // Convert local device URI to a web-accessible URL and fetch the Blob
-        const webSafeUrl = Capacitor.convertFileSrc(image.uri);
-        const response = await fetch(webSafeUrl);
-        const blob = await response.blob();
-        base64Image = await fileToBase64(blob);
-      } else {
-        // MODERN WEB/PWA FLOW
-        const file = e?.target.files?.[0];
-        if (!file) throw new Error('No file selected');
-        base64Image = await fileToBase64(file);
-      }
-
-      const { data, error } = await supabase.functions.invoke('scan-receipt', {
-        body: {
-          imageBase64: base64Image,
-          currentRules: sessionRules,
-          currentTaxes: taxPresets,
-        },
-      });
-
-      // --- SECURE ERROR HANDLING ---
-      const errMessage = error?.message || data?.error;
-      if (errMessage) {
-        if (errMessage === 'RATE_LIMIT_REACHED') {
-          throw new Error(
-            "You've used your 3 free Magic Scans this month. Upgrade to Pro for unlimited scans."
-          );
-        }
-        if (errMessage.includes('UNAUTHORIZED')) {
-          throw new Error('Sign in from your Profile to use Magic Scan.');
-        }
-        throw new Error(errMessage);
-      }
-      if (!data?.items) throw new Error('Failed to read receipt');
-
-      // 2. Process Session Rules (Discounts & Service Charge overrides)
-      if (data.sessionRules) {
-        await actions.updateSessionRulesInDB({
-          isScApplicable: data.sessionRules.isScApplicable,
-          serviceChargeRate: data.sessionRules.serviceChargeRate,
-          discountType: data.sessionRules.discountType,
-          discountValue: data.sessionRules.discountValue,
-          discountMode: data.sessionRules.discountMode,
-        });
-      }
-
-      // 3. Process New Tax Presets & Build UUID Mapping
-      const tempIdMap: Record<string, string> = {};
-      if (data.newTaxPresets && Array.isArray(data.newTaxPresets)) {
-        for (const pt of data.newTaxPresets) {
-          const newRealId = utils.generateId();
-          tempIdMap[pt.tempId] = newRealId;
-
-          await actions.addTaxPresetToDB({
-            id: newRealId,
-            name: pt.name,
-            rate: pt.rate,
-            split: pt.split !== false,
-          });
-        }
-      }
-
-      // 4. Process Items
-      let addedCount = 0;
-      for (const extractedItem of data.items) {
-        if (!extractedItem.name || !extractedItem.price) continue;
-
-        const finalTaxId =
-          tempIdMap[extractedItem.taxPresetId] ||
-          extractedItem.taxPresetId ||
-          (taxPresets.length > 0 ? taxPresets[0].id : 'tx-1');
-
-        await actions.addItemToDB?.({
-          id: utils.generateId(),
-          name: extractedItem.name,
-          qty: extractedItem.qty || 1,
-          unitPrice: extractedItem.price,
-          taxRate: 0,
-          taxPresetId: finalTaxId,
-          applySC: extractedItem.applySC !== false,
-          totalBase: (extractedItem.qty || 1) * extractedItem.price,
-        });
-        addedCount++;
-      }
-
-      showToast(`Magic Scan complete! Extracted ${addedCount} items.`, 'success');
-    } catch (err: any) {
-      console.error('Scan Error:', err);
-      showToast(err.message || 'AI could not read this receipt cleanly.', 'error');
-    } finally {
-      setIsScanning(false);
-      if (e?.target) e.target.value = '';
-    }
-  };
-
-  // Auto-select the first valid tax preset for new items
-  useEffect(() => {
-    if (taxPresets.length > 0 && !taxPresets.some((t) => t.id === newItemTaxId)) {
-      setNewItemTaxId(taxPresets[0].id);
-    }
-  }, [taxPresets, newItemTaxId]);
-
   const handleSaveItem = () => {
     const priceParsed = parseFloat(newItemPrice);
     if (!newItemName.trim() || newItemQty <= 0 || isNaN(priceParsed) || priceParsed < 0) {
@@ -212,7 +82,7 @@ export default function ReceiptEditor() {
       });
       setEditingItemId(null);
     } else {
-      const newItem = {
+      actions.addItemToDB?.({
         id: utils.generateId(),
         name: newItemName.trim(),
         qty: newItemQty,
@@ -221,8 +91,7 @@ export default function ReceiptEditor() {
         taxPresetId: newItemTaxId,
         applySC: newItemApplySC,
         totalBase,
-      };
-      actions.addItemToDB?.(newItem);
+      });
     }
     setNewItemName('');
     setNewItemQty(1);
@@ -243,52 +112,8 @@ export default function ReceiptEditor() {
 
   return (
     <div className="w-full flex flex-col">
-      {/* HIDDEN FOR GUESTS */}
       {isHost && (
         <div className="bg-surface border-y border-border px-4 py-5 flex flex-col gap-4">
-          {/* THE MAGIC SCANNER BUTTON */}
-          <div className="flex w-full">
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={initiateScan}
-              className="hidden"
-              id="camera-input"
-            />
-            <button
-              type="button"
-              disabled={isScanning}
-              onClick={() => {
-                if (Capacitor.isNativePlatform()) {
-                  initiateScan(); // Trigger Native Hardware
-                } else {
-                  document.getElementById('camera-input')?.click(); // Trigger HTML5 Hidden Input
-                }
-              }}
-              className="w-full h-12 bg-primary/10 hover:bg-primary/20 active:bg-primary/30 text-primary border border-primary/20 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-            >
-              {isScanning ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" /> Analyzing Image...
-                </>
-              ) : (
-                <>
-                  <CameraIcon size={18} /> Magic Scan Receipt
-                </>
-              )}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-4 my-1 opacity-60">
-            <div className="flex-1 h-px bg-border"></div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted">
-              Or Add Manually
-            </span>
-            <div className="flex-1 h-px bg-border"></div>
-          </div>
-
-          {/* MAGIC MENU AUTOCOMPLETE CONTAINER */}
           <div className="relative w-full z-20">
             <input
               type="text"
@@ -321,7 +146,6 @@ export default function ReceiptEditor() {
               </div>
             )}
           </div>
-          {/* END MAGIC MENU AUTOCOMPLETE */}
 
           <div className="flex gap-4">
             <div className="flex-1">
@@ -371,7 +195,7 @@ export default function ReceiptEditor() {
               </div>
               <button
                 type="button"
-                className="h-10 px-6 bg-primary text-white rounded-lg font-medium text-sm ml-4 shadow-sm"
+                className="h-10 px-6 bg-primary active:bg-primary-hover text-white rounded-lg font-medium text-sm ml-4 shadow-sm transition-colors"
                 onClick={handleSaveItem}
               >
                 {editingItemId ? 'Update Item' : 'Add Item'}
@@ -380,14 +204,7 @@ export default function ReceiptEditor() {
 
             {sessionRules.serviceChargeRate > 0 && (
               <label className="flex items-center gap-3 cursor-pointer bg-page p-3 rounded-lg border border-border">
-                <div className="toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={newItemApplySC}
-                    onChange={(e) => setNewItemApplySC(e.target.checked)}
-                  />
-                  <span className="slider"></span>
-                </div>
+                <ToggleSwitch checked={newItemApplySC} onChange={setNewItemApplySC} />
                 <span className="text-sm font-medium text-main">
                   Apply Global Service Charge to this item
                 </span>
@@ -398,9 +215,10 @@ export default function ReceiptEditor() {
       )}
 
       <div className="px-4 py-3 mt-2">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">
           Added Items ({items.length})
         </h3>
+        <HelpTip text="Verify the extracted items below. If an item needs a different tax rate, tap the pencil icon to edit it." />
       </div>
 
       <div className="bg-surface border-y border-border divide-y divide-border">
@@ -410,7 +228,6 @@ export default function ReceiptEditor() {
           items.map((item) => {
             const taxPreset = taxPresets.find((t) => t.id === item.taxPresetId);
             const dynamicTaxRate = taxPreset ? taxPreset.rate / 100 : 0;
-
             const itemTaxAmount = item.totalBase * dynamicTaxRate;
             const itemSC = item.applySC ? item.totalBase * sessionRules.serviceChargeRate : 0;
             const finalItemTotal = item.totalBase + itemTaxAmount + itemSC;

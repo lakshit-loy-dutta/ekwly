@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
 import { AlertCircle } from 'lucide-react';
+import HelpTip from '../ui/HelpTip'; // <-- NEW IMPORT
 
 interface Props {
   isHost: boolean;
@@ -10,7 +11,6 @@ interface Props {
   handleUpdatePayment: (memberId: string, amount: string) => void;
 }
 
-// Mobile-First Input Shield: Prevents DB broadcasts from erasing decimals mid-keystroke
 function PaymentInput({
   m,
   isHost,
@@ -77,9 +77,10 @@ export default function Payments(props: Props) {
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
           Who Paid The Restaurant?
         </h3>
+        <HelpTip text="Record exactly who paid the final bill to the waiter or cashier. Do NOT enter how much people owe each other here. Ekwly will automatically calculate the debts in the next step based on these payments." />
       </div>
 
-      <div className="bg-surface border-y border-border divide-y divide-border">
+      <div className="bg-surface border-y border-border divide-y divide-border mt-2">
         {props.members.map((m) => (
           <div key={m.id} className="p-4 flex items-center justify-between">
             <span className="font-bold text-main text-[1.05rem] truncate pr-4">{m.name}</span>

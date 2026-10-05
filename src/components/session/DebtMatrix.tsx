@@ -3,6 +3,8 @@ import type { CalculationResult } from '../../lib/types';
 import { utils } from '../../lib/utils';
 import { DownloadCloud, LockKeyhole, Unlock, Home, Smartphone } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import ToggleSwitch from '../ui/ToggleSwitch';
+import HelpTip from '../ui/HelpTip';
 
 interface Props {
   calculationResult: CalculationResult;
@@ -67,7 +69,8 @@ export default function DebtMatrix(props: Props) {
         </div>
 
         <div className="px-4 py-3 mt-4">
-          <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Debtors</h3>
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">Debtors</h3>
+          <HelpTip text="Toggle the switch to 'Paid' when someone sends you their share via UPI or cash. This clears their debt in your Global Dashboard." />
         </div>
 
         <div className="bg-surface border-y border-border divide-y divide-border">
@@ -100,14 +103,10 @@ export default function DebtMatrix(props: Props) {
                       >
                         {l.settled ? 'Paid' : 'Unpaid'}
                       </span>
-                      <div className="toggle-switch">
-                        <input
-                          type="checkbox"
-                          checked={l.settled}
-                          onChange={() => props.handleToggleSettled(l.id, l.settled)}
-                        />
-                        <span className="slider"></span>
-                      </div>
+                      <ToggleSwitch
+                        checked={l.settled}
+                        onChange={() => props.handleToggleSettled(l.id, l.settled)}
+                      />
                     </label>
                   ) : (
                     <div
