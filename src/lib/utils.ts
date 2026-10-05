@@ -3,7 +3,7 @@ export const utils = {
 
   formatMoney: (num: number) => `₹${num.toFixed(2)}`,
 
-  generateId: () => Date.now().toString(36) + Math.random().toString(36).substring(2),
+  generateId: () => crypto.randomUUID(),
 
   parseQty: (val: string | number | undefined): number => {
     if (!val) return 0;

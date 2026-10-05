@@ -19,6 +19,7 @@ export interface DBClaim {
 }
 
 export interface SessionRules {
+  venueName: string;
   isScApplicable: boolean;
   serviceChargeRate: number;
   scTaxPresetId: string;
@@ -34,6 +35,7 @@ export function useSession(sessionId: string | null) {
 
   // Master State
   const [sessionRules, setSessionRules] = useState<SessionRules>({
+    venueName: '',
     isScApplicable: false,
     serviceChargeRate: 0,
     scTaxPresetId: 'none',
@@ -70,6 +72,7 @@ export function useSession(sessionId: string | null) {
         setSessionStatus(sessionRes.data.status);
         setHostId(sessionRes.data.host_id);
         setSessionRules({
+          venueName: sessionRes.data.venue_name || '', // (Use payload.new.venue_name for the WebSocket)
           isScApplicable: Boolean(sessionRes.data.is_sc_applicable),
           serviceChargeRate: Number(sessionRes.data.service_charge_rate || 0),
           scTaxPresetId: sessionRes.data.sc_tax_preset_id || 'none',
@@ -126,6 +129,7 @@ export function useSession(sessionId: string | null) {
           setSessionStatus(payload.new.status);
           setHostId(payload.new.host_id);
           setSessionRules({
+            venueName: payload.new.venue_name || '',
             isScApplicable: Boolean(payload.new.is_sc_applicable),
             serviceChargeRate: Number(payload.new.service_charge_rate || 0),
             scTaxPresetId: payload.new.sc_tax_preset_id || 'none',
@@ -299,6 +303,7 @@ export function useSession(sessionId: string | null) {
     if (!sessionId) return;
     setSessionRules((prev) => ({ ...prev, ...updates }));
     const payload: any = {
+      venue_name: updates.venueName,
       is_sc_applicable: updates.isScApplicable,
       service_charge_rate: updates.serviceChargeRate,
       sc_tax_preset_id: updates.scTaxPresetId,

@@ -8,6 +8,21 @@ export default function SessionRules() {
   // 1. Pull directly from Context instead of Props!
   const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
 
+  const [localVenue, setLocalVenue] = useState<string>(sessionRules.venueName);
+
+  useEffect(() => {
+    setLocalVenue(sessionRules.venueName);
+  }, [sessionRules.venueName]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localVenue !== sessionRules.venueName) {
+        actions.updateSessionRulesInDB({ venueName: localVenue });
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localVenue, sessionRules.venueName, actions]);
+
   // 2. Local State Encapsulation (ActiveSession no longer cares about this)
   const [localDiscount, setLocalDiscount] = useState<string>(sessionRules.discountValue);
   const [localScRate, setLocalScRate] = useState<number>(sessionRules.serviceChargeRate * 100);
@@ -72,6 +87,23 @@ export default function SessionRules() {
 
   return (
     <div className="w-full flex flex-col">
+      {/* VENUE NAME SECTION */}
+      <div className="px-4 py-3 mt-2 flex items-center justify-between">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Location</h3>
+      </div>
+      <div className="bg-surface border-y border-border px-4 py-4 flex flex-col">
+        <input
+          type="text"
+          disabled={!isHost}
+          value={localVenue}
+          onChange={(e) => setLocalVenue(e.target.value)}
+          placeholder="Where are you eating? (e.g., Toit Brewpub)"
+          className="w-full h-12 bg-page border border-border rounded-xl px-4 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
+        />
+        <p className="text-[0.75rem] text-muted mt-2 font-medium">
+          Adding a venue helps Ekwly learn local tax rates for future splits.
+        </p>
+      </div>
       {/* SERVICE CHARGE SECTION */}
       <div className="px-4 py-3 mt-2 flex items-center justify-between">
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Service Charge</h3>
