@@ -67,16 +67,17 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
 
     setIsSaving(true);
     const { error } = await supabase.from('profiles').upsert({
-      id: user.id, // Explicitly pass the ID so it knows who to create
+      id: user.id,
       name: name.trim(),
       upi_id: upiId.trim(),
-      email: user.email, // Save the email during row creation
+      email: user.email,
       updated_at: new Date().toISOString(),
     });
 
     setIsSaving(false);
     if (error) {
-      showToast('Failed to save profile', 'error');
+      // PRO FIX: Output the actual DB error message so we aren't blind in production
+      showToast(error.message || 'Failed to save profile', 'error');
     } else {
       showToast('Profile updated successfully', 'success');
       if (isOnboarding && onComplete) {
