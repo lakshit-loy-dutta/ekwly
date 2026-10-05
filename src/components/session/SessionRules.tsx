@@ -1,14 +1,80 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, Trash2, Info } from 'lucide-react';
+import { ChevronDown, Trash2, Info, Search, Loader2 } from 'lucide-react';
 import BottomSheet from '../ui/BottomSheet';
 import { useSessionContext } from '../../lib/SessionContext';
 import { showToast, utils } from '../../lib/utils';
+import { supabase } from '../../lib/supabase';
 
 export default function SessionRules() {
   // 1. Pull directly from Context instead of Props!
   const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
 
   const [localVenue, setLocalVenue] = useState<string>(sessionRules.venueName);
+
+  // --- NEW: AUTOCOMPLETE STATE ---
+  const [venueResults, setVenueResults] = useState<any[]>([]);
+  const [isSearchingVenue, setIsSearchingVenue] = useState(false);
+  const [showVenueDropdown, setShowVenueDropdown] = useState(false);
+
+  useEffect(() => {
+    if (localVenue.trim().length < 2 || !isHost) {
+      setVenueResults([]);
+      setShowVenueDropdown(false);
+      return;
+    }
+
+    const searchDb = async () => {
+      setIsSearchingVenue(true);
+      const { data } = await supabase.rpc('search_venues', { search_term: localVenue.trim() });
+
+      if (data && data.length > 0) {
+        // Hide dropdown if the user has fully typed the exact match
+        if (data[0].name.toLowerCase() === localVenue.trim().toLowerCase()) {
+          setShowVenueDropdown(false);
+        } else {
+          setVenueResults(data);
+          setShowVenueDropdown(true);
+        }
+      } else {
+        setShowVenueDropdown(false);
+      }
+      setIsSearchingVenue(false);
+    };
+
+    const delayDebounceFn = setTimeout(() => searchDb(), 350);
+    return () => clearTimeout(delayDebounceFn);
+  }, [localVenue, isHost]);
+
+  const handleSelectVenue = async (venue: any) => {
+    setLocalVenue(venue.name);
+    setShowVenueDropdown(false);
+
+    const parsedScRate = Number(venue.service_charge_rate || 0);
+    setLocalScRate(parsedScRate * 100);
+
+    actions.updateSessionRulesInDB({
+      venueName: venue.name,
+      isScApplicable: parsedScRate > 0,
+      serviceChargeRate: parsedScRate,
+    });
+
+    if (venue.tax_presets && Array.isArray(venue.tax_presets)) {
+      // 1. Clear old generic taxes
+      for (const t of taxPresets) {
+        await actions.removeTaxPresetFromDB(t.id);
+      }
+      // 2. Inject the historical crowdsourced taxes
+      for (const t of venue.tax_presets) {
+        await actions.addTaxPresetToDB({
+          id: utils.generateId(),
+          name: t.name,
+          rate: t.rate,
+          split: t.split,
+        });
+      }
+      showToast(`${venue.name} rules applied!`, 'success');
+    }
+  };
 
   useEffect(() => {
     setLocalVenue(sessionRules.venueName);
@@ -91,17 +157,48 @@ export default function SessionRules() {
       <div className="px-4 py-3 mt-2 flex items-center justify-between">
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Location</h3>
       </div>
-      <div className="bg-surface border-y border-border px-4 py-4 flex flex-col">
-        <input
-          type="text"
-          disabled={!isHost}
-          value={localVenue}
-          onChange={(e) => setLocalVenue(e.target.value)}
-          placeholder="Where are you eating? (e.g., Toit Brewpub)"
-          className="w-full h-12 bg-page border border-border rounded-xl px-4 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
-        />
+      <div className="bg-surface border-y border-border px-4 py-4 flex flex-col relative z-20">
+        <div className="relative w-full">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted">
+            {isSearchingVenue ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Search size={16} />
+            )}
+          </div>
+          <input
+            type="text"
+            disabled={!isHost}
+            value={localVenue}
+            onChange={(e) => setLocalVenue(e.target.value)}
+            placeholder="Where are you eating? (e.g., Toit Brewpub)"
+            className="w-full h-12 bg-page border border-border rounded-xl pl-10 pr-4 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
+          />
+
+          {/* THE MAGIC AUTOCOMPLETE DROPDOWN */}
+          {showVenueDropdown && venueResults.length > 0 && (
+            <div className="absolute top-14 left-0 right-0 bg-surface border border-border rounded-xl shadow-lg z-30 flex flex-col overflow-hidden max-h-60 overflow-y-auto">
+              <div className="px-3 py-2 bg-page/50 border-b border-border text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                Known Venues
+              </div>
+              {venueResults.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => handleSelectVenue(v)}
+                  className="flex flex-col px-4 py-3 hover:bg-subtle active:bg-border transition-colors text-left border-b border-border/50 last:border-0"
+                >
+                  <span className="font-semibold text-main text-[0.95rem] truncate">{v.name}</span>
+                  <span className="text-[0.75rem] text-muted mt-0.5">
+                    {v.tax_presets ? v.tax_presets.length : 0} Tax Rules •{' '}
+                    {v.service_charge_rate > 0 ? v.service_charge_rate * 100 + '% SC' : 'No SC'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <p className="text-[0.75rem] text-muted mt-2 font-medium">
-          Adding a venue helps Ekwly learn local tax rates for future splits.
+          Select a known venue to instantly auto-fill their tax structure.
         </p>
       </div>
       {/* SERVICE CHARGE SECTION */}

@@ -2,17 +2,57 @@ import { useState, useEffect } from 'react';
 import { utils, showToast } from '../../lib/utils';
 import { Edit2, Trash2, ChevronDown } from 'lucide-react';
 import { useSessionContext } from '../../lib/SessionContext';
+import { supabase } from '../../lib/supabase';
 
 export default function ReceiptEditor() {
   const { isHost, items, taxPresets, sessionRules, actions } = useSessionContext();
 
-  // Local State Encapsulation
   const [newItemName, setNewItemName] = useState<string>('');
   const [newItemQty, setNewItemQty] = useState<number>(1);
   const [newItemPrice, setNewItemPrice] = useState<string>('');
   const [newItemTaxId, setNewItemTaxId] = useState<string>('tx-1');
   const [newItemApplySC, setNewItemApplySC] = useState<boolean>(true);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
+  // --- NEW: ITEM AUTOCOMPLETE STATE ---
+  const [itemResults, setItemResults] = useState<any[]>([]);
+  const [showItemDropdown, setShowItemDropdown] = useState(false);
+
+  useEffect(() => {
+    // Only search if they've typed 2+ chars AND a venue is selected in Step 1
+    if (newItemName.trim().length < 2 || !sessionRules.venueName) {
+      setItemResults([]);
+      setShowItemDropdown(false);
+      return;
+    }
+
+    const searchItems = async () => {
+      const { data } = await supabase.rpc('search_venue_items', {
+        p_venue_name: sessionRules.venueName,
+        p_search_term: newItemName.trim(),
+      });
+
+      if (data && data.length > 0) {
+        if (data[0].name.toLowerCase() === newItemName.trim().toLowerCase()) {
+          setShowItemDropdown(false);
+        } else {
+          setItemResults(data);
+          setShowItemDropdown(true);
+        }
+      } else {
+        setShowItemDropdown(false);
+      }
+    };
+
+    const delayDebounceFn = setTimeout(() => searchItems(), 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [newItemName, sessionRules.venueName]);
+
+  const handleSelectItem = (item: any) => {
+    setNewItemName(item.name);
+    setNewItemPrice(item.price.toString());
+    setShowItemDropdown(false);
+  };
 
   // Auto-select the first valid tax preset for new items
   useEffect(() => {
@@ -77,13 +117,40 @@ export default function ReceiptEditor() {
       {/* HIDDEN FOR GUESTS */}
       {isHost && (
         <div className="bg-surface border-y border-border px-4 py-5 flex flex-col gap-4">
-          <input
-            type="text"
-            value={newItemName}
-            onChange={(e) => setNewItemName(e.target.value)}
-            placeholder="Item Name (e.g. Spicy Tuna Roll)"
-            className="text-lg font-medium border-0 border-b border-border rounded-none shadow-none px-0 pb-2 focus:ring-0 focus:border-primary h-auto bg-transparent"
-          />
+          {/* MAGIC MENU AUTOCOMPLETE CONTAINER */}
+          <div className="relative w-full z-20">
+            <input
+              type="text"
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              placeholder="Item Name (e.g. Spicy Tuna Roll)"
+              className="w-full text-lg font-medium border-0 border-b border-border rounded-none shadow-none px-0 pb-2 focus:ring-0 focus:border-primary h-auto bg-transparent"
+            />
+
+            {showItemDropdown && itemResults.length > 0 && (
+              <div className="absolute top-10 left-0 right-0 bg-surface border border-border rounded-xl shadow-lg z-30 flex flex-col overflow-hidden max-h-60 overflow-y-auto">
+                <div className="px-3 py-2 bg-page/50 border-b border-border text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                  Menu Items at {sessionRules.venueName}
+                </div>
+                {itemResults.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSelectItem(item)}
+                    className="flex items-center justify-between px-4 py-3 hover:bg-subtle active:bg-border transition-colors text-left border-b border-border/50 last:border-0"
+                  >
+                    <span className="font-semibold text-main text-[0.95rem] truncate pr-4">
+                      {item.name}
+                    </span>
+                    <span className="text-[0.85rem] font-bold text-muted shrink-0">
+                      {utils.formatMoney(item.price)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* END MAGIC MENU AUTOCOMPLETE */}
 
           <div className="flex gap-4">
             <div className="flex-1">
