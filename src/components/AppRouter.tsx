@@ -14,7 +14,7 @@ import { ChevronLeft, User, Users, LogOut, Moon, QrCode, Home as HomeIcon } from
 
 export default function AppRouter() {
   const [currentView, setCurrentView] = useState<
-    'auth' | 'home' | 'session' | 'profile' | 'friends' | 'ledger'
+    'auth' | 'home' | 'session' | 'profile' | 'friends' | 'ledger' | 'onboarding'
   >('auth');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
@@ -36,79 +36,88 @@ export default function AppRouter() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      // Only resolve the route when explicitly signing in
-      if (event === 'SIGNED_IN') resolveInitialRoute();
+      if (event === 'SIGNED_IN') resolveInitialRoute(session?.user);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const resolveInitialRoute = async () => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sId = params.get('s');
-      const pPin = params.get('p');
-      const addFriendId = params.get('add_friend');
+  const resolveInitialRoute = async (currentUser?: SupabaseUser) => {
+    if (typeof window === 'undefined') return;
 
-      // --- NEW: Handle Friend Invites ---
-      if (addFriendId) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session?.user && !session.user.is_anonymous) {
-          if (session.user.id === addFriendId) {
-            showToast("You can't add yourself as a friend.", 'default');
-          } else {
-            // Insert the connection. We don't care if it errors due to a unique constraint (already friends).
-            await supabase
-              .from('connections')
-              .insert({ user_id: session.user.id, friend_id: addFriendId });
-            showToast('Friend added successfully!', 'success');
-          }
-        } else {
-          showToast('Sign in to add this friend.', 'error');
-        }
-        // Strip the parameter from the URL to clean it up
-        window.history.pushState({}, '', window.location.pathname);
-        setCurrentView('friends');
-        return;
+    // --- NEW: ONBOARDING INTERCEPTOR ---
+    const activeUser = currentUser || user;
+    if (activeUser && !activeUser.is_anonymous) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', activeUser.id)
+        .single();
+      if (!profile?.name) {
+        setCurrentView('onboarding');
+        return; // Halt routing until setup is complete
       }
+    }
 
-      if (sId) {
-        const hostCheck = localStorage.getItem(`ekwly_host_${sId}`);
-        const host = hostCheck === 'true';
-        const savedPin = pPin || localStorage.getItem(`ekwly_pin_${sId}`);
+    const params = new URLSearchParams(window.location.search);
+    const sId = params.get('s');
+    const pPin = params.get('p');
+    const addFriendId = params.get('add_friend');
 
-        if (host) {
+    // Handle Friend Invites
+    if (addFriendId) {
+      if (activeUser && !activeUser.is_anonymous) {
+        if (activeUser.id === addFriendId)
+          showToast("You can't add yourself as a friend.", 'default');
+        else {
+          await supabase
+            .from('connections')
+            .insert({ user_id: activeUser.id, friend_id: addFriendId });
+          showToast('Friend added successfully!', 'success');
+        }
+      } else {
+        showToast('Sign in to add this friend.', 'error');
+      }
+      window.history.pushState({}, '', window.location.pathname);
+      setCurrentView('friends');
+      return;
+    }
+
+    // Handle Session Invites
+    if (sId) {
+      const hostCheck = localStorage.getItem(`ekwly_host_${sId}`);
+      const host = hostCheck === 'true';
+      const savedPin = pPin || localStorage.getItem(`ekwly_pin_${sId}`);
+
+      if (host) {
+        setActiveSessionId(sId);
+        setActiveSessionPin(savedPin || '');
+        setIsHost(true);
+        setCurrentStep(1);
+        setCurrentView('session');
+      } else if (savedPin) {
+        const { data: isValid } = await supabase.rpc('verify_session_pin', {
+          p_session_id: sId,
+          p_pin: savedPin,
+        });
+        if (isValid) {
+          localStorage.setItem(`ekwly_pin_${sId}`, savedPin);
           setActiveSessionId(sId);
-          setActiveSessionPin(savedPin || '');
-          setIsHost(true);
-          setCurrentStep(1);
+          setActiveSessionPin(savedPin);
+          setIsHost(false);
+          setCurrentStep(3);
           setCurrentView('session');
-        } else if (savedPin) {
-          const { data: isValid } = await supabase.rpc('verify_session_pin', {
-            p_session_id: sId,
-            p_pin: savedPin,
-          });
-          if (isValid) {
-            localStorage.setItem(`ekwly_pin_${sId}`, savedPin);
-            setActiveSessionId(sId);
-            setActiveSessionPin(savedPin);
-            setIsHost(false);
-            setCurrentStep(3);
-            setCurrentView('session');
-          } else {
-            showToast('Invalid or expired PIN.', 'error');
-            window.history.pushState({}, '', window.location.pathname);
-            setCurrentView('home');
-          }
         } else {
+          showToast('Invalid or expired PIN.', 'error');
           window.history.pushState({}, '', window.location.pathname);
           setCurrentView('home');
         }
       } else {
+        window.history.pushState({}, '', window.location.pathname);
         setCurrentView('home');
       }
+    } else {
+      setCurrentView('home');
     }
   };
 
@@ -313,6 +322,14 @@ export default function AppRouter() {
             onJoinSession={handleJoinSession}
             onViewLedger={() => setCurrentView('ledger')}
             user={user}
+          />
+        )}
+        {currentView === 'onboarding' && (
+          <Profile
+            user={user}
+            onBack={() => {}}
+            isOnboarding={true}
+            onComplete={() => resolveInitialRoute()}
           />
         )}
         {currentView === 'profile' && <Profile user={user} onBack={() => setCurrentView('home')} />}

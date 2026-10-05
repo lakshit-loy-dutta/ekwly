@@ -21,11 +21,13 @@ import {
 interface Props {
   user: SupabaseUser | null;
   onBack: () => void;
+  isOnboarding?: boolean;
+  onComplete?: () => void;
 }
 
-export default function Profile({ user, onBack }: Props) {
+export default function Profile({ user, onBack, isOnboarding = false, onComplete }: Props) {
   const [isLoading, setIsLoading] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(isOnboarding); // Force edit mode if onboarding
   const [isSaving, setIsSaving] = useState(false);
   const [showMyQR, setShowMyQR] = useState(false);
 
@@ -71,7 +73,11 @@ export default function Profile({ user, onBack }: Props) {
       showToast('Failed to save profile', 'error');
     } else {
       showToast('Profile updated successfully', 'success');
-      setIsEditing(false); // Lock the profile again after saving
+      if (isOnboarding && onComplete) {
+        onComplete();
+      } else {
+        setIsEditing(false);
+      }
     }
   };
 
@@ -117,38 +123,40 @@ export default function Profile({ user, onBack }: Props) {
         <p className="text-muted text-sm font-medium">Manage your identity and connections</p>
       </div>
 
-      {/* NEW: Connect With Friends Actions (Always Visible) */}
-      <div className="grid grid-cols-2 gap-3 mb-8">
-        <button
-          onClick={() => setShowMyQR(true)}
-          className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
-        >
-          <QrCode size={24} className="text-primary" strokeWidth={2.5} />
-          <span className="font-semibold text-[0.95rem]">My QR Code</span>
-        </button>
-        <button
-          onClick={() => showToast('Scanner initializing...', 'default')}
-          className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
-        >
-          <ScanLine size={24} className="text-primary" strokeWidth={2.5} />
-          <span className="font-semibold text-[0.95rem]">Scan Friend</span>
-        </button>
-        <button
-          onClick={handleShareLink}
-          className="col-span-2 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl p-3.5 flex items-center justify-center gap-2 shadow-sm transition-colors font-bold text-[0.95rem]"
-        >
-          {typeof navigator !== 'undefined' && typeof navigator.share === 'function' ? (
-            <Share size={18} />
-          ) : (
-            <Copy size={18} />
-          )}
-          Send Invite Link
-        </button>
-      </div>
+      {/* Hide Share/QR actions during onboarding */}
+      {!isOnboarding && (
+        <div className="grid grid-cols-2 gap-3 mb-8">
+          <button
+            onClick={() => setShowMyQR(true)}
+            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
+          >
+            <QrCode size={24} className="text-primary" strokeWidth={2.5} />
+            <span className="font-semibold text-[0.95rem]">My QR Code</span>
+          </button>
+          <button
+            onClick={() => showToast('Scanner initializing...', 'default')}
+            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
+          >
+            <ScanLine size={24} className="text-primary" strokeWidth={2.5} />
+            <span className="font-semibold text-[0.95rem]">Scan Friend</span>
+          </button>
+          <button
+            onClick={handleShareLink}
+            className="col-span-2 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl p-3.5 flex items-center justify-center gap-2 shadow-sm transition-colors font-bold text-[0.95rem]"
+          >
+            {typeof navigator !== 'undefined' && typeof navigator.share === 'function' ? (
+              <Share size={18} />
+            ) : (
+              <Copy size={18} />
+            )}
+            Send Invite Link
+          </button>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-main">Personal Details</h3>
-        {!isEditing && (
+        {!isEditing && !isOnboarding && (
           <button
             onClick={() => setIsEditing(true)}
             className="text-sm font-bold text-primary flex items-center gap-1.5 active:opacity-70"
@@ -237,19 +245,22 @@ export default function Profile({ user, onBack }: Props) {
 
         {isEditing && (
           <div className="flex gap-3 mt-2">
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              className="h-14 flex-1 bg-surface text-main border border-border rounded-xl font-bold transition-colors"
-            >
-              Cancel
-            </button>
+            {!isOnboarding && (
+              <button
+                type="button"
+                onClick={() => setIsEditing(false)}
+                className="h-14 flex-1 bg-surface text-main border border-border rounded-xl font-bold transition-colors"
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="submit"
               disabled={isSaving}
               className="h-14 flex-1 bg-primary active:bg-primary-hover text-white rounded-xl font-bold shadow-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
             >
-              {isSaving && <Loader2 size={18} className="animate-spin" />} Save Changes
+              {isSaving && <Loader2 size={18} className="animate-spin" />}
+              {isOnboarding ? 'Complete Setup' : 'Save Changes'}
             </button>
           </div>
         )}

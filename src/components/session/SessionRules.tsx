@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, Trash2 } from 'lucide-react';
+import { ChevronDown, Trash2, Info } from 'lucide-react';
+import BottomSheet from '../ui/BottomSheet';
 import { useSessionContext } from '../../lib/SessionContext';
 import { showToast, utils } from '../../lib/utils';
 
@@ -13,6 +14,18 @@ export default function SessionRules() {
   const [newTaxName, setNewTaxName] = useState<string>('');
   const [newTaxRate, setNewTaxRate] = useState<string>('');
   const [newTaxSplit, setNewTaxSplit] = useState<boolean>(true);
+  const [showTutorial, setShowTutorial] = useState(false);
+
+  useEffect(() => {
+    if (isHost && !localStorage.getItem('ekwly_tax_tutorial_seen')) {
+      setShowTutorial(true);
+    }
+  }, [isHost]);
+
+  const dismissTutorial = () => {
+    localStorage.setItem('ekwly_tax_tutorial_seen', 'true');
+    setShowTutorial(false);
+  };
 
   // 3. Debounced Database Writes moved internally
   useEffect(() => {
@@ -60,8 +73,16 @@ export default function SessionRules() {
   return (
     <div className="w-full flex flex-col">
       {/* SERVICE CHARGE SECTION */}
-      <div className="px-4 py-3 mt-2">
+      <div className="px-4 py-3 mt-2 flex items-center justify-between">
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Service Charge</h3>
+        {isHost && (
+          <button
+            onClick={() => setShowTutorial(true)}
+            className="text-primary p-1 active:opacity-70"
+          >
+            <Info size={16} />
+          </button>
+        )}
       </div>
       <div className="bg-surface border-y border-border px-4 py-2 flex flex-col">
         <label className="flex items-center justify-between py-3 cursor-pointer">
@@ -303,6 +324,40 @@ export default function SessionRules() {
           </div>
         ))}
       </div>
+      {/* FIRST TIME TUTORIAL */}
+      <BottomSheet
+        isOpen={showTutorial}
+        onClose={dismissTutorial}
+        title="How Ekwly Calculates Taxes"
+      >
+        <div className="flex flex-col gap-4 text-[0.95rem] text-main leading-relaxed">
+          <p>
+            Restaurant bills can be confusing. Here is exactly how to set up your room so the math
+            matches the receipt perfectly:
+          </p>
+          <ul className="flex flex-col gap-3 ml-4 list-disc text-muted">
+            <li>
+              <strong className="text-main">Service Charge (S.C.):</strong> This is a global fee
+              applied to the entire bill. Turn it on here in Step 1.
+            </li>
+            <li>
+              <strong className="text-main">Tax Presets:</strong> Define your taxes here in Step 1
+              (e.g., 5% Food GST, 20% Alcohol VAT).
+            </li>
+            <li>
+              <strong className="text-main">Applying Taxes:</strong> In Step 2, as you add each
+              item, you assign it the correct Tax Preset. Ekwly handles all the fractional math for
+              you!
+            </li>
+          </ul>
+          <button
+            onClick={dismissTutorial}
+            className="mt-4 w-full h-12 bg-primary text-white rounded-xl font-bold active:scale-95 transition-all shadow-sm"
+          >
+            Got it, let's start!
+          </button>
+        </div>
+      </BottomSheet>
     </div>
   );
 }
