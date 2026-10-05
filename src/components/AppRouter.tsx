@@ -52,7 +52,8 @@ export default function AppRouter() {
         .from('profiles')
         .select('name')
         .eq('id', activeUser.id)
-        .single();
+        .maybeSingle(); // Changed from .single() to .maybeSingle()
+
       if (!profile?.name) {
         setCurrentView('onboarding');
         return; // Halt routing until setup is complete

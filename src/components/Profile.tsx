@@ -63,10 +63,13 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     if (!name.trim()) return showToast('Display name is required', 'error');
 
     setIsSaving(true);
-    const { error } = await supabase
-      .from('profiles')
-      .update({ name: name.trim(), upi_id: upiId.trim(), updated_at: new Date().toISOString() })
-      .eq('id', user.id);
+    const { error } = await supabase.from('profiles').upsert({
+      id: user.id, // Explicitly pass the ID so it knows who to create
+      name: name.trim(),
+      upi_id: upiId.trim(),
+      email: user.email, // Save the email during row creation
+      updated_at: new Date().toISOString(),
+    });
 
     setIsSaving(false);
     if (error) {
