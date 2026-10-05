@@ -442,6 +442,64 @@ export function useSession(sessionId: string | null) {
     else await supabase.from('claims').upsert(newClaim, { onConflict: 'item_id,member_id' });
   };
 
+  // HIGH-PERFORMANCE BATCH CLAIM UPDATER
+  const batchUpdateClaimsInDB = async (
+    claimUpdates: { memberId: string; itemId: string; value: string }[]
+  ) => {
+    if (!sessionId) return;
+    const newClaims: DBClaim[] = [];
+    const toDelete: { member_id: string; item_id: string }[] = [];
+
+    // 1. Sort into inserts and deletes
+    claimUpdates.forEach(({ memberId, itemId, value }) => {
+      const isEmpty = !value || value.trim() === '' || value === '0';
+      if (isEmpty) {
+        toDelete.push({ member_id: memberId, item_id: itemId });
+      } else {
+        newClaims.push({
+          id: `${memberId}-${itemId}`,
+          session_id: sessionId,
+          member_id: memberId,
+          item_id: itemId,
+          value,
+        });
+      }
+    });
+
+    // 2. Instant Optimistic UI Update
+    setClaims((prev) => {
+      let updated = [...prev];
+      toDelete.forEach((del) => {
+        updated = updated.filter(
+          (c) => !(c.member_id === del.member_id && c.item_id === del.item_id)
+        );
+      });
+      newClaims.forEach((nc) => {
+        const exists = updated.some(
+          (c) => c.item_id === nc.item_id && c.member_id === nc.member_id
+        );
+        if (exists) {
+          updated = updated.map((c) =>
+            c.item_id === nc.item_id && c.member_id === nc.member_id ? nc : c
+          );
+        } else {
+          updated.push(nc);
+        }
+      });
+      return updated;
+    });
+
+    // 3. Single Network Request
+    if (newClaims.length > 0) {
+      await supabase.from('claims').upsert(newClaims, { onConflict: 'item_id,member_id' });
+    }
+    for (const del of toDelete) {
+      await supabase
+        .from('claims')
+        .delete()
+        .match({ member_id: del.member_id, item_id: del.item_id });
+    }
+  };
   const claimMemberIdentity = async (memberId: string) => {
     if (!sessionId) return;
     const {
@@ -571,6 +629,7 @@ export function useSession(sessionId: string | null) {
       removeMemberFromDB,
       claimMemberIdentity,
       updateClaimInDB,
+      batchUpdateClaimsInDB,
       updateMemberPaymentInDB,
       saveLedgerToDB,
       lockSessionInDB,

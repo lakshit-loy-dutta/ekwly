@@ -128,9 +128,9 @@ export const mathEngine = {
           const scShare = item.applySC ? effectiveBaseShare * serviceChargeRate : 0;
           const scTaxShare = scTaxPreset && scShare > 0 ? scShare * (scTaxPreset.rate / 100) : 0;
 
-          const finalCostShare = effectiveBaseShare + itemTaxAmount;
-          subtotal += finalCostShare;
-          totalScAmount += scShare + scTaxShare;
+          const finalCostShare = utils.round2(effectiveBaseShare + itemTaxAmount);
+          subtotal = utils.round2(subtotal + finalCostShare);
+          totalScAmount = utils.round2(totalScAmount + scShare + scTaxShare);
 
           consumedItems.push({
             name: item.name,
@@ -142,7 +142,7 @@ export const mathEngine = {
       individualBreakdowns[member.name] = {
         subtotal,
         serviceCharge: totalScAmount,
-        totalOwed: (subtotal + totalScAmount) * postTaxMultiplier,
+        totalOwed: utils.round2((subtotal + totalScAmount) * postTaxMultiplier),
         items: consumedItems,
       };
     });
