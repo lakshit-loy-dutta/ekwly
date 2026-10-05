@@ -1,7 +1,8 @@
 import type { BillItem } from '../../lib/types';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
-import HelpTip from '../ui/HelpTip'; // <-- NEW IMPORT
+import HelpTip from '../ui/HelpTip';
+import SectionHeader from '../ui/SectionHeader';
 
 interface Props {
   items: BillItem[];
@@ -13,12 +14,10 @@ interface Props {
 export default function ClaimManager(props: Props) {
   return (
     <div className="w-full flex flex-col pb-6">
-      <div className="px-4 pt-2">
-        <HelpTip
-          title="How to Claim Items"
-          text="Type '1' if you ate the whole item. If you shared it, type fractions like '1/2', '1/3', or decimals like '0.5'. The tracker below turns green when an item is fully claimed."
-        />
-      </div>
+      <SectionHeader
+        title="Claim Items"
+        helpText="Type '1' if you ate the whole item. If you shared it, type fractions like '1/2', '1/3', or decimals like '0.5'. The tracker below turns green when an item is fully claimed."
+      />
 
       {props.items.length > 0 && props.members.length > 0 && (
         <div className="w-full overflow-x-auto whitespace-nowrap px-4 py-3 bg-page no-scrollbar border-b border-border flex gap-2">

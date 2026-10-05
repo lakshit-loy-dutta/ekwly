@@ -3,6 +3,7 @@ import { utils, showToast } from '../../lib/utils';
 import { Edit2, Trash2, ChevronDown, Search, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
+import SectionHeader from '../ui/SectionHeader';
 import ToggleSwitch from '../ui/ToggleSwitch';
 import HelpTip from '../ui/HelpTip';
 
@@ -214,12 +215,10 @@ export default function ReceiptEditor() {
         </div>
       )}
 
-      <div className="px-4 py-3 mt-2">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">
-          Added Items ({items.length})
-        </h3>
-        <HelpTip text="Verify the extracted items below. If an item needs a different tax rate, tap the pencil icon to edit it." />
-      </div>
+      <SectionHeader
+        title={`Added Items (${items.length})`}
+        helpText="Verify the extracted items below. If an item needs a different tax rate, tap the pencil icon to edit it."
+      />
 
       <div className="bg-surface border-y border-border divide-y divide-border">
         {items.length === 0 ? (

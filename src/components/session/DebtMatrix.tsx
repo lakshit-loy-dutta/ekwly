@@ -5,6 +5,7 @@ import { DownloadCloud, LockKeyhole, Unlock, Home, Smartphone } from 'lucide-rea
 import { supabase } from '../../lib/supabase';
 import ToggleSwitch from '../ui/ToggleSwitch';
 import HelpTip from '../ui/HelpTip';
+import SectionHeader from '../ui/SectionHeader';
 
 interface Props {
   calculationResult: CalculationResult;
@@ -68,10 +69,10 @@ export default function DebtMatrix(props: Props) {
           </div>
         </div>
 
-        <div className="px-4 py-3 mt-4">
-          <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">Debtors</h3>
-          <HelpTip text="Toggle the switch to 'Paid' when someone sends you their share via UPI or cash. This clears their debt in your Global Dashboard." />
-        </div>
+        <SectionHeader
+          title="Debtors"
+          helpText="Toggle the switch to 'Paid' when someone sends you their share via UPI or cash. This instantly clears their debt in your Global Dashboard."
+        />
 
         <div className="bg-surface border-y border-border divide-y divide-border">
           {props.ledger.length === 0 && (

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
 import { AlertCircle } from 'lucide-react';
-import HelpTip from '../ui/HelpTip'; // <-- NEW IMPORT
+import HelpTip from '../ui/HelpTip';
+import SectionHeader from '../ui/SectionHeader';
 
 interface Props {
   isHost: boolean;
@@ -73,12 +74,10 @@ export default function Payments(props: Props) {
         </div>
       </div>
 
-      <div className="px-4 py-3 mt-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
-          Who Paid The Restaurant?
-        </h3>
-        <HelpTip text="Record exactly who paid the final bill to the waiter or cashier. Do NOT enter how much people owe each other here. Ekwly will automatically calculate the debts in the next step based on these payments." />
-      </div>
+      <SectionHeader
+        title="Who Paid The Restaurant?"
+        helpText="Record exactly who paid the final bill to the waiter or cashier. Do NOT enter how much people owe each other here. Ekwly will calculate the individual debts in the next step based on these initial payments."
+      />
 
       <div className="bg-surface border-y border-border divide-y divide-border mt-2">
         {props.members.map((m) => (

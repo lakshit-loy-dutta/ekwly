@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, Trash2, Search, Loader2 } from 'lucide-react';
+import { ChevronDown, Trash2, Search, Loader2, Info, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
 import { showToast, utils } from '../../lib/utils';
 import MagicScanner from './MagicScanner';
-import HelpTip from '../ui/HelpTip';
+import SectionHeader from '../ui/SectionHeader';
 import ToggleSwitch from '../ui/ToggleSwitch';
 
 export default function SessionRules() {
@@ -20,6 +20,17 @@ export default function SessionRules() {
   const [newTaxName, setNewTaxName] = useState<string>('');
   const [newTaxRate, setNewTaxRate] = useState<string>('');
   const [newTaxSplit, setNewTaxSplit] = useState<boolean>(true);
+
+  // Global Help Reminder State
+  const [showHelpReminder, setShowHelpReminder] = useState(false);
+  useEffect(() => {
+    if (isHost && !localStorage.getItem('ekwly_help_reminder_seen')) setShowHelpReminder(true);
+  }, [isHost]);
+
+  const dismissHelpReminder = () => {
+    localStorage.setItem('ekwly_help_reminder_seen', 'true');
+    setShowHelpReminder(false);
+  };
 
   useEffect(() => {
     setLocalVenue(sessionRules.venueName);
@@ -122,14 +133,31 @@ export default function SessionRules() {
 
   return (
     <div className="w-full flex flex-col pb-8">
-      {/* THE ISOLATED MAGIC SCANNER COMPONENT */}
-      <MagicScanner />
+      {/* GLOBAL HELP REMINDER */}
+      {showHelpReminder && isHost && (
+        <div className="mx-4 mt-4 bg-primary text-white p-4 rounded-xl flex items-start gap-3 shadow-sm relative overflow-hidden">
+          <Info size={20} className="shrink-0 mt-0.5 text-white/80" />
+          <div className="flex flex-col pr-6">
+            <h4 className="font-bold text-sm mb-1">Need help?</h4>
+            <p className="text-[0.85rem] text-white/90 leading-snug">
+              Tap the 'i' icon next to any section header for detailed instructions on how to use
+              Ekwly.
+            </p>
+          </div>
+          <button
+            onClick={dismissHelpReminder}
+            className="absolute top-3 right-3 p-1.5 text-white/70 hover:text-white bg-black/20 hover:bg-black/30 rounded-full transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
-      {/* VENUE NAME SECTION */}
-      <div className="px-4 py-3 mt-2">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">Location</h3>
-        <HelpTip text="Search for a known restaurant to instantly load their complex tax rules and unlock the Magic Menu autocomplete in the next step." />
-      </div>
+      {/* 1. VENUE NAME (MOVED TO TOP) */}
+      <SectionHeader
+        title="Location"
+        helpText="Search for a known restaurant first. This instantly loads their complex tax rules and significantly increases the Magic Scanner's accuracy."
+      />
       <div className="bg-surface border-y border-border px-4 py-4 flex flex-col relative z-20">
         <div className="relative w-full">
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted">
@@ -170,13 +198,14 @@ export default function SessionRules() {
         </div>
       </div>
 
-      {/* SERVICE CHARGE SECTION */}
-      <div className="px-4 py-3 mt-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">
-          Service Charge
-        </h3>
-        <HelpTip text="This is a global fee applied across the entire bill. Set the rate here, and then enable it on a per-item basis in Step 2." />
-      </div>
+      {/* 2. THE ISOLATED MAGIC SCANNER COMPONENT */}
+      <MagicScanner />
+
+      {/* 3. SERVICE CHARGE SECTION */}
+      <SectionHeader
+        title="Service Charge"
+        helpText="This is a global fee applied across the entire bill. Set the rate here, and then enable it on a per-item basis in Step 2."
+      />
       <div className="bg-surface border-y border-border px-4 py-2 flex flex-col">
         <label className="flex items-center justify-between py-3 cursor-pointer">
           <span className="text-[0.95rem] font-medium text-main">Enable Service Charge</span>
@@ -248,11 +277,11 @@ export default function SessionRules() {
         )}
       </div>
 
-      {/* DISCOUNT SECTION */}
-      <div className="px-4 py-3 mt-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">Discount</h3>
-        <HelpTip text="Specify if the restaurant's discount was subtracted before taxes were calculated (Pre-Tax) or taken off the final grand total (Post-Tax)." />
-      </div>
+      {/* 4. DISCOUNT SECTION */}
+      <SectionHeader
+        title="Discount"
+        helpText="Specify if the restaurant's discount was subtracted before taxes were calculated (Pre-Tax) or taken off the final grand total (Post-Tax)."
+      />
       <div className="bg-surface border-y border-border px-4 py-4 flex flex-col gap-4">
         <div className="flex items-center gap-1 bg-page p-1 rounded-lg border border-border">
           {(['none', 'percentage', 'flat'] as const).map((type) => (
@@ -318,15 +347,13 @@ export default function SessionRules() {
         )}
       </div>
 
-      {/* ADD TAX PRESET SECTION */}
+      {/* 5. MANUAL TAX SETUP */}
       {isHost && (
         <>
-          <div className="px-4 py-3 mt-4">
-            <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-2">
-              Manual Tax Setup
-            </h3>
-            <HelpTip text="Create specific tax brackets (like 5% GST or 20% VAT) so you can accurately assign them to individual items in the next step." />
-          </div>
+          <SectionHeader
+            title="Manual Tax Setup"
+            helpText="Create specific tax brackets (like 5% GST or 20% VAT) so you can accurately assign them to individual items in the next step."
+          />
           <div className="bg-surface border-y border-border px-4 py-4 flex flex-col gap-4">
             <div className="grid grid-cols-12 gap-3">
               <div className="col-span-12 sm:col-span-7 flex flex-col gap-1.5">
@@ -377,11 +404,7 @@ export default function SessionRules() {
       )}
 
       {/* ACTIVE PRESETS */}
-      <div className="px-4 py-3 mt-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
-          Active Presets ({taxPresets.length})
-        </h3>
-      </div>
+      <SectionHeader title={`Active Presets (${taxPresets.length})`} />
       <div className="bg-surface border-y border-border divide-y divide-border pb-6">
         {taxPresets.map((t) => (
           <div key={t.id} className="flex items-center justify-between px-4 py-3">
