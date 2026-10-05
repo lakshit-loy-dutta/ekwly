@@ -172,7 +172,7 @@ export default function SessionRules() {
             value={localVenue}
             onChange={(e) => setLocalVenue(e.target.value)}
             placeholder="Where are you eating? (e.g., Toit Brewpub)"
-            className="w-full h-12 bg-page border border-border rounded-xl pl-10 pr-4 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
+            className="w-full h-12 bg-page border border-border rounded-xl px-4 pl-10! font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-75"
           />
 
           {/* THE MAGIC AUTOCOMPLETE DROPDOWN */}

@@ -296,6 +296,7 @@ function ActiveSessionCore({
                   ledger={ledger}
                   isHost={isHost}
                   currentUserId={currentUserId}
+                  venueName={sessionRules.venueName} // <-- NEW PROP
                   handleLockSession={() => actions.lockSessionInDB?.()}
                   handleUnlockSession={() => actions.unlockSessionInDB?.()}
                   handleToggleSettled={(id, current) =>
@@ -304,11 +305,13 @@ function ActiveSessionCore({
                   handleExportPDF={() =>
                     exportToPDF(
                       calculationResult,
-                      receiptTitle,
+                      receiptTitle || sessionRules.venueName, // <-- AUTO-FALLBACK
                       items,
                       taxPresets,
                       sessionRules.scTaxPresetId,
-                      sessionRules.serviceChargeRate
+                      sessionRules.serviceChargeRate,
+                      members, // <-- PASS MEMBERS TO PDF
+                      ledger // <-- PASS LEDGER TO PDF
                     )
                   }
                   handleGoHome={onExit}

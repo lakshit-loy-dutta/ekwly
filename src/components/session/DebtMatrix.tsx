@@ -17,6 +17,7 @@ interface Props {
   handleExportPDF: () => void;
   handleUnlockSession: () => void;
   handleGoHome: () => void;
+  venueName: string;
 }
 
 export default function DebtMatrix(props: Props) {
@@ -299,7 +300,11 @@ export default function DebtMatrix(props: Props) {
               type="text"
               value={props.receiptTitle}
               onChange={(e) => props.setReceiptTitle(e.target.value)}
-              placeholder="Receipt Title (e.g. Dinner at Bob's)"
+              placeholder={
+                props.venueName
+                  ? `${props.venueName} Receipt`
+                  : "Receipt Title (e.g. Dinner at Bob's)"
+              }
               className="w-full h-11 bg-page border border-border rounded-lg px-3 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
             />
             <button
