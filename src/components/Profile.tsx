@@ -45,13 +45,16 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
   useEffect(() => {
     const fetchProfile = async () => {
       if (!user) return;
-      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      if (data) {
-        setName(data.name || '');
-        setUpiId(data.upi_id || '');
-        setEmail(data.email || user.email || '');
-        setPhone(data.phone || '');
-      }
+
+      // 1. Use maybeSingle() so it doesn't crash if the row doesn't exist yet
+      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+
+      // 2. Safely apply fallbacks from the Auth token if the DB row is missing
+      setName(data?.name || '');
+      setUpiId(data?.upi_id || '');
+      setEmail(data?.email || user.email || '');
+      setPhone(data?.phone || user.phone || '');
+
       setIsLoading(false);
     };
     fetchProfile();
