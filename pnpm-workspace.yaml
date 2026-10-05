@@ -4,3 +4,4 @@ packages:
   - '.'
 overrides:
   'xcode>uuid': '^14.0.0'
+  'workbox-build>glob': '^13.0.6'
