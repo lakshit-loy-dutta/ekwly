@@ -1,0 +1,108 @@
+---
+import '../styles/global.css';
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy | Ekwly</title>
+    <link rel="icon" href="/ekwly/favicon.ico" type="image/x-icon" />
+  </head>
+  <body class="bg-page text-main antialiased selection:bg-primary-light selection:text-primary min-h-screen py-10 px-4 md:px-8">
+    <main class="max-w-3xl mx-auto bg-surface border border-border rounded-2xl p-6 md:p-10 shadow-sm">
+      <div class="mb-6 pb-4 border-b border-border flex items-center justify-between">
+        <a
+          href="/ekwly/"
+          class="text-sm font-semibold text-primary hover:text-primary-hover transition-colors">
+          ← Return to App
+        </a>
+        <span class="text-xs font-bold text-muted uppercase tracking-widest">Legal</span>
+      </div>
+
+      <h1 class="text-3xl font-bold tracking-tight text-main mb-2">Privacy Policy</h1>
+      <p class="text-sm text-muted mb-8">Effective Date: October 5, 2026</p>
+
+      <section class="space-y-6 text-sm text-main/90 leading-relaxed">
+        <div>
+          <h2 class="text-lg font-bold text-main mb-2">1. Overview</h2>
+          <p class="text-muted">
+            Ekwly ("we", "our", or "us") provides a collaborative bill-splitting, itemization, and
+            settlement platform. This Privacy Policy details how we collect, store, process, and
+            safeguard your personal information when using our application across web, Progressive
+            Web App (PWA), and native mobile wrappers in accordance with India's Digital Personal
+            Data Protection Act (DPDPA) and international data protection standards.
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-lg font-bold text-main mb-2">2. Data We Collect</h2>
+          <ul class="list-disc list-inside space-y-1 text-muted">
+            <li>
+              <strong class="text-main">Authentication Information:</strong> Name, email address,
+              and avatar URL provided via Supabase Auth or Google OAuth.
+            </li>
+            <li>
+              <strong class="text-main">Profile & Payment Handles:</strong> Virtual Payment Address
+              (UPI ID) optionally provided by you to enable peer-to-peer deep links (`upi://pay`).
+            </li>
+            <li>
+              <strong class="text-main">Session Records:</strong> Item entries, custom tax
+              configurations, room pins, claimed quantities, payment distribution ledgers, and
+              friend connection IDs.
+            </li>
+            <li>
+              <strong class="text-main">Camera & Receipts:</strong> Images captured specifically
+              during the "Magic Scan" workflow for receipt text parsing.
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <h2 class="text-lg font-bold text-main mb-2">
+            3. AI Processing & Third-Party Disclosure
+          </h2>
+          <p class="text-muted mb-2">
+            When you invoke the "Magic Scan" receipt reader, temporary image data is passed through
+            a secure Supabase Edge Function to Google's Gemini Vision API solely for item and
+            numeric extraction.
+          </p>
+          <ul class="list-disc list-inside space-y-1 text-muted">
+            <li>Receipt images are not used for targeted consumer advertising.</li>
+            <li>
+              No biometric facial data, government identity documents, or financial account
+              credentials are extracted or retained.
+            </li>
+            <li>
+              Database persistence is managed strictly via PostgreSQL on Supabase with Row Level
+              Security (RLS) enforcement.
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <h2 class="text-lg font-bold text-main mb-2">4. Data Retention & Deletion Rights</h2>
+          <p class="text-muted">
+            Your personal profile, associated ledger history, and active session data are maintained
+            as long as your account remains active. You maintain the right to view, correct, or
+            permanently delete your stored information at any time via in-app profile settings or
+            through our external data deletion portal at{' '}
+            <a href="/ekwly/delete-account" class="text-primary hover:underline font-semibold">
+              /ekwly/delete-account
+            </a>
+            .
+          </p>
+        </div>
+
+        <div>
+          <h2 class="text-lg font-bold text-main mb-2">5. Contact Information</h2>
+          <p class="text-muted">
+            For inquiries, privacy notices, or data handling requests, reach out to our team at{' '}
+            <span class="font-mono text-main">support@ekwly.app</span>.
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

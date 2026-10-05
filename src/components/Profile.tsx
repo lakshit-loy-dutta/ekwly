@@ -105,6 +105,29 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     }
   };
 
+  const handleDeleteAccount = async () => {
+    const confirm1 = window.confirm(
+      'Are you absolutely sure you want to delete your account? This action is permanent and cannot be undone.'
+    );
+    if (!confirm1) return;
+
+    const confirm2 = window.prompt("Type 'DELETE' to confirm account closure.");
+    if (confirm2 !== 'DELETE') return;
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.rpc('delete_user_account');
+      if (error) throw error;
+
+      await supabase.auth.signOut();
+      showToast('Your account has been permanently deleted.', 'success');
+      onBack(); // Send them back to the Auth screen
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete account.', 'error');
+      setIsLoading(false);
+    }
+  };
+
   if (isLoading)
     return (
       <div className="flex h-full flex-1 items-center justify-center">
@@ -268,6 +291,19 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
             >
               {isSaving && <Loader2 size={18} className="animate-spin" />}
               {isOnboarding ? 'Complete Setup' : 'Save Changes'}
+            </button>
+          </div>
+        )}
+
+        {/* DANGER ZONE */}
+        {!isOnboarding && !isEditing && (
+          <div className="mt-8 pt-6 border-t border-border flex flex-col items-center">
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              className="text-sm font-bold text-danger hover:text-danger/80 transition-colors"
+            >
+              Delete Account Permanently
             </button>
           </div>
         )}
