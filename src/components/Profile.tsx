@@ -49,11 +49,11 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
       // 1. Use maybeSingle() so it doesn't crash if the row doesn't exist yet
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
 
-      // 2. Safely apply fallbacks from the Auth token if the DB row is missing
-      setName(data?.name || '');
+      // 2. Safely apply fallbacks from the DB first, then the Google OAuth Auth token
+      setName(data?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '');
       setUpiId(data?.upi_id || '');
-      setEmail(data?.email || user.email || '');
-      setPhone(data?.phone || user.phone || '');
+      setEmail(data?.email || user?.email || '');
+      setPhone(data?.phone || user?.phone || '');
 
       setIsLoading(false);
     };

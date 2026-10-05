@@ -11,7 +11,6 @@ export interface DBMember {
   paid_amount: number;
 }
 export interface DBClaim {
-  id: string;
   session_id: string;
   item_id: string;
   member_id: string;
@@ -106,7 +105,15 @@ export function useSession(sessionId: string | null) {
       if (membersRes.data)
         setMembers(membersRes.data.map((m) => ({ ...m, paid_amount: Number(m.paid_amount || 0) })));
       if (claimsRes.data) setClaims(claimsRes.data);
-      if (ledgerRes.data) setLedger(ledgerRes.data);
+      if (ledgerRes.data) {
+        setLedger(
+          ledgerRes.data.map((l) => ({
+            ...l,
+            creditor_name: l.creditor_fallback_name,
+            debtor_name: l.debtor_fallback_name,
+          }))
+        );
+      }
 
       if (!isBackground) setIsLoading(false);
     },
@@ -171,15 +178,24 @@ export function useSession(sessionId: string | null) {
         { event: '*', schema: 'public', table: 'ledger', filter: `session_id=eq.${sessionId}` },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            // NEW: Explicit check prevents the exact same debt from stacking twice
-            setLedger((prev) =>
-              prev.some((l) => l.id === payload.new.id) ? prev : [...prev, payload.new]
-            );
+            const mapped: any = {
+              ...payload.new,
+              creditor_name: payload.new.creditor_fallback_name,
+              debtor_name: payload.new.debtor_fallback_name,
+            };
+            setLedger((prev) => (prev.some((l) => l.id === mapped.id) ? prev : [...prev, mapped]));
           }
-          if (payload.eventType === 'UPDATE')
-            setLedger((prev) => prev.map((l) => (l.id === payload.new.id ? payload.new : l)));
-          if (payload.eventType === 'DELETE')
+          if (payload.eventType === 'UPDATE') {
+            const mapped: any = {
+              ...payload.new,
+              creditor_name: payload.new.creditor_fallback_name,
+              debtor_name: payload.new.debtor_fallback_name,
+            };
+            setLedger((prev) => prev.map((l) => (l.id === mapped.id ? mapped : l)));
+          }
+          if (payload.eventType === 'DELETE') {
             setLedger((prev) => prev.filter((l) => l.id !== payload.old.id));
+          }
         }
       )
       .on(
@@ -364,7 +380,7 @@ export function useSession(sessionId: string | null) {
 
       if (!existingHost) {
         const newHostMember = {
-          id: hostId,
+          id: utils.generateId(),
           session_id: id,
           name: hostName,
           user_id: user.id,
@@ -384,9 +400,9 @@ export function useSession(sessionId: string | null) {
 
     if (!existingTaxes || existingTaxes.length === 0) {
       const defaultTaxes = [
-        { id: `tax-gst-${id}`, session_id: id, name: 'Food GST', rate: 5, split: true },
-        { id: `tax-vat-${id}`, session_id: id, name: 'Alcohol VAT', rate: 6, split: false },
-        { id: `tax-exempt-${id}`, session_id: id, name: 'Exempt', rate: 0, split: false },
+        { id: utils.generateId(), session_id: id, name: 'Food GST', rate: 5, split: true }, // <-- FIXED
+        { id: utils.generateId(), session_id: id, name: 'Alcohol VAT', rate: 6, split: false }, // <-- FIXED
+        { id: utils.generateId(), session_id: id, name: 'Exempt', rate: 0, split: false }, // <-- FIXED
       ];
       setTaxPresets((prev) => (prev.length > 0 ? prev : defaultTaxes));
       await supabase.from('tax_presets').upsert(defaultTaxes);
@@ -428,7 +444,6 @@ export function useSession(sessionId: string | null) {
     if (!sessionId) return;
     const claimId = `${memberId}-${itemId}`;
     const newClaim: DBClaim = {
-      id: claimId,
       session_id: sessionId,
       member_id: memberId,
       item_id: itemId,
@@ -462,7 +477,6 @@ export function useSession(sessionId: string | null) {
         toDelete.push({ member_id: memberId, item_id: itemId });
       } else {
         newClaims.push({
-          id: `${memberId}-${itemId}`,
           session_id: sessionId,
           member_id: memberId,
           item_id: itemId,
@@ -564,9 +578,9 @@ export function useSession(sessionId: string | null) {
     const ledgerEntries = transactions.map((t) => ({
       session_id: sessionId,
       creditor_id: t.creditor_id || null,
-      creditor_name: t.creditor_name,
+      creditor_fallback_name: t.creditor_name, // <-- FIXED
       debtor_id: t.debtor_id || null,
-      debtor_name: t.debtor_name,
+      debtor_fallback_name: t.debtor_name, // <-- FIXED
       amount: t.amount,
       settled: false,
     }));
