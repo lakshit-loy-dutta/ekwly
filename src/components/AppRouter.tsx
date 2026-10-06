@@ -7,6 +7,7 @@ import Auth from './Auth';
 import Profile from './Profile';
 import Friends from './Friends';
 import Ledger from './Ledger';
+import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
@@ -191,6 +192,7 @@ export default function AppRouter() {
 
   return (
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
+      <PwaUpdater />
       {currentView !== 'auth' && (
         <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
           {['session', 'profile', 'friends', 'ledger'].includes(currentView) ? (
