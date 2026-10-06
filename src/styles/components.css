@@ -200,3 +200,47 @@ input:checked + .slider:before {
   height: 36px;
   padding: 0 8px;
 }
+
+/* PREMIUM FINTECH AESTHETICS */
+.bg-grid-pattern {
+  background-image: radial-gradient(var(--border-hover) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -12px -12px;
+  opacity: 0.3; /* Subtle texture */
+  pointer-events: none;
+}
+
+[data-theme='dark'] .bg-grid-pattern {
+  opacity: 0.15;
+}
+
+.premium-gradient-card {
+  background: linear-gradient(135deg, var(--color-primary) 0%, #0056b3 100%);
+  box-shadow: 0 10px 30px -10px rgba(0, 128, 255, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+.premium-gradient-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.15), transparent);
+  transform: skewX(-20deg);
+  animation: shine 6s infinite;
+}
+
+@keyframes shine {
+  0% {
+    left: -100%;
+  }
+  20% {
+    left: 200%;
+  }
+  100% {
+    left: 200%;
+  }
+}

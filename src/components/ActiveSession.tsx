@@ -328,7 +328,7 @@ function ActiveSessionCore({
           {/* THE INTERACTIVE STEPPER TRACK */}
           <div className="flex justify-between items-center px-8 pt-4 pb-3 relative">
             {/* Background connecting line */}
-            <div className="absolute top-1/2 left-8 right-8 h-0.5 bg-border -translate-y-[2px] z-0"></div>
+            <div className="absolute top-1/2 left-8 right-8 h-0.5 bg-border -translate-y-0.5 z-0"></div>
 
             {[1, 2, 3, 4, 5].map((step) => {
               const isActive = currentStep === step;
