@@ -7,17 +7,15 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
     const { imageBase64, currentRules, currentTaxes } = await req.json();
-    if (!imageBase64) throw new Error('No image provided');
+    if (!imageBase64) throw new Error('No image provided.');
 
-    // 1. RATE LIMITING & AUTH CHECK
+    // 1. AUTH & QUOTA CHECK
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('UNAUTHORIZED: Sign in to use Magic Scan');
+    if (!authHeader) throw new Error('UNAUTHORIZED: Sign in to use Magic Scan.');
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -29,7 +27,7 @@ Deno.serve(async (req) => {
       data: { user },
       error: userError,
     } = await supabaseClient.auth.getUser();
-    if (userError || !user) throw new Error('UNAUTHORIZED: Invalid session');
+    if (userError || !user) throw new Error('UNAUTHORIZED: Invalid session.');
 
     const { data: profile } = await supabaseClient
       .from('profiles')
@@ -37,7 +35,7 @@ Deno.serve(async (req) => {
       .eq('id', user.id)
       .single();
 
-    if (!profile) throw new Error('Profile not found');
+    if (!profile) throw new Error('Profile not found.');
 
     if (!profile.unlimited_scans && profile.ai_scans_used >= 3) {
       throw new Error('RATE_LIMIT_REACHED');
@@ -49,33 +47,22 @@ Deno.serve(async (req) => {
 You are an expert tax accountant for Indian restaurants. Analyze this receipt and extract the data strictly into the provided JSON schema.
 
 KNOWN VENUE CONTEXT:
-The user has historically identified these tax rules for this venue:
 - Service Charge Applicable: ${currentRules?.isScApplicable} (${currentRules?.serviceChargeRate * 100}%)
 - Existing Tax Presets: ${JSON.stringify(currentTaxes)}
 
 EXTRACTION RULES:
 1. Extract all food/drink items. Ignore subtotal, tax, and round-off rows.
 2. For each item, assign the correct 'taxPresetId' from the Existing Tax Presets context. 
-3. If an item requires a tax that is NOT in the Existing Tax Presets, define it in the 'newTaxPresets' array with a unique 'tempId' (e.g., "temp-1"), and use that tempId for the item.
-4. If the receipt shows a Service Charge applied to the items, set 'applySC' to true for those items.
-5. If there is a discount on the receipt, mathematically normalize it into a single 'discountValue'.
+3. If an item requires a tax that is NOT in the Existing Tax Presets, define it in the 'newTaxPresets' array with a unique 'tempId', and use that tempId for the item.
+4. If a Service Charge is applied to the items, set 'applySC' to true for those items.
+5. Mathematically normalize any discounts into a single 'discountValue'.
 
 OUTPUT SCHEMA:
 Return ONLY raw JSON matching this structure exactly:
 {
-  "sessionRules": {
-    "isScApplicable": boolean,
-    "serviceChargeRate": number,
-    "discountType": "none" | "flat" | "percentage",
-    "discountValue": "string",
-    "discountMode": "pre-tax" | "post-tax"
-  },
-  "newTaxPresets": [
-    { "tempId": "string", "name": "string", "rate": number, "split": boolean }
-  ],
-  "items": [
-    { "name": "string", "qty": number, "price": number, "taxPresetId": "string", "applySC": boolean }
-  ]
+  "sessionRules": { "isScApplicable": boolean, "serviceChargeRate": number, "discountType": "none" | "flat" | "percentage", "discountValue": "string", "discountMode": "pre-tax" | "post-tax" },
+  "newTaxPresets": [{ "tempId": "string", "name": "string", "rate": number, "split": boolean }],
+  "items": [{ "name": "string", "qty": number, "price": number, "taxPresetId": "string", "applySC": boolean }]
 }`;
 
     const geminiResponse = await fetch(
@@ -97,11 +84,27 @@ Return ONLY raw JSON matching this structure exactly:
       }
     );
 
-    const geminiData = await geminiResponse.json();
-    const rawText = geminiData.candidates[0].content.parts[0].text;
-    const parsedJson = JSON.parse(rawText);
+    if (!geminiResponse.ok) throw new Error('AI Engine overloaded. Try again in a minute.');
 
-    // 3. INCREMENT USAGE COUNT
+    const geminiData = await geminiResponse.json();
+    if (!geminiData.candidates || geminiData.candidates.length === 0) {
+      throw new Error('AI failed to read the image. Ensure the receipt is clear.');
+    }
+
+    const rawText = geminiData.candidates[0].content.parts[0].text;
+
+    // 3. SAFE PARSE & EXCEPTION HANDLING
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(rawText);
+      if (!parsedJson.items || !Array.isArray(parsedJson.items)) {
+        throw new Error('Malformed JSON array');
+      }
+    } catch (_parseError) {
+      throw new Error('AI could not extract valid items. Your quota was NOT charged.');
+    }
+
+    // 4. CHARGE QUOTA ONLY UPON SUCCESS
     await supabaseClient
       .from('profiles')
       .update({ ai_scans_used: profile.ai_scans_used + 1 })
@@ -112,7 +115,6 @@ Return ONLY raw JSON matching this structure exactly:
       status: 200,
     });
   } catch (error) {
-    // TYPE FIX: Strictly evaluate the unknown error type
     const errMessage = error instanceof Error ? error.message : String(error);
     return new Response(JSON.stringify({ error: errMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -1,16 +1,22 @@
 import { useState } from 'react';
-import { Camera as CameraIcon, Loader2, Sparkles, CheckCircle2 } from 'lucide-react'; // Added Sparkles & CheckCircle2
+import {
+  Camera as CameraIcon,
+  Image as ImageIcon,
+  Loader2,
+  Sparkles,
+  CheckCircle2,
+} from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { Camera } from '@capacitor/camera';
+import { Camera } from '@capacitor/camera'; // Removed deprecated enums
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
 import { showToast, utils } from '../../lib/utils';
-import BottomSheet from '../ui/BottomSheet'; // Added BottomSheet
+import BottomSheet from '../ui/BottomSheet';
 
 export default function MagicScanner() {
   const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
   const [isScanning, setIsScanning] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false); // NEW STATE
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   if (!isHost) return null;
 
@@ -28,17 +34,43 @@ export default function MagicScanner() {
     });
   };
 
-  const initiateScan = async (e?: React.ChangeEvent<HTMLInputElement>) => {
+  const initiateScan = async (
+    sourceType: 'CAMERA' | 'GALLERY',
+    e?: React.ChangeEvent<HTMLInputElement>
+  ) => {
     setIsScanning(true);
     showToast('Analyzing receipt with AI...', 'default');
 
     try {
       let base64Image = '';
+
       if (Capacitor.isNativePlatform()) {
-        const image = await Camera.takePhoto({ quality: 90, includeMetadata: false });
-        if (!image.uri) throw new Error('Failed to capture image');
-        const webSafeUrl = Capacitor.convertFileSrc(image.uri);
-        const response = await fetch(webSafeUrl);
+        let imageWebPath = '';
+
+        // CAPACITOR 8 API STANDARDS
+        if (sourceType === 'CAMERA') {
+          const image = await Camera.takePhoto({ quality: 90 });
+          // FIX: Strictly enforce that image.webPath exists before assigning
+          if (!image || !image.webPath) throw new Error('Failed to capture image');
+          imageWebPath = image.webPath;
+        } else {
+          const gallery = await Camera.chooseFromGallery({
+            allowMultipleSelection: false,
+            quality: 90,
+          });
+          // FIX: Strictly enforce that the results array exists and has a webPath
+          if (
+            !gallery ||
+            !gallery.results ||
+            gallery.results.length === 0 ||
+            !gallery.results[0].webPath
+          ) {
+            throw new Error('No image selected');
+          }
+          imageWebPath = gallery.results[0].webPath;
+        }
+
+        const response = await fetch(imageWebPath);
         const blob = await response.blob();
         base64Image = await fileToBase64(blob);
       } else {
@@ -53,17 +85,15 @@ export default function MagicScanner() {
 
       const errMessage = error?.message || data?.error;
       if (errMessage) {
-        // --- NEW: INTERCEPT RATE LIMIT AND OPEN UPGRADE MODAL ---
         if (errMessage === 'RATE_LIMIT_REACHED' || errMessage.includes('3 free Magic Scans')) {
           setShowUpgradeModal(true);
-          return; // Exit without throwing standard error
+          return;
         }
-        if (errMessage.includes('UNAUTHORIZED'))
-          throw new Error('Sign in from your Profile to use Magic Scan.');
         throw new Error(errMessage);
       }
-      
-      if (!data?.items) throw new Error('Failed to read receipt');
+
+      if (!data?.items || data.items.length === 0)
+        throw new Error('AI could not find any items on this receipt.');
 
       if (data.sessionRules) {
         await actions.updateSessionRulesInDB({
@@ -92,8 +122,11 @@ export default function MagicScanner() {
       let addedCount = 0;
       for (const extractedItem of data.items) {
         if (!extractedItem.name || !extractedItem.price) continue;
-        const finalTaxId = tempIdMap[extractedItem.taxPresetId] || extractedItem.taxPresetId || (taxPresets.length > 0 ? taxPresets[0].id : 'tx-1');
-        
+        const finalTaxId =
+          tempIdMap[extractedItem.taxPresetId] ||
+          extractedItem.taxPresetId ||
+          (taxPresets.length > 0 ? taxPresets[0].id : 'tx-1');
+
         await actions.addItemToDB?.({
           id: utils.generateId(),
           name: extractedItem.name,
@@ -130,28 +163,60 @@ export default function MagicScanner() {
           </p>
         </div>
 
-        <div className="flex w-full">
+        <div className="grid grid-cols-2 gap-3 w-full">
           <input
             type="file"
             accept="image/*"
             capture="environment"
-            onChange={initiateScan}
+            onChange={(e) => initiateScan('CAMERA', e)}
             className="hidden"
             id="camera-input"
           />
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => initiateScan('GALLERY', e)}
+            className="hidden"
+            id="gallery-input"
+          />
+
           <button
             type="button"
             disabled={isScanning}
-            onClick={() => {
-              if (Capacitor.isNativePlatform()) initiateScan();
-              else document.getElementById('camera-input')?.click();
-            }}
-            className="w-full h-14 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50 disabled:scale-100"
+            onClick={() =>
+              Capacitor.isNativePlatform()
+                ? initiateScan('CAMERA')
+                : document.getElementById('camera-input')?.click()
+            }
+            className="h-14 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all shadow-sm disabled:opacity-50"
           >
             {isScanning ? (
-              <><Loader2 size={20} className="animate-spin" /> Analyzing Receipt...</>
+              <Loader2 size={20} className="animate-spin" />
             ) : (
-              <><CameraIcon size={20} /> Snap Photo</>
+              <>
+                <CameraIcon size={20} />
+                <span className="text-[0.65rem] uppercase tracking-wider">Take Photo</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            disabled={isScanning}
+            onClick={() =>
+              Capacitor.isNativePlatform()
+                ? initiateScan('GALLERY')
+                : document.getElementById('gallery-input')?.click()
+            }
+            className="h-14 bg-primary/10 hover:bg-primary/20 active:scale-95 text-primary border border-primary/20 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all shadow-sm disabled:opacity-50"
+          >
+            {isScanning ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <>
+                <ImageIcon size={20} />
+                <span className="text-[0.65rem] uppercase tracking-wider">Upload Image</span>
+              </>
             )}
           </button>
         </div>
@@ -165,38 +230,56 @@ export default function MagicScanner() {
         </div>
       </div>
 
-      {/* UPGRADE MODAL */}
-      <BottomSheet isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} title="Upgrade to Ekwly Pro">
+      <BottomSheet
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        title="Upgrade to Ekwly Pro"
+      >
         <div className="flex flex-col items-center pb-4 text-center">
           <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-4">
             <Sparkles size={32} />
           </div>
           <h2 className="text-xl font-bold text-main mb-2">You're out of free scans!</h2>
           <p className="text-[0.95rem] text-muted mb-6 leading-relaxed">
-            You've used your 3 free Magic Scans for this month. Upgrade to Ekwly Pro to never type a receipt manually again.
+            You've used your 3 free Magic Scans for this month. Upgrade to Ekwly Pro to never type a
+            receipt manually again.
           </p>
 
           <div className="w-full bg-surface border border-primary/20 rounded-2xl p-5 mb-6 text-left shadow-sm">
             <h3 className="font-bold text-main mb-4 flex justify-between items-center">
-              Pro Plan <span className="text-primary text-xl tracking-tight">₹99 <span className="text-sm text-muted font-medium">/mo</span></span>
+              Pro Plan{' '}
+              <span className="text-primary text-xl tracking-tight">
+                ₹99 <span className="text-sm text-muted font-medium">/mo</span>
+              </span>
             </h3>
             <ul className="flex flex-col gap-3">
-              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium"><CheckCircle2 size={18} className="text-success" /> Unlimited AI Receipt Scans</li>
-              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium"><CheckCircle2 size={18} className="text-success" /> Personal Analytics Dashboard</li>
-              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium"><CheckCircle2 size={18} className="text-success" /> Priority Email Support</li>
+              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium">
+                <CheckCircle2 size={18} className="text-success" /> Unlimited AI Receipt Scans
+              </li>
+              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium">
+                <CheckCircle2 size={18} className="text-success" /> Personal Analytics Dashboard
+              </li>
+              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium">
+                <CheckCircle2 size={18} className="text-success" /> Priority Email Support
+              </li>
             </ul>
           </div>
 
-          <a 
-            href="https://rzp.io/l/your-link-here" 
-            target="_blank" 
+          <a
+            href="https://rzp.io/l/your-link-here"
+            target="_blank"
             rel="noopener noreferrer"
-            onClick={() => showToast("After payment, email support to activate your account.", "success")}
+            onClick={() =>
+              showToast('After payment, email support to activate your account.', 'success')
+            }
             className="w-full h-14 bg-primary text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
           >
             Upgrade Now
           </a>
-          <button onClick={() => setShowUpgradeModal(false)} className="mt-4 text-sm font-bold text-muted hover:text-main">
+          <button
+            onClick={() => setShowUpgradeModal(false)}
+            className="mt-4 text-sm font-bold text-muted hover:text-main"
+          >
             Maybe Later
           </button>
         </div>

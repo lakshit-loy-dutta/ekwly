@@ -33,3 +33,7 @@ logs/
 
 # repomix
 repomix-output*.xml
+
+# supabase temp files
+supabase/.temp/*
+schema_dump.sql
