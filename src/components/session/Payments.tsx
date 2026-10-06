@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
 import { AlertCircle } from 'lucide-react';
-import HelpTip from '../ui/HelpTip';
 import SectionHeader from '../ui/SectionHeader';
 
 interface Props {

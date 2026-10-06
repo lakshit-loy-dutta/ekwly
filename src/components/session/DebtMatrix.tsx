@@ -4,7 +4,6 @@ import { utils } from '../../lib/utils';
 import { DownloadCloud, LockKeyhole, Unlock, Home, Smartphone } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import ToggleSwitch from '../ui/ToggleSwitch';
-import HelpTip from '../ui/HelpTip';
 import SectionHeader from '../ui/SectionHeader';
 
 interface Props {

@@ -414,6 +414,7 @@ export function useSession(sessionId: string | null) {
     const trimmed = name.trim();
     if (members.some((m) => m.name.toLowerCase() === trimmed.toLowerCase()))
       return showToast('Name must be unique.', 'error');
+
     const newMember: DBMember = {
       id: utils.generateId(),
       session_id: sessionId,
@@ -421,19 +422,32 @@ export function useSession(sessionId: string | null) {
       user_id: overrideUserId || null,
       paid_amount: 0,
     };
-    setMembers((prev) => [...prev, newMember]);
+
+    setMembers((prev) => [...prev, newMember]); // Optimistic UI
+
     const { error } = await supabase.from('members').insert(newMember);
-    if (error) setMembers((prev) => prev.filter((m) => m.id !== newMember.id));
+    if (error) {
+      setMembers((prev) => prev.filter((m) => m.id !== newMember.id)); // Rollback
+      showToast('Network error: Failed to add member.', 'error');
+    }
     return newMember;
   };
 
   const removeMemberFromDB = async (memberId: string) => {
     if (!sessionId) return;
+
+    // Store backup for rollback
+    const memberBackup = members.find((m) => m.id === memberId);
+
     setMembers((prev) => prev.filter((m) => m.id !== memberId));
     setClaims((prev) => prev.filter((c) => c.member_id !== memberId));
-    await supabase.from('members').delete().eq('id', memberId);
-  };
 
+    const { error } = await supabase.from('members').delete().eq('id', memberId);
+    if (error && memberBackup) {
+      setMembers((prev) => [...prev, memberBackup]);
+      showToast('Network error: Failed to remove member.', 'error');
+    }
+  };
   const updateMemberPaymentInDB = async (memberId: string, amount: number) => {
     if (!sessionId) return;
     setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, paid_amount: amount } : m)));
@@ -534,7 +548,8 @@ export function useSession(sessionId: string | null) {
 
   const addItemToDB = async (item: BillItem) => {
     if (!sessionId) return;
-    setItems((prev) => [...prev, item]);
+    setItems((prev) => [...prev, item]); // Optimistic UI
+
     const { error } = await supabase.from('items').insert({
       id: item.id,
       session_id: sessionId,
@@ -544,7 +559,11 @@ export function useSession(sessionId: string | null) {
       apply_sc: item.applySC,
       tax_preset_id: item.taxPresetId,
     });
-    if (error) setItems((prev) => prev.filter((i) => i.id !== item.id));
+
+    if (error) {
+      setItems((prev) => prev.filter((i) => i.id !== item.id)); // Rollback
+      showToast('Network error: Failed to add item.', 'error');
+    }
   };
 
   const updateItemInDB = async (item: BillItem) => {
@@ -564,9 +583,16 @@ export function useSession(sessionId: string | null) {
 
   const removeItemFromDB = async (itemId: string) => {
     if (!sessionId) return;
+    const itemBackup = items.find((i) => i.id === itemId);
+
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     setClaims((prev) => prev.filter((c) => c.item_id !== itemId));
-    await supabase.from('items').delete().eq('id', itemId);
+
+    const { error } = await supabase.from('items').delete().eq('id', itemId);
+    if (error && itemBackup) {
+      setItems((prev) => [...prev, itemBackup]);
+      showToast('Network error: Failed to remove item.', 'error');
+    }
   };
 
   const saveLedgerToDB = async (transactions: Transaction[]) => {

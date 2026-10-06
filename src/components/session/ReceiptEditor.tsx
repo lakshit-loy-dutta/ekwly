@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { utils, showToast } from '../../lib/utils';
 import { Edit2, Trash2, ChevronDown, Search, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
 import SectionHeader from '../ui/SectionHeader';
 import ToggleSwitch from '../ui/ToggleSwitch';
-import HelpTip from '../ui/HelpTip';
 
 export default function ReceiptEditor() {
   const { isHost, items, taxPresets, sessionRules, actions } = useSessionContext();
@@ -220,64 +220,73 @@ export default function ReceiptEditor() {
         helpText="Verify the extracted items below. If an item needs a different tax rate, tap the pencil icon to edit it."
       />
 
-      <div className="bg-surface border-y border-border divide-y divide-border">
+      <div className="bg-surface border-y border-border divide-y divide-border overflow-hidden">
         {items.length === 0 ? (
           <div className="p-8 text-center text-muted text-sm">No items added yet.</div>
         ) : (
-          items.map((item) => {
-            const taxPreset = taxPresets.find((t) => t.id === item.taxPresetId);
-            const dynamicTaxRate = taxPreset ? taxPreset.rate / 100 : 0;
-            const itemTaxAmount = item.totalBase * dynamicTaxRate;
-            const itemSC = item.applySC ? item.totalBase * sessionRules.serviceChargeRate : 0;
-            const finalItemTotal = item.totalBase + itemTaxAmount + itemSC;
-            const taxName = taxPreset ? `${taxPreset.name} (${taxPreset.rate}%)` : 'Custom Tax';
+          <AnimatePresence initial={false}>
+            {items.map((item) => {
+              const taxPreset = taxPresets.find((t) => t.id === item.taxPresetId);
+              const dynamicTaxRate = taxPreset ? taxPreset.rate / 100 : 0;
+              const itemTaxAmount = item.totalBase * dynamicTaxRate;
+              const itemSC = item.applySC ? item.totalBase * sessionRules.serviceChargeRate : 0;
+              const finalItemTotal = item.totalBase + itemTaxAmount + itemSC;
+              const taxName = taxPreset ? `${taxPreset.name} (${taxPreset.rate}%)` : 'Custom Tax';
 
-            return (
-              <div key={item.id} className="flex items-center justify-between p-4">
-                <div className="flex flex-col min-w-0 pr-4">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-main text-[0.95rem] truncate">
-                      {item.name}
-                    </span>
-                    <span className="text-[0.7rem] font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border shrink-0">
-                      x{item.qty}
-                    </span>
+              return (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, height: 0, y: -10 }}
+                  animate={{ opacity: 1, height: 'auto', y: 0 }}
+                  exit={{ opacity: 0, height: 0, x: -30 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex items-center justify-between p-4"
+                >
+                  <div className="flex flex-col min-w-0 pr-4">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-main text-[0.95rem] truncate">
+                        {item.name}
+                      </span>
+                      <span className="text-[0.7rem] font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border shrink-0">
+                        x{item.qty}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted mt-1 truncate">
+                      <span>{utils.formatMoney(item.unitPrice)}</span>
+                      <span>•</span>
+                      <span className="truncate">{taxName}</span>
+                      {item.applySC && sessionRules.serviceChargeRate > 0 && (
+                        <>
+                          <span>•</span>
+                          <span className="text-primary font-bold">+ S.C.</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted mt-1 truncate">
-                    <span>{utils.formatMoney(item.unitPrice)}</span>
-                    <span>•</span>
-                    <span className="truncate">{taxName}</span>
-                    {item.applySC && sessionRules.serviceChargeRate > 0 && (
-                      <>
-                        <span>•</span>
-                        <span className="text-primary font-bold">+ S.C.</span>
-                      </>
+
+                  <div className="flex items-center gap-4 shrink-0">
+                    <span className="font-bold text-main">{utils.formatMoney(finalItemTotal)}</span>
+                    {isHost && (
+                      <div className="flex items-center gap-2 border-l border-border pl-3">
+                        <button
+                          onClick={() => handleEditItem(item.id)}
+                          className="text-muted hover:bg-subtle active:scale-90 p-2 rounded-full transition-all"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => actions.removeItemFromDB?.(item.id)}
+                          className="text-muted hover:text-danger hover:bg-danger/10 active:scale-90 p-2 rounded-full transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     )}
                   </div>
-                </div>
-
-                <div className="flex items-center gap-4 shrink-0">
-                  <span className="font-bold text-main">{utils.formatMoney(finalItemTotal)}</span>
-                  {isHost && (
-                    <div className="flex items-center gap-3 border-l border-border pl-3">
-                      <button
-                        onClick={() => handleEditItem(item.id)}
-                        className="text-muted active:text-primary"
-                      >
-                        <Edit2 size={18} />
-                      </button>
-                      <button
-                        onClick={() => actions.removeItemFromDB?.(item.id)}
-                        className="text-muted active:text-danger"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         )}
       </div>
     </div>

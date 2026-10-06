@@ -1,7 +1,7 @@
+import { useState, useEffect } from 'react';
 import type { BillItem } from '../../lib/types';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
-import HelpTip from '../ui/HelpTip';
 import SectionHeader from '../ui/SectionHeader';
 
 interface Props {
@@ -9,6 +9,45 @@ interface Props {
   members: DBMember[];
   claims: Record<string, Record<string, string>>;
   handleUpdateClaim: (memberId: string, itemId: string, value: string) => void;
+}
+
+// 🚀 OPTIMIZATION: Localized Input with 400ms Debounce to prevent DB spam
+function ClaimInput({
+  initialValue,
+  memberId,
+  itemId,
+  onSave,
+}: {
+  initialValue: string;
+  memberId: string;
+  itemId: string;
+  onSave: (mId: string, iId: string, val: string) => void;
+}) {
+  const [localVal, setLocalVal] = useState(initialValue);
+
+  // Sync with global state if it changes externally (e.g. Quick Split)
+  useEffect(() => {
+    setLocalVal(initialValue);
+  }, [initialValue]);
+
+  // The Debounce Engine
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localVal !== initialValue) onSave(memberId, itemId, localVal);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [localVal, initialValue, memberId, itemId, onSave]);
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className="w-24! h-11! shrink-0 text-center text-base font-medium bg-page border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-sm transition-all"
+      value={localVal}
+      onChange={(e) => setLocalVal(e.target.value)}
+      placeholder="0"
+    />
+  );
 }
 
 export default function ClaimManager(props: Props) {
@@ -32,7 +71,7 @@ export default function ClaimManager(props: Props) {
             let icon = <circle cx="12" cy="12" r="10" />;
 
             if (Math.abs(remaining) < 0.01) {
-              statusClasses = 'bg-emerald-500/15 border-emerald-500 text-emerald-700';
+              statusClasses = 'bg-emerald-500/15 border-emerald-500 text-emerald-700 shadow-sm';
               remaining = 0;
               icon = (
                 <>
@@ -41,7 +80,7 @@ export default function ClaimManager(props: Props) {
                 </>
               );
             } else if (remaining < 0) {
-              statusClasses = 'bg-rose-500/15 border-rose-500 text-rose-700';
+              statusClasses = 'bg-rose-500/15 border-rose-500 text-rose-700 shadow-sm';
               icon = (
                 <>
                   <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
@@ -54,7 +93,7 @@ export default function ClaimManager(props: Props) {
             return (
               <div
                 key={item.id}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-colors ${statusClasses}`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-all duration-300 ${statusClasses}`}
               >
                 <svg
                   width="12"
@@ -88,20 +127,21 @@ export default function ClaimManager(props: Props) {
               </div>
               <div className="bg-surface border-y border-border divide-y divide-border">
                 {props.items.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between px-4 py-3 gap-4">
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between px-4 py-3 gap-4 hover:bg-subtle transition-colors"
+                  >
                     <span
                       className="flex-1 min-w-0 text-[0.95rem] font-medium text-main truncate pr-2"
                       title={item.name}
                     >
                       {item.name}
                     </span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      className="!w-24 !h-11 flex-shrink-0 text-center text-base font-medium bg-page border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-sm"
-                      value={props.claims[member.id]?.[item.id] || ''}
-                      onChange={(e) => props.handleUpdateClaim(member.id, item.id, e.target.value)}
-                      placeholder="0"
+                    <ClaimInput
+                      initialValue={props.claims[member.id]?.[item.id] || ''}
+                      memberId={member.id}
+                      itemId={item.id}
+                      onSave={props.handleUpdateClaim}
                     />
                   </div>
                 ))}

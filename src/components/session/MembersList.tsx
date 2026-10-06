@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Trash2, User, Search, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
 import { showToast } from '../../lib/utils';
 import { useSessionContext } from '../../lib/SessionContext';
@@ -115,53 +116,64 @@ export default function MembersList() {
         </h3>
       </div>
 
-      <div className="bg-surface border-y border-border divide-y divide-border">
+      <div className="bg-surface border-y border-border divide-y divide-border overflow-hidden">
         {members.length === 0 && (
           <div className="p-8 text-center text-sm text-muted">No members joined yet.</div>
         )}
-        {members.map((m) => {
-          const isMe = m.user_id === currentUserId;
-          const canClaim =
-            !m.user_id && currentUserId && !members.some((mem) => mem.user_id === currentUserId);
-          const isRegistered = !!m.user_id;
 
-          return (
-            <div key={m.id} className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-main text-[1.05rem]">{m.name}</span>
-                {m.user_id === hostId && (
-                  <span className="text-[0.65rem] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider border border-amber-500/20">
-                    Host
-                  </span>
-                )}
-                {isMe && (
-                  <span className="text-[0.65rem] font-bold text-success bg-success-light px-1.5 py-0.5 rounded uppercase tracking-wider">
-                    You
-                  </span>
-                )}
-                {!isMe && isRegistered && (
-                  <span className="text-[0.65rem] font-bold text-primary bg-primary-light px-1.5 py-0.5 rounded uppercase tracking-wider">
-                    Linked
-                  </span>
-                )}
-                {canClaim && (
-                  <button
-                    onClick={() => actions.claimMemberIdentity(m.id)}
-                    className="text-[0.65rem] font-bold text-primary bg-primary-light border border-primary/20 px-2 py-1 rounded uppercase tracking-wider active:bg-primary/20 transition-colors"
-                  >
-                    Claim Slot
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={() => actions.removeMemberFromDB(m.id)}
-                className="text-muted active:text-danger p-1 transition-colors"
+        {/* 🔥 NEW: PREMIUM ANIMATIONS 🔥 */}
+        <AnimatePresence initial={false}>
+          {members.map((m) => {
+            const isMe = m.user_id === currentUserId;
+            const canClaim =
+              !m.user_id && currentUserId && !members.some((mem) => mem.user_id === currentUserId);
+            const isRegistered = !!m.user_id;
+
+            return (
+              <motion.div
+                key={m.id}
+                initial={{ opacity: 0, height: 0, backgroundColor: 'var(--bg-subtle)' }}
+                animate={{ opacity: 1, height: 'auto', backgroundColor: 'var(--bg-surface)' }}
+                exit={{ opacity: 0, height: 0, x: -20 }}
+                transition={{ duration: 0.25, ease: 'easeInOut' }}
+                className="flex items-center justify-between p-4"
               >
-                <Trash2 size={20} />
-              </button>
-            </div>
-          );
-        })}
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-main text-[1.05rem]">{m.name}</span>
+                  {m.user_id === hostId && (
+                    <span className="text-[0.65rem] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider border border-amber-500/20">
+                      Host
+                    </span>
+                  )}
+                  {isMe && (
+                    <span className="text-[0.65rem] font-bold text-success bg-success-light px-1.5 py-0.5 rounded uppercase tracking-wider">
+                      You
+                    </span>
+                  )}
+                  {!isMe && isRegistered && (
+                    <span className="text-[0.65rem] font-bold text-primary bg-primary-light px-1.5 py-0.5 rounded uppercase tracking-wider">
+                      Linked
+                    </span>
+                  )}
+                  {canClaim && (
+                    <button
+                      onClick={() => actions.claimMemberIdentity(m.id)}
+                      className="text-[0.65rem] font-bold text-primary bg-primary-light border border-primary/20 px-2 py-1 rounded uppercase tracking-wider active:bg-primary/20 transition-colors"
+                    >
+                      Claim Slot
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => actions.removeMemberFromDB(m.id)}
+                  className="text-muted hover:bg-danger/10 hover:text-danger active:scale-90 p-2 rounded-full transition-all"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
       </div>
     </div>
   );
