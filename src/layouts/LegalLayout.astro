@@ -1,4 +1,6 @@
 ---
+import '../styles/global.css';
+
 const { title, updated } = Astro.props;
 ---
 
@@ -7,6 +9,17 @@ const { title, updated } = Astro.props;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{title} | Ekwly</title>
+
+    {/* Ensure dark/light mode matches user preference */}
+    <script is:inline>
+      const savedTheme = localStorage.getItem('theme') || localStorage.getItem('ekwly_theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
     <style is:global>
       .legal-content h2 {
         font-size: 1.5rem;
@@ -52,7 +65,9 @@ const { title, updated } = Astro.props;
       }
     </style>
   </head>
-  <body class="bg-page text-main min-h-screen antialiased selection:bg-primary/30">
+  <body class="bg-page text-main min-h-screen antialiased selection:bg-primary/30 relative">
+    <div class="absolute inset-0 bg-grid-pattern z-0 pointer-events-none"></div>
+
     <div class="max-w-3xl mx-auto px-6 py-12 md:py-20 relative z-10">
       <a
         href="/ekwly/"
@@ -70,7 +85,7 @@ const { title, updated } = Astro.props;
         </svg>
         Back to App
       </a>
-      <h1 class="text-3xl md:text-5xl font-extrabold tracking-tight mb-4">{title}</h1>
+      <h1 class="text-3xl md:text-5xl font-extrabold tracking-tight mb-4 text-main">{title}</h1>
       <p class="text-sm font-bold text-muted uppercase tracking-widest mb-12">
         Effective Date: {updated}
       </p>
