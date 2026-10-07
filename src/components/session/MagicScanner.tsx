@@ -109,20 +109,7 @@ export default function MagicScanner() {
       if (!data?.items || data.items.length === 0)
         throw new Error('AI could not find any items on this receipt.');
 
-      if (data.sessionRules) {
-        // FIX: Ensure the percentage is converted to a mathematical decimal (e.g. 5 -> 0.05)
-        let scRate = data.sessionRules.serviceChargeRate || 0;
-        if (scRate > 1) scRate = scRate / 100;
-
-        await actions.updateSessionRulesInDB({
-          isScApplicable: data.sessionRules.isScApplicable,
-          serviceChargeRate: scRate,
-          discountType: data.sessionRules.discountType,
-          discountValue: data.sessionRules.discountValue,
-          discountMode: data.sessionRules.discountMode,
-        });
-      }
-
+      // 1. PROCESS NEW TAX PRESETS FIRST (So we have the real UUIDs)
       const tempIdMap: Record<string, string> = {};
       if (data.newTaxPresets && Array.isArray(data.newTaxPresets)) {
         for (const pt of data.newTaxPresets) {
@@ -137,6 +124,26 @@ export default function MagicScanner() {
         }
       }
 
+      // 2. UPDATE SESSION RULES (Now we can map the AI's scTaxPresetId safely)
+      if (data.sessionRules) {
+        let scRate = data.sessionRules.serviceChargeRate || 0;
+        if (scRate > 1) scRate = scRate / 100;
+
+        let parsedScTaxId = data.sessionRules.scTaxPresetId || 'inherit';
+        // If the AI assigned a tempId to the Service Charge Tax, convert it to the real UUID
+        if (tempIdMap[parsedScTaxId]) parsedScTaxId = tempIdMap[parsedScTaxId];
+
+        await actions.updateSessionRulesInDB({
+          isScApplicable: data.sessionRules.isScApplicable,
+          serviceChargeRate: scRate,
+          scTaxPresetId: parsedScTaxId,
+          discountType: data.sessionRules.discountType,
+          discountValue: data.sessionRules.discountValue,
+          discountMode: data.sessionRules.discountMode,
+        });
+      }
+
+      // 3. INSERT ITEMS
       let addedCount = 0;
       for (const extractedItem of data.items) {
         if (!extractedItem.name || !extractedItem.price) continue;

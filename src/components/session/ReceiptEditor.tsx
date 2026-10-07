@@ -229,9 +229,24 @@ export default function ReceiptEditor() {
             {items.map((item) => {
               const taxPreset = taxPresets.find((t) => t.id === item.taxPresetId);
               const dynamicTaxRate = taxPreset ? taxPreset.rate / 100 : 0;
-              const itemTaxAmount = item.totalBase * dynamicTaxRate;
               const itemSC = item.applySC ? item.totalBase * sessionRules.serviceChargeRate : 0;
-              const finalItemTotal = item.totalBase + itemTaxAmount + itemSC;
+
+              let itemTaxAmount = 0;
+              let scTaxAmount = 0;
+
+              // UNIVERSAL TAX ENGINE SYNC FOR UI
+              if (sessionRules.scTaxPresetId === 'inherit') {
+                itemTaxAmount = item.totalBase * dynamicTaxRate;
+                scTaxAmount = itemSC * dynamicTaxRate;
+              } else {
+                itemTaxAmount = item.totalBase * dynamicTaxRate;
+                if (sessionRules.scTaxPresetId !== 'none') {
+                  const scPreset = taxPresets.find((t) => t.id === sessionRules.scTaxPresetId);
+                  if (scPreset && itemSC > 0) scTaxAmount = itemSC * (scPreset.rate / 100);
+                }
+              }
+
+              const finalItemTotal = item.totalBase + itemSC + itemTaxAmount + scTaxAmount;
               const taxName = taxPreset ? `${taxPreset.name} (${taxPreset.rate}%)` : 'Custom Tax';
 
               return (

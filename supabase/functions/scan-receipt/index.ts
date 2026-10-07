@@ -77,6 +77,10 @@ EXTRACTION RULES:
 3. If an item requires a tax that is NOT in the Existing Tax Presets, define it in the 'newTaxPresets' array with a unique 'tempId', and use that tempId for the item.
 4. If a Service Charge is applied, set 'isScApplicable' to true, and set 'serviceChargeRate' to the whole number percentage (e.g. 5 for 5%, 10 for 10%). Set 'applySC' to true for all items that attract this charge.
 5. Mathematically normalize any discounts into a single 'discountValue'.
+6. Determine how the Service Charge is taxed by analyzing the receipt's math:
+   - If taxes are calculated on (Item Base + Item SC), set 'scTaxPresetId' to "inherit".
+   - If Service Charge is aggregated and taxed separately, set 'scTaxPresetId' to the specific tax preset ID (or tempId) applied to it.
+   - If Service Charge is not taxed at all, set 'scTaxPresetId' to "none".
 `;
 
     // FIX 1: Point to the low-latency 3.5-flash-lite endpoint
@@ -106,6 +110,7 @@ EXTRACTION RULES:
                   properties: {
                     isScApplicable: { type: 'BOOLEAN' },
                     serviceChargeRate: { type: 'NUMBER' },
+                    scTaxPresetId: { type: 'STRING' }, // <-- ADD THIS TO THE SCHEMA
                     discountType: { type: 'STRING' },
                     discountValue: { type: 'STRING' },
                     discountMode: { type: 'STRING' },
