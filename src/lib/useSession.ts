@@ -37,7 +37,7 @@ export function useSession(sessionId: string | null) {
     venueName: '',
     isScApplicable: false,
     serviceChargeRate: 0,
-    scTaxPresetId: 'none',
+    scTaxPresetId: 'inherit',
     discountType: 'none',
     discountValue: '',
     discountMode: 'post-tax',
@@ -322,7 +322,7 @@ export function useSession(sessionId: string | null) {
       venue_name: updates.venueName,
       is_sc_applicable: updates.isScApplicable,
       service_charge_rate: updates.serviceChargeRate,
-      sc_tax_preset_id: updates.scTaxPresetId,
+      sc_tax_preset_id: updates.scTaxPresetId, // <-- Ensure this is passed
       discount_type: updates.discountType,
       discount_value: updates.discountValue ? parseFloat(updates.discountValue) : null,
       discount_mode: updates.discountMode,

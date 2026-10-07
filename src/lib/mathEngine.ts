@@ -5,9 +5,9 @@ import type {
   GlobalSummary,
   IndividualBreakdown,
   CalculationResult,
+  Transaction,
 } from './types';
 import type { DBMember } from './useSession';
-import type { Transaction } from './types';
 
 interface EngineParams {
   items: BillItem[];
@@ -22,7 +22,6 @@ interface EngineParams {
 }
 
 export const mathEngine = {
-  // 1. Core Calculator (Determines total owed and individual shares)
   generateSplit: (params: EngineParams): CalculationResult => {
     const {
       items,
@@ -38,7 +37,6 @@ export const mathEngine = {
 
     const rawSubTotal = items.reduce((sum, item) => sum + item.totalBase, 0);
     const parsedDiscount = parseFloat(discountValue) || 0;
-
     let preTaxDiscount = 0;
     let postTaxDiscount = 0;
 
@@ -59,7 +57,6 @@ export const mathEngine = {
       serviceCharge: 0,
       grandTotal: 0,
     };
-    const scTaxPreset = taxPresets.find((t) => t.id === scTaxPresetId);
 
     const addTaxToBreakdown = (
       preset: TaxPreset | undefined,
@@ -74,35 +71,53 @@ export const mathEngine = {
             (globalSummary.taxBreakdown[names.cgst] || 0) + amount / 2;
           globalSummary.taxBreakdown[names.sgst] =
             (globalSummary.taxBreakdown[names.sgst] || 0) + amount / 2;
-        } else
+        } else {
           globalSummary.taxBreakdown[preset.name] =
             (globalSummary.taxBreakdown[preset.name] || 0) + amount;
-      } else
+        }
+      } else {
         globalSummary.taxBreakdown[fallbackName] =
           (globalSummary.taxBreakdown[fallbackName] || 0) + amount;
+      }
     };
 
+    // 1. GLOBAL MATH
     items.forEach((item) => {
       const effectiveBase = item.totalBase * preTaxMultiplier;
       const preset = taxPresets.find((t) => t.id === item.taxPresetId);
       const dynamicTaxRate = preset ? preset.rate / 100 : 0;
-
-      const itemTaxAmount = effectiveBase * dynamicTaxRate;
       const itemSC = item.applySC ? effectiveBase * serviceChargeRate : 0;
-      const itemSCTaxAmount = scTaxPreset && itemSC > 0 ? itemSC * (scTaxPreset.rate / 100) : 0;
+
+      let itemTaxAmount = 0;
+      let scTaxAmount = 0;
+
+      if (scTaxPresetId === 'inherit') {
+        // MODEL A (TBC 66): Item tax rate applies to Base + SC
+        itemTaxAmount = effectiveBase * dynamicTaxRate;
+        scTaxAmount = itemSC * dynamicTaxRate;
+        addTaxToBreakdown(preset, itemTaxAmount + scTaxAmount, 'Other Tax');
+      } else {
+        // MODEL B (Chin Lung): Base and SC are taxed completely independently
+        itemTaxAmount = effectiveBase * dynamicTaxRate;
+        addTaxToBreakdown(preset, itemTaxAmount, 'Other Tax');
+
+        const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
+        if (scPreset && itemSC > 0) {
+          scTaxAmount = itemSC * (scPreset.rate / 100);
+          addTaxToBreakdown(scPreset, scTaxAmount, 'S.C. Tax');
+        }
+      }
 
       globalSummary.totalQty += item.qty;
       globalSummary.subTotal += effectiveBase;
       globalSummary.serviceCharge += itemSC;
-
-      addTaxToBreakdown(preset, itemTaxAmount, 'Other Tax');
-      addTaxToBreakdown(scTaxPreset, itemSCTaxAmount, 'S.C. Tax');
     });
 
     let grossTotal =
       globalSummary.subTotal +
       globalSummary.serviceCharge +
       Object.values(globalSummary.taxBreakdown).reduce((a, b) => a + b, 0);
+
     if (discountType !== 'none' && discountMode === 'post-tax') {
       postTaxDiscount =
         discountType === 'percentage' ? grossTotal * (parsedDiscount / 100) : parsedDiscount;
@@ -113,20 +128,34 @@ export const mathEngine = {
     const postTaxMultiplier = grossTotal > 0 ? (grossTotal - postTaxDiscount) / grossTotal : 1;
 
     const individualBreakdowns: Record<string, IndividualBreakdown> = {};
+
+    // 2. INDIVIDUAL MATH
     members.forEach((member) => {
       let subtotal = 0;
       let totalScAmount = 0;
       let consumedItems: { name: string; qtyString: string; cost: number }[] = [];
+
       items.forEach((item) => {
         const consumedQty = utils.parseQty(formattedClaims[member.id]?.[item.id] || '');
         if (consumedQty > 0) {
           const effectiveBaseShare = (consumedQty / item.qty) * item.totalBase * preTaxMultiplier;
           const preset = taxPresets.find((t) => t.id === item.taxPresetId);
           const dynamicTaxRate = preset ? preset.rate / 100 : 0;
-
-          const itemTaxAmount = effectiveBaseShare * dynamicTaxRate;
           const scShare = item.applySC ? effectiveBaseShare * serviceChargeRate : 0;
-          const scTaxShare = scTaxPreset && scShare > 0 ? scShare * (scTaxPreset.rate / 100) : 0;
+
+          let itemTaxAmount = 0;
+          let scTaxShare = 0;
+
+          if (scTaxPresetId === 'inherit') {
+            itemTaxAmount = effectiveBaseShare * dynamicTaxRate;
+            scTaxShare = scShare * dynamicTaxRate;
+          } else {
+            itemTaxAmount = effectiveBaseShare * dynamicTaxRate;
+            const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
+            if (scPreset && scShare > 0) {
+              scTaxShare = scShare * (scPreset.rate / 100);
+            }
+          }
 
           const finalCostShare = utils.round2(effectiveBaseShare + itemTaxAmount);
           subtotal = utils.round2(subtotal + finalCostShare);
@@ -150,29 +179,22 @@ export const mathEngine = {
     return { individualBreakdowns, globalSummary };
   },
 
-  // 2. The Splitwise Greedy Algorithm (Minimizes transactions)
   generateTransactions: (members: DBMember[], breakdowns: Record<string, IndividualBreakdown>) => {
-    const balances = members.map((m) => {
-      const share = breakdowns[m.name]?.totalOwed || 0;
-      const paid = m.paid_amount || 0;
-      return { ...m, balance: paid - share };
-    });
-
-    // Debtors owe money (Negative Balance). Creditors are owed money (Positive Balance).
+    const balances = members.map((m) => ({
+      ...m,
+      balance: (m.paid_amount || 0) - (breakdowns[m.name]?.totalOwed || 0),
+    }));
     const debtors = balances.filter((b) => b.balance < -0.01).sort((a, b) => a.balance - b.balance);
     const creditors = balances
       .filter((b) => b.balance > 0.01)
       .sort((a, b) => b.balance - a.balance);
-
     const transactions: Transaction[] = [];
-    let d = 0;
-    let c = 0;
-
+    let d = 0,
+      c = 0;
     while (d < debtors.length && c < creditors.length) {
-      const debtor = debtors[d];
-      const creditor = creditors[c];
+      const debtor = debtors[d],
+        creditor = creditors[c];
       const amount = Math.min(-debtor.balance, creditor.balance);
-
       transactions.push({
         creditor_id: creditor.user_id || null,
         creditor_name: creditor.name,
@@ -180,14 +202,11 @@ export const mathEngine = {
         debtor_name: debtor.name,
         amount: utils.round2(amount),
       });
-
       debtors[d].balance += amount;
       creditors[c].balance -= amount;
-
       if (Math.abs(debtors[d].balance) < 0.01) d++;
       if (Math.abs(creditors[c].balance) < 0.01) c++;
     }
-
     return transactions;
   },
 };

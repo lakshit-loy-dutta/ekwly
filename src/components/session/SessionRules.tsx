@@ -257,6 +257,7 @@ export default function SessionRules() {
                     }
                   >
                     <option value="none">None</option>
+                    <option value="inherit">Inherit Item's Tax</option>
                     {taxPresets.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name} ({t.rate}%)
@@ -268,8 +269,10 @@ export default function SessionRules() {
                   </div>
                 </div>
               ) : (
-                <div className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium flex items-center">
-                  {taxPresets.find((t) => t.id === sessionRules.scTaxPresetId)?.name || 'None'}
+                <div className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium flex items-center truncate">
+                  {sessionRules.scTaxPresetId === 'inherit'
+                    ? "Inherit Item's Tax"
+                    : taxPresets.find((t) => t.id === sessionRules.scTaxPresetId)?.name || 'None'}
                 </div>
               )}
             </div>

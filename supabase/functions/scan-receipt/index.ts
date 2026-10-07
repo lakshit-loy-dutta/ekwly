@@ -58,7 +58,7 @@ EXTRACTION RULES:
 1. Extract all food/drink items. Ignore subtotal, tax, and round-off rows.
 2. For each item, assign the correct 'taxPresetId' from the Existing Tax Presets context. 
 3. If an item requires a tax that is NOT in the Existing Tax Presets, define it in the 'newTaxPresets' array with a unique 'tempId', and use that tempId for the item.
-4. If a Service Charge is applied to the items, set 'applySC' to true for those items.
+4. If a Service Charge is applied, set 'isScApplicable' to true, and set 'serviceChargeRate' to the whole number percentage (e.g. 5 for 5%, 10 for 10%). Set 'applySC' to true for all items that attract this charge.
 5. Mathematically normalize any discounts into a single 'discountValue'.
 `;
 

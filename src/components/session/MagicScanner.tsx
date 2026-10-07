@@ -110,9 +110,13 @@ export default function MagicScanner() {
         throw new Error('AI could not find any items on this receipt.');
 
       if (data.sessionRules) {
+        // FIX: Ensure the percentage is converted to a mathematical decimal (e.g. 5 -> 0.05)
+        let scRate = data.sessionRules.serviceChargeRate || 0;
+        if (scRate > 1) scRate = scRate / 100;
+
         await actions.updateSessionRulesInDB({
           isScApplicable: data.sessionRules.isScApplicable,
-          serviceChargeRate: data.sessionRules.serviceChargeRate,
+          serviceChargeRate: scRate,
           discountType: data.sessionRules.discountType,
           discountValue: data.sessionRules.discountValue,
           discountMode: data.sessionRules.discountMode,
