@@ -718,9 +718,9 @@ export function useSession(sessionId: string | null) {
     const ledgerEntries = transactions.map((t) => ({
       session_id: sessionId,
       creditor_id: t.creditor_id || null,
-      creditor_fallback_name: t.creditor_name, // <-- FIXED
+      creditor_fallback_name: t.creditor_name,
       debtor_id: t.debtor_id || null,
-      debtor_fallback_name: t.debtor_name, // <-- FIXED
+      debtor_fallback_name: t.debtor_name,
       amount: t.amount,
       settled: false,
     }));
@@ -730,7 +730,13 @@ export function useSession(sessionId: string | null) {
       const { data, error } = await supabase.from('ledger').insert(ledgerEntries).select();
 
       if (data) {
-        setLedger(data); // Instantly populates the UI before it navigates
+        // FIX: Map the DB fallback names to the UI keys so it doesn't render [blank]
+        const mappedData = data.map((l: any) => ({
+          ...l,
+          creditor_name: l.creditor_fallback_name,
+          debtor_name: l.debtor_fallback_name,
+        }));
+        setLedger(mappedData);
       }
       if (error) {
         console.error('Ledger save error:', error);

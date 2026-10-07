@@ -81,9 +81,10 @@ EXTRACTION RULES:
    - If taxes are calculated on (Item Base + Item SC), set 'scTaxPresetId' to "inherit".
    - If Service Charge is aggregated and taxed separately, set 'scTaxPresetId' to the specific tax preset ID (or tempId) applied to it.
    - If Service Charge is not taxed at all, set 'scTaxPresetId' to "none".
+7. MATH VERIFICATION: Use the 'reasoning' field to show your math. Sum the taxes based on your item assignments. The total MUST perfectly match the printed tax amounts on the receipt. If a tax bracket doesn't match, correct your item assignments (e.g., Alcohol might be 0% Tax).
 `;
 
-    // FIX 1: Point to the low-latency 3.5-flash-lite endpoint
+    // Point to the low-latency 3.5-flash-lite endpoint
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
       {
@@ -98,19 +99,24 @@ EXTRACTION RULES:
               ],
             },
           ],
-          // FIX 2: Provide a strict response schema to bypass the thinking loop
+          // FIX 2: Add 'reasoning' to the top of the schema for Chain of Thought validation
           generationConfig: {
             temperature: 0.0,
             response_mime_type: 'application/json',
             response_schema: {
               type: 'OBJECT',
               properties: {
+                reasoning: {
+                  type: 'STRING',
+                  description:
+                    'Step-by-step math proving your assigned item taxes match the receipt exactly.',
+                },
                 sessionRules: {
                   type: 'OBJECT',
                   properties: {
                     isScApplicable: { type: 'BOOLEAN' },
                     serviceChargeRate: { type: 'NUMBER' },
-                    scTaxPresetId: { type: 'STRING' }, // <-- ADD THIS TO THE SCHEMA
+                    scTaxPresetId: { type: 'STRING' },
                     discountType: { type: 'STRING' },
                     discountValue: { type: 'STRING' },
                     discountMode: { type: 'STRING' },
@@ -143,7 +149,7 @@ EXTRACTION RULES:
                   },
                 },
               },
-              required: ['items'],
+              required: ['reasoning', 'items'],
             },
           },
         }),

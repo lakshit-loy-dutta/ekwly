@@ -1,5 +1,11 @@
 {
   "appId": "com.ekwly.app",
   "appName": "Ekwly",
-  "webDir": "dist"
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "cleartext": true
+  }
 }

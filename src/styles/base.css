@@ -101,3 +101,18 @@ html {
 	-ms-overflow-style: none;
 	scrollbar-width: none;
 }
+
+/* --- NATIVE MOBILE SAFE AREAS --- */
+/* Ensures UI respects hardware bezels and dynamic islands */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe { 
+    padding-bottom: env(safe-area-inset-bottom) !important; 
+  }
+  .pt-safe { 
+    padding-top: env(safe-area-inset-top) !important; 
+  }
+  /* Push sticky bottom action bars up above the home swipe indicator */
+  .fixed.bottom-0 {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

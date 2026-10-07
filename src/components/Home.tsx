@@ -144,7 +144,10 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
     showToast('Session deleted', 'success');
   };
 
-  const handleRenameSession = async (e: React.MouseEvent, sessionId: string) => {
+  const handleRenameSession = async (
+    e: React.MouseEvent | React.KeyboardEvent,
+    sessionId: string
+  ) => {
     e.stopPropagation();
     if (!editSessionName.trim()) return setEditingSessionId(null);
 
@@ -339,7 +342,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
                                 value={editSessionName}
                                 onChange={(e) => setEditSessionName(e.target.value)}
                                 onKeyDown={(e) =>
-                                  e.key === 'Enter' && handleRenameSession(e as any, session.id)
+                                  e.key === 'Enter' && handleRenameSession(e, session.id)
                                 }
                                 className="h-8 w-full bg-page border border-primary/50 rounded-md px-2 text-sm font-bold text-main"
                               />
