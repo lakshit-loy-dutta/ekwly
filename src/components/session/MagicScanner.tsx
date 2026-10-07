@@ -284,15 +284,11 @@ export default function MagicScanner() {
           </div>
 
           <a
-            href="https://rzp.io/l/your-link-here"
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() =>
-              showToast('After payment, email support to activate your account.', 'success')
-            }
+            href="mailto:lloy.dutta@gmail.com?subject=Ekwly Pro Subscription Request&body=Hi, I would like to upgrade my account to Ekwly Pro for ₹99/month. My registered email is: "
+            onClick={() => showToast('Redirecting to your mail client...', 'success')}
             className="w-full h-14 bg-primary text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
           >
-            Upgrade Now
+            Contact Developer for Pro Access
           </a>
           <button
             onClick={() => setShowUpgradeModal(false)}

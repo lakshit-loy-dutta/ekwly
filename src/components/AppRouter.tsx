@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import QRCode from 'react-qr-code';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import Home from './Home';
@@ -45,17 +45,28 @@ export default function AppRouter() {
   const [direction, setDirection] = useState<number>(1);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
+  // 1. Add this ref to track if we've already routed
+  const hasRoutedRef = useRef(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) resolveInitialRoute();
+      // 2. Only route if we haven't already
+      if (session?.user && !hasRoutedRef.current) {
+        hasRoutedRef.current = true;
+        resolveInitialRoute();
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      if (event === 'SIGNED_IN') resolveInitialRoute(session?.user);
+      // 3. Ignore background refreshes if already routed
+      if (event === 'SIGNED_IN' && !hasRoutedRef.current) {
+        hasRoutedRef.current = true;
+        resolveInitialRoute(session?.user);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -195,6 +206,7 @@ export default function AppRouter() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    hasRoutedRef.current = false;
     setIsProfileOpen(false);
     setCurrentView('auth');
     window.history.pushState({}, '', window.location.pathname);

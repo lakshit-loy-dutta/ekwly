@@ -31,6 +31,7 @@ export interface GlobalSummary {
   subTotal: number;
   taxBreakdown: Record<string, number>;
   serviceCharge: number;
+  roundOff: number;
   grandTotal: number;
 }
 
@@ -45,4 +46,27 @@ export interface Transaction {
   debtor_id: string | null;
   debtor_name: string;
   amount: number;
+}
+
+export interface DatabaseVenue {
+  id: string;
+  name: string;
+  service_charge_rate: number;
+  tax_presets: TaxPreset[];
+}
+
+export interface DatabaseItem {
+  name: string;
+  price: number;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  upi_id: string | null;
+  email: string | null;
+  ai_scans_used: number;
+  last_scan_reset: string;
+  pro_expires_at: string | null;
 }

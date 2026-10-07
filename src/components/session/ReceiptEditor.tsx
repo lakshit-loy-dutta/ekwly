@@ -4,6 +4,7 @@ import { Edit2, Trash2, ChevronDown, Search, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
+import type { DatabaseItem } from '../../lib/types';
 import SectionHeader from '../ui/SectionHeader';
 import ToggleSwitch from '../ui/ToggleSwitch';
 
@@ -55,7 +56,7 @@ export default function ReceiptEditor() {
     return () => clearTimeout(delayDebounceFn);
   }, [newItemName, sessionRules.venueName]);
 
-  const handleSelectItem = (item: any) => {
+  const handleSelectItem = (item: DatabaseItem) => {
     setNewItemName(item.name);
     setNewItemPrice(item.price.toString());
     setShowItemDropdown(false);

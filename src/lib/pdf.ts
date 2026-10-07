@@ -63,12 +63,23 @@ export const exportToPDF = (
     const masterTableData = items.map((i) => {
       const preset = taxPresets.find((t) => t.id === i.taxPresetId);
       const dynamicTaxRate = preset ? preset.rate / 100 : 0;
-      const finalTotal =
-        i.totalBase +
-        i.totalBase * dynamicTaxRate +
-        (i.applySC
-          ? i.totalBase * serviceChargeRate * (1 + (scTaxPreset ? scTaxPreset.rate / 100 : 0))
-          : 0);
+
+      const itemSC = i.applySC ? i.totalBase * serviceChargeRate : 0;
+      let itemTaxAmount = 0;
+      let scTaxAmount = 0;
+
+      if (scTaxPresetId === 'inherit') {
+        itemTaxAmount = i.totalBase * dynamicTaxRate;
+        scTaxAmount = itemSC * dynamicTaxRate;
+      } else {
+        itemTaxAmount = i.totalBase * dynamicTaxRate;
+        if (scTaxPresetId !== 'none') {
+          const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
+          if (scPreset && itemSC > 0) scTaxAmount = itemSC * (scPreset.rate / 100);
+        }
+      }
+
+      const finalTotal = i.totalBase + itemSC + itemTaxAmount + scTaxAmount;
 
       return [
         i.name,
@@ -112,14 +123,10 @@ export const exportToPDF = (
       if (amount > 0) summaryData.push([`${taxName}:`, `Rs. ${amount.toFixed(2)}`]);
     }
     if (globalSummary.serviceCharge > 0)
-      summaryData.push(['Total Service Charge:', `Rs. ${globalSummary.serviceCharge.toFixed(2)}`]);
-    summaryData.push([
-      { content: 'Grand Total:', styles: { fontStyle: 'bold', textColor: darkText, fontSize: 12 } },
-      {
-        content: `Rs. ${globalSummary.grandTotal.toFixed(2)}`,
-        styles: { fontStyle: 'bold', textColor: primaryColor, fontSize: 13 },
-      },
-    ]);
+      summaryData.push(['Service Charge:', `Rs. ${globalSummary.serviceCharge.toFixed(2)}`]);
+    if (globalSummary.roundOff !== 0)
+      summaryData.push(['Round Off:', `Rs. ${globalSummary.roundOff.toFixed(2)}`]);
+    summaryData.push(['GRAND TOTAL:', `Rs. ${globalSummary.grandTotal.toFixed(2)}`]);
 
     doc.autoTable({
       startY,
@@ -129,6 +136,13 @@ export const exportToPDF = (
       columnStyles: {
         0: { cellWidth: 130, halign: 'right' },
         1: { halign: 'right', textColor: darkText, fontStyle: 'bold' },
+      },
+      willDrawCell: (data: any) => {
+        if (data.row.raw[0] === 'GRAND TOTAL:') {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(12);
+          if (data.column.index === 1) doc.setTextColor(...primaryColor);
+        }
       },
       margin: { left: 14, right: 14 },
     });
@@ -175,13 +189,10 @@ export const exportToPDF = (
       startY += 6;
 
       const ledgerTableData = ledger.map((l) => [
-        { content: l.debtor_name, styles: { fontStyle: 'bold', textColor: darkText } },
-        { content: 'owes', styles: { halign: 'center', textColor: mutedText, fontSize: 8 } },
-        { content: l.creditor_name, styles: { fontStyle: 'bold', textColor: darkText } },
-        {
-          content: `Rs. ${Number(l.amount).toFixed(2)}`,
-          styles: { halign: 'right', fontStyle: 'bold', textColor: primaryColor },
-        },
+        l.debtor_name,
+        'owes',
+        l.creditor_name,
+        `Rs. ${Number(l.amount).toFixed(2)}`,
       ]);
 
       doc.autoTable({
@@ -189,6 +200,12 @@ export const exportToPDF = (
         body: ledgerTableData,
         theme: 'grid',
         styles: { lineColor: borderColor, lineWidth: 0.1, cellPadding: 4 },
+        columnStyles: {
+          0: { fontStyle: 'bold', textColor: darkText },
+          1: { halign: 'center', textColor: mutedText, fontSize: 8 },
+          2: { fontStyle: 'bold', textColor: darkText },
+          3: { halign: 'right', fontStyle: 'bold', textColor: primaryColor },
+        },
         margin: { left: 14, right: 14 },
       });
     }

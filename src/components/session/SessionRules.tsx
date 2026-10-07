@@ -6,6 +6,7 @@ import { showToast, utils } from '../../lib/utils';
 import MagicScanner from './MagicScanner';
 import SectionHeader from '../ui/SectionHeader';
 import ToggleSwitch from '../ui/ToggleSwitch';
+import type { DatabaseVenue } from '../../lib/types';
 
 export default function SessionRules() {
   const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
@@ -16,7 +17,13 @@ export default function SessionRules() {
   const [showVenueDropdown, setShowVenueDropdown] = useState(false);
 
   const [localDiscount, setLocalDiscount] = useState<string>(sessionRules.discountValue);
-  const [localScRate, setLocalScRate] = useState<number>(sessionRules.serviceChargeRate * 100);
+  // SELF-HEALING: If DB has a raw percentage (10) instead of a decimal (0.10), fix it instantly
+  const safeScRate =
+    sessionRules.serviceChargeRate > 1
+      ? sessionRules.serviceChargeRate / 100
+      : sessionRules.serviceChargeRate;
+
+  const [localScRate, setLocalScRate] = useState<number>(safeScRate * 100);
   const [newTaxName, setNewTaxName] = useState<string>('');
   const [newTaxRate, setNewTaxRate] = useState<string>('');
   const [newTaxSplit, setNewTaxSplit] = useState<boolean>(true);
@@ -39,8 +46,8 @@ export default function SessionRules() {
     setLocalDiscount(sessionRules.discountValue);
   }, [sessionRules.discountValue]);
   useEffect(() => {
-    setLocalScRate(sessionRules.serviceChargeRate * 100);
-  }, [sessionRules.serviceChargeRate]);
+    setLocalScRate(safeScRate * 100);
+  }, [safeScRate]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -90,7 +97,7 @@ export default function SessionRules() {
     return () => clearTimeout(delayDebounceFn);
   }, [localVenue, isHost]);
 
-  const handleSelectVenue = async (venue: any) => {
+  const handleSelectVenue = async (venue: DatabaseVenue) => {
     setLocalVenue(venue.name);
     setShowVenueDropdown(false);
     const parsedScRate = Number(venue.service_charge_rate || 0);
@@ -226,53 +233,92 @@ export default function SessionRules() {
           )}
         </label>
         {sessionRules.isScApplicable && (
-          <div className="grid grid-cols-2 gap-4 py-4 border-t border-border mt-1">
+          <div className="flex flex-col gap-4 py-4 border-t border-border mt-1">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-muted uppercase">Rate (%)</label>
               {isHost ? (
                 <input
                   type="number"
-                  value={localScRate > 0 ? localScRate : ''}
+                  value={
+                    sessionRules.serviceChargeRate > 0 ? sessionRules.serviceChargeRate * 100 : ''
+                  }
                   placeholder="0"
                   min="0"
                   step="0.1"
-                  onChange={(e) => setLocalScRate(parseFloat(e.target.value) || 0)}
-                  className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium"
+                  onChange={(e) =>
+                    actions.updateSessionRulesInDB({
+                      serviceChargeRate: (parseFloat(e.target.value) || 0) / 100,
+                    })
+                  }
+                  className="w-full h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium"
                 />
               ) : (
-                <div className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium flex items-center">
+                <div className="w-full h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium flex items-center">
                   {sessionRules.serviceChargeRate * 100}%
                 </div>
               )}
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-muted uppercase">Tax on S.C.</label>
+              <label className="text-xs font-bold text-muted uppercase">How is S.C. Taxed?</label>
               {isHost ? (
-                <div className="relative">
-                  <select
-                    className="w-full h-10 pl-3 pr-8 appearance-none bg-page border border-border rounded-lg text-[0.95rem] font-medium"
-                    value={sessionRules.scTaxPresetId}
-                    onChange={(e) =>
-                      actions.updateSessionRulesInDB({ scTaxPresetId: e.target.value })
-                    }
-                  >
-                    <option value="none">None</option>
-                    <option value="inherit">Inherit Item's Tax</option>
-                    {taxPresets.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.rate}%)
-                      </option>
-                    ))}
-                  </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-muted">
-                    <ChevronDown size={16} />
+                <div className="flex flex-col gap-2">
+                  <div className="relative">
+                    <select
+                      className="w-full h-10 pl-3 pr-8 appearance-none bg-page border border-border rounded-lg text-[0.95rem] font-medium"
+                      value={
+                        sessionRules.scTaxPresetId === 'inherit' ||
+                        sessionRules.scTaxPresetId === 'none'
+                          ? sessionRules.scTaxPresetId
+                          : 'global'
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'inherit' || val === 'none')
+                          actions.updateSessionRulesInDB({ scTaxPresetId: val });
+                        else
+                          actions.updateSessionRulesInDB({
+                            scTaxPresetId: taxPresets[0]?.id || 'none',
+                          });
+                      }}
+                    >
+                      <option value="inherit">Inherit Item's Tax</option>
+                      <option value="global">Custom Global Tax</option>
+                      <option value="none">Not Taxed</option>
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-muted">
+                      <ChevronDown size={16} />
+                    </div>
                   </div>
+                  {sessionRules.scTaxPresetId !== 'inherit' &&
+                    sessionRules.scTaxPresetId !== 'none' && (
+                      <div className="relative mt-1">
+                        <select
+                          className="w-full h-10 pl-3 pr-8 appearance-none bg-subtle border border-primary/30 rounded-lg text-[0.95rem] font-medium text-primary"
+                          value={sessionRules.scTaxPresetId}
+                          onChange={(e) =>
+                            actions.updateSessionRulesInDB({ scTaxPresetId: e.target.value })
+                          }
+                        >
+                          {taxPresets.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name} ({t.rate}%)
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-primary">
+                          <ChevronDown size={16} />
+                        </div>
+                      </div>
+                    )}
                 </div>
               ) : (
-                <div className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium flex items-center truncate">
+                <div className="h-10 px-3 bg-page border border-border rounded-lg text-[0.95rem] font-medium flex items-center">
                   {sessionRules.scTaxPresetId === 'inherit'
-                    ? "Inherit Item's Tax"
-                    : taxPresets.find((t) => t.id === sessionRules.scTaxPresetId)?.name || 'None'}
+                    ? 'Inherits Item Tax'
+                    : sessionRules.scTaxPresetId === 'none'
+                      ? 'Not Taxed'
+                      : taxPresets.find((t) => t.id === sessionRules.scTaxPresetId)?.name ||
+                        'Custom'}
                 </div>
               )}
             </div>

@@ -217,6 +217,15 @@ export default function DebtMatrix(props: Props) {
             </span>
           </div>
         )}
+        {props.calculationResult.globalSummary.roundOff !== 0 && (
+          <div className="flex justify-between py-2.5 text-[0.95rem]">
+            <span className="text-muted">Round Off</span>
+            <span className="font-semibold text-main">
+              {props.calculationResult.globalSummary.roundOff > 0 ? '+' : ''}
+              {utils.formatMoney(props.calculationResult.globalSummary.roundOff)}
+            </span>
+          </div>
+        )}
         {props.calculationResult.globalSummary.discountAmount > 0 &&
           props.calculationResult.globalSummary.discountMode === 'post-tax' && (
             <>

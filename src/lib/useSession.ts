@@ -26,6 +26,42 @@ export interface SessionRules {
   discountValue: string;
   discountMode: 'pre-tax' | 'post-tax';
 }
+// --- THE OFFLINE MUTATION QUEUE ---
+const enqueueMutation = (
+  table: string,
+  action: 'UPSERT' | 'DELETE' | 'UPDATE',
+  payload: any,
+  matchData?: any
+) => {
+  if (typeof window === 'undefined') return;
+  const queue = JSON.parse(localStorage.getItem('ekwly_mutation_queue') || '[]');
+  queue.push({ table, action, payload, matchData, timestamp: Date.now() });
+  localStorage.setItem('ekwly_mutation_queue', JSON.stringify(queue));
+};
+
+const processOfflineQueue = async () => {
+  if (typeof window === 'undefined' || !navigator.onLine) return;
+  const queue = JSON.parse(localStorage.getItem('ekwly_mutation_queue') || '[]');
+  if (queue.length === 0) return;
+
+  showToast('Back online! Syncing data...', 'success');
+  for (const task of queue) {
+    try {
+      if (task.action === 'UPSERT') {
+        await supabase
+          .from(task.table)
+          .upsert(task.payload, task.matchData ? { onConflict: task.matchData } : undefined);
+      } else if (task.action === 'DELETE') {
+        await supabase.from(task.table).delete().match(task.matchData);
+      } else if (task.action === 'UPDATE') {
+        await supabase.from(task.table).update(task.payload).match(task.matchData);
+      }
+    } catch (e) {
+      console.error('Queue sync failed for task:', task, e);
+    }
+  }
+  localStorage.removeItem('ekwly_mutation_queue');
+};
 
 export function useSession(sessionId: string | null) {
   const [isLoading, setIsLoading] = useState(true);
@@ -73,8 +109,13 @@ export function useSession(sessionId: string | null) {
         setSessionRules({
           venueName: sessionRes.data.venue_name || '', // (Use payload.new.venue_name for the WebSocket)
           isScApplicable: Boolean(sessionRes.data.is_sc_applicable),
-          serviceChargeRate: Number(sessionRes.data.service_charge_rate || 0),
-          scTaxPresetId: sessionRes.data.sc_tax_preset_id || 'none',
+          // SELF-HEALING: If the DB has a raw percentage (> 1), auto-correct it to a decimal
+          serviceChargeRate: Number(
+            (sessionRes.data.service_charge_rate || 0) > 1
+              ? sessionRes.data.service_charge_rate / 100
+              : sessionRes.data.service_charge_rate || 0
+          ),
+          scTaxPresetId: sessionRes.data.sc_tax_preset_id || 'inherit',
           discountType: sessionRes.data.discount_type || 'none',
           discountValue: sessionRes.data.discount_value?.toString() || '',
           discountMode: sessionRes.data.discount_mode || 'post-tax',
@@ -138,8 +179,13 @@ export function useSession(sessionId: string | null) {
           setSessionRules({
             venueName: payload.new.venue_name || '',
             isScApplicable: Boolean(payload.new.is_sc_applicable),
-            serviceChargeRate: Number(payload.new.service_charge_rate || 0),
-            scTaxPresetId: payload.new.sc_tax_preset_id || 'none',
+            // SELF-HEALING: If the DB has a raw percentage (> 1), auto-correct it to a decimal
+            serviceChargeRate: Number(
+              (payload.new.service_charge_rate || 0) > 1
+                ? payload.new.service_charge_rate / 100
+                : payload.new.service_charge_rate || 0
+            ),
+            scTaxPresetId: payload.new.sc_tax_preset_id || 'inherit',
             discountType: payload.new.discount_type || 'none',
             discountValue: payload.new.discount_value?.toString() || '',
             discountMode: payload.new.discount_mode || 'post-tax',
@@ -314,7 +360,12 @@ export function useSession(sessionId: string | null) {
     };
   }, [sessionId, fetchSessionData]);
 
-  // --- ACTIONS ---
+  // --- BACKGROUND SYNC LISTENER ---
+  useEffect(() => {
+    window.addEventListener('online', processOfflineQueue);
+    return () => window.removeEventListener('online', processOfflineQueue);
+  }, []);
+
   const updateSessionRulesInDB = async (updates: Partial<SessionRules>) => {
     if (!sessionId) return;
     setSessionRules((prev) => ({ ...prev, ...updates }));
@@ -322,30 +373,48 @@ export function useSession(sessionId: string | null) {
       venue_name: updates.venueName,
       is_sc_applicable: updates.isScApplicable,
       service_charge_rate: updates.serviceChargeRate,
-      sc_tax_preset_id: updates.scTaxPresetId, // <-- Ensure this is passed
+      sc_tax_preset_id: updates.scTaxPresetId,
       discount_type: updates.discountType,
       discount_value: updates.discountValue ? parseFloat(updates.discountValue) : null,
       discount_mode: updates.discountMode,
     };
     Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
+
+    // Offline Interceptor
+    if (!navigator.onLine) {
+      enqueueMutation('sessions', 'UPDATE', payload, { id: sessionId });
+      return;
+    }
     await supabase.from('sessions').update(payload).eq('id', sessionId);
   };
 
   const addTaxPresetToDB = async (preset: TaxPreset) => {
     if (!sessionId) return;
     setTaxPresets((prev) => [...prev, preset]);
-    await supabase.from('tax_presets').insert({
+
+    const payload = {
       id: preset.id,
       session_id: sessionId,
       name: preset.name,
       rate: preset.rate,
       split: preset.split,
-    });
+    };
+
+    if (!navigator.onLine) {
+      enqueueMutation('tax_presets', 'UPSERT', payload);
+      return;
+    }
+    await supabase.from('tax_presets').insert(payload);
   };
 
   const removeTaxPresetFromDB = async (id: string) => {
     if (!sessionId) return;
     setTaxPresets((prev) => prev.filter((t) => t.id !== id));
+
+    if (!navigator.onLine) {
+      enqueueMutation('tax_presets', 'DELETE', null, { id });
+      return;
+    }
     await supabase.from('tax_presets').delete().eq('id', id);
   };
 
@@ -430,11 +499,16 @@ export function useSession(sessionId: string | null) {
       paid_amount: 0,
     };
 
-    setMembers((prev) => [...prev, newMember]); // Optimistic UI
+    setMembers((prev) => [...prev, newMember]);
+
+    if (!navigator.onLine) {
+      enqueueMutation('members', 'UPSERT', newMember);
+      return newMember;
+    }
 
     const { error } = await supabase.from('members').insert(newMember);
     if (error) {
-      setMembers((prev) => prev.filter((m) => m.id !== newMember.id)); // Rollback
+      setMembers((prev) => prev.filter((m) => m.id !== newMember.id));
       showToast('Network error: Failed to add member.', 'error');
     }
     return newMember;
@@ -442,12 +516,15 @@ export function useSession(sessionId: string | null) {
 
   const removeMemberFromDB = async (memberId: string) => {
     if (!sessionId) return;
-
-    // Store backup for rollback
     const memberBackup = members.find((m) => m.id === memberId);
 
     setMembers((prev) => prev.filter((m) => m.id !== memberId));
     setClaims((prev) => prev.filter((c) => c.member_id !== memberId));
+
+    if (!navigator.onLine) {
+      enqueueMutation('members', 'DELETE', null, { id: memberId });
+      return;
+    }
 
     const { error } = await supabase.from('members').delete().eq('id', memberId);
     if (error && memberBackup) {
@@ -455,15 +532,39 @@ export function useSession(sessionId: string | null) {
       showToast('Network error: Failed to remove member.', 'error');
     }
   };
+
+  const claimMemberIdentity = async (memberId: string) => {
+    if (!sessionId) return;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return showToast('Sign in to claim a profile.', 'error');
+    if (members.some((m) => m.user_id === user.id))
+      return showToast('You are already at this table.', 'error');
+
+    setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, user_id: user.id } : m)));
+    showToast('Profile linked successfully!', 'success');
+
+    if (!navigator.onLine) {
+      enqueueMutation('members', 'UPDATE', { user_id: user.id }, { id: memberId });
+      return;
+    }
+    await supabase.from('members').update({ user_id: user.id }).eq('id', memberId);
+  };
+
   const updateMemberPaymentInDB = async (memberId: string, amount: number) => {
     if (!sessionId) return;
     setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, paid_amount: amount } : m)));
+
+    if (!navigator.onLine) {
+      enqueueMutation('members', 'UPDATE', { paid_amount: amount }, { id: memberId });
+      return;
+    }
     await supabase.from('members').update({ paid_amount: amount }).eq('id', memberId);
   };
 
   const updateClaimInDB = async (memberId: string, itemId: string, value: string) => {
     if (!sessionId) return;
-    const claimId = `${memberId}-${itemId}`;
     const newClaim: DBClaim = {
       session_id: sessionId,
       member_id: memberId,
@@ -471,13 +572,25 @@ export function useSession(sessionId: string | null) {
       value,
     };
     const isEmpty = !value || value.trim() === '' || value === '0';
+
+    // 1. Optimistic UI Update
     setClaims((prev) => {
       if (isEmpty) return prev.filter((c) => !(c.member_id === memberId && c.item_id === itemId));
       const exists = prev.some((c) => c.member_id === memberId && c.item_id === itemId);
-      if (exists)
-        return prev.map((c) => (c.member_id === memberId && c.item_id === itemId ? newClaim : c));
-      return [...prev, newClaim];
+      return exists
+        ? prev.map((c) => (c.member_id === memberId && c.item_id === itemId ? newClaim : c))
+        : [...prev, newClaim];
     });
+
+    // 2. Network Check & Queue
+    if (!navigator.onLine) {
+      if (isEmpty)
+        enqueueMutation('claims', 'DELETE', null, { member_id: memberId, item_id: itemId });
+      else enqueueMutation('claims', 'UPSERT', newClaim, 'item_id,member_id');
+      return;
+    }
+
+    // 3. Online Execution
     if (isEmpty)
       await supabase.from('claims').delete().match({ member_id: memberId, item_id: itemId });
     else await supabase.from('claims').upsert(newClaim, { onConflict: 'item_id,member_id' });
@@ -491,22 +604,12 @@ export function useSession(sessionId: string | null) {
     const newClaims: DBClaim[] = [];
     const toDelete: { member_id: string; item_id: string }[] = [];
 
-    // 1. Sort into inserts and deletes
     claimUpdates.forEach(({ memberId, itemId, value }) => {
       const isEmpty = !value || value.trim() === '' || value === '0';
-      if (isEmpty) {
-        toDelete.push({ member_id: memberId, item_id: itemId });
-      } else {
-        newClaims.push({
-          session_id: sessionId,
-          member_id: memberId,
-          item_id: itemId,
-          value,
-        });
-      }
+      if (isEmpty) toDelete.push({ member_id: memberId, item_id: itemId });
+      else newClaims.push({ session_id: sessionId, member_id: memberId, item_id: itemId, value });
     });
 
-    // 2. Instant Optimistic UI Update
     setClaims((prev) => {
       let updated = [...prev];
       toDelete.forEach((del) => {
@@ -518,46 +621,35 @@ export function useSession(sessionId: string | null) {
         const exists = updated.some(
           (c) => c.item_id === nc.item_id && c.member_id === nc.member_id
         );
-        if (exists) {
+        if (exists)
           updated = updated.map((c) =>
             c.item_id === nc.item_id && c.member_id === nc.member_id ? nc : c
           );
-        } else {
-          updated.push(nc);
-        }
+        else updated.push(nc);
       });
       return updated;
     });
 
-    // 3. Single Network Request
-    if (newClaims.length > 0) {
-      await supabase.from('claims').upsert(newClaims, { onConflict: 'item_id,member_id' });
+    if (!navigator.onLine) {
+      if (newClaims.length > 0) enqueueMutation('claims', 'UPSERT', newClaims);
+      for (const del of toDelete) enqueueMutation('claims', 'DELETE', null, del);
+      return;
     }
-    for (const del of toDelete) {
+
+    if (newClaims.length > 0)
+      await supabase.from('claims').upsert(newClaims, { onConflict: 'item_id,member_id' });
+    for (const del of toDelete)
       await supabase
         .from('claims')
         .delete()
         .match({ member_id: del.member_id, item_id: del.item_id });
-    }
-  };
-  const claimMemberIdentity = async (memberId: string) => {
-    if (!sessionId) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return showToast('Sign in to claim a profile.', 'error');
-    if (members.some((m) => m.user_id === user.id))
-      return showToast('You are already at this table.', 'error');
-    setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, user_id: user.id } : m)));
-    await supabase.from('members').update({ user_id: user.id }).eq('id', memberId);
-    showToast('Profile linked successfully!', 'success');
   };
 
   const addItemToDB = async (item: BillItem) => {
     if (!sessionId) return;
     setItems((prev) => [...prev, item]); // Optimistic UI
 
-    const { error } = await supabase.from('items').insert({
+    const payload = {
       id: item.id,
       session_id: sessionId,
       name: item.name,
@@ -565,8 +657,14 @@ export function useSession(sessionId: string | null) {
       price: item.unitPrice,
       apply_sc: item.applySC,
       tax_preset_id: item.taxPresetId,
-    });
+    };
 
+    if (!navigator.onLine) {
+      enqueueMutation('items', 'UPSERT', payload);
+      return;
+    }
+
+    const { error } = await supabase.from('items').insert(payload);
     if (error) {
       setItems((prev) => prev.filter((i) => i.id !== item.id)); // Rollback
       showToast('Network error: Failed to add item.', 'error');
@@ -576,16 +674,20 @@ export function useSession(sessionId: string | null) {
   const updateItemInDB = async (item: BillItem) => {
     if (!sessionId) return;
     setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
-    await supabase
-      .from('items')
-      .update({
-        name: item.name,
-        qty: item.qty,
-        price: item.unitPrice,
-        apply_sc: item.applySC,
-        tax_preset_id: item.taxPresetId,
-      })
-      .eq('id', item.id);
+
+    const payload = {
+      name: item.name,
+      qty: item.qty,
+      price: item.unitPrice,
+      apply_sc: item.applySC,
+      tax_preset_id: item.taxPresetId,
+    };
+
+    if (!navigator.onLine) {
+      enqueueMutation('items', 'UPDATE', payload, { id: item.id });
+      return;
+    }
+    await supabase.from('items').update(payload).eq('id', item.id);
   };
 
   const removeItemFromDB = async (itemId: string) => {
@@ -594,6 +696,11 @@ export function useSession(sessionId: string | null) {
 
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     setClaims((prev) => prev.filter((c) => c.item_id !== itemId));
+
+    if (!navigator.onLine) {
+      enqueueMutation('items', 'DELETE', null, { id: itemId });
+      return;
+    }
 
     const { error } = await supabase.from('items').delete().eq('id', itemId);
     if (error && itemBackup) {
@@ -655,6 +762,11 @@ export function useSession(sessionId: string | null) {
     setLedger((prev) =>
       prev.map((l) => (l.id === ledgerId ? { ...l, settled: !currentStatus } : l))
     );
+
+    if (!navigator.onLine) {
+      enqueueMutation('ledger', 'UPDATE', { settled: !currentStatus }, { id: ledgerId });
+      return;
+    }
     await supabase.from('ledger').update({ settled: !currentStatus }).eq('id', ledgerId);
   };
 

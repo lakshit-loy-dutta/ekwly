@@ -18,7 +18,6 @@ Deno.serve(async (req) => {
     if (!authHeader) throw new Error('UNAUTHORIZED: Sign in to use Magic Scan.');
 
     const token = authHeader.replace('Bearer ', '');
-
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -29,19 +28,37 @@ Deno.serve(async (req) => {
       data: { user },
       error: userError,
     } = await supabaseClient.auth.getUser(token);
-
     if (userError || !user)
       throw new Error(`UNAUTHORIZED: ${userError?.message || 'Invalid session.'}`);
 
     const { data: profile } = await supabaseClient
       .from('profiles')
-      .select('ai_scans_used, unlimited_scans')
+      .select('ai_scans_used, last_scan_reset, pro_expires_at')
       .eq('id', user.id)
       .single();
 
     if (!profile) throw new Error('Profile not found.');
 
-    if (!profile.unlimited_scans && profile.ai_scans_used >= 3) {
+    const now = new Date();
+    const lastReset = new Date(profile.last_scan_reset || 0);
+    let scansUsed = profile.ai_scans_used;
+
+    // Check if the month has changed to grant 3 new free scans
+    if (
+      now.getUTCFullYear() > lastReset.getUTCFullYear() ||
+      now.getUTCMonth() > lastReset.getUTCMonth()
+    ) {
+      scansUsed = 0;
+      await supabaseClient
+        .from('profiles')
+        .update({ ai_scans_used: 0, last_scan_reset: now.toISOString() })
+        .eq('id', user.id);
+    }
+
+    // Check if user has an active Pro subscription
+    const isPro = profile.pro_expires_at && new Date(profile.pro_expires_at) > now;
+
+    if (!isPro && scansUsed >= 3) {
       throw new Error('RATE_LIMIT_REACHED');
     }
 

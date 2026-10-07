@@ -17,7 +17,7 @@ interface EngineParams {
   discountMode: 'pre-tax' | 'post-tax';
   discountValue: string;
   taxPresets: TaxPreset[];
-  scTaxPresetId: string;
+  scTaxPresetId: string; // 'none', 'inherit', or a specific UUID
   serviceChargeRate: number;
 }
 
@@ -55,6 +55,7 @@ export const mathEngine = {
       subTotal: 0,
       taxBreakdown: {},
       serviceCharge: 0,
+      roundOff: 0,
       grandTotal: 0,
     };
 
@@ -81,7 +82,7 @@ export const mathEngine = {
       }
     };
 
-    // 1. GLOBAL MATH
+    // 1. MASTER BILL CALCULATION
     items.forEach((item) => {
       const effectiveBase = item.totalBase * preTaxMultiplier;
       const preset = taxPresets.find((t) => t.id === item.taxPresetId);
@@ -92,19 +93,21 @@ export const mathEngine = {
       let scTaxAmount = 0;
 
       if (scTaxPresetId === 'inherit') {
-        // MODEL A (TBC 66): Item tax rate applies to Base + SC
+        // TBC 66 MODEL: Tax applies to (Base + SC)
         itemTaxAmount = effectiveBase * dynamicTaxRate;
         scTaxAmount = itemSC * dynamicTaxRate;
         addTaxToBreakdown(preset, itemTaxAmount + scTaxAmount, 'Other Tax');
       } else {
-        // MODEL B (Chin Lung): Base and SC are taxed completely independently
+        // CHIN LUNG MODEL: Item Base is taxed alone. SC is taxed by a global preset.
         itemTaxAmount = effectiveBase * dynamicTaxRate;
         addTaxToBreakdown(preset, itemTaxAmount, 'Other Tax');
 
-        const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
-        if (scPreset && itemSC > 0) {
-          scTaxAmount = itemSC * (scPreset.rate / 100);
-          addTaxToBreakdown(scPreset, scTaxAmount, 'S.C. Tax');
+        if (scTaxPresetId !== 'none') {
+          const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
+          if (scPreset && itemSC > 0) {
+            scTaxAmount = itemSC * (scPreset.rate / 100);
+            addTaxToBreakdown(scPreset, scTaxAmount, 'S.C. Tax');
+          }
         }
       }
 
@@ -123,13 +126,21 @@ export const mathEngine = {
         discountType === 'percentage' ? grossTotal * (parsedDiscount / 100) : parsedDiscount;
       postTaxDiscount = Math.min(postTaxDiscount, grossTotal);
     }
-    globalSummary.discountAmount = discountMode === 'pre-tax' ? preTaxDiscount : postTaxDiscount;
-    globalSummary.grandTotal = grossTotal - postTaxDiscount;
-    const postTaxMultiplier = grossTotal > 0 ? (grossTotal - postTaxDiscount) / grossTotal : 1;
 
+    globalSummary.discountAmount = discountMode === 'pre-tax' ? preTaxDiscount : postTaxDiscount;
+
+    // CALCULATE ROUND OFF TO MATCH PHYSICAL BILL
+    const finalRawTotal = grossTotal - postTaxDiscount;
+    const roundedGrandTotal = Math.round(finalRawTotal);
+    globalSummary.roundOff = utils.round2(roundedGrandTotal - finalRawTotal);
+    globalSummary.grandTotal = roundedGrandTotal;
+
+    // The magical multiplier to naturally and fairly distribute the round-off among users
+    const distributionMultiplier = finalRawTotal > 0 ? roundedGrandTotal / finalRawTotal : 1;
+
+    // 2. INDIVIDUAL DEBT CALCULATION
     const individualBreakdowns: Record<string, IndividualBreakdown> = {};
 
-    // 2. INDIVIDUAL MATH
     members.forEach((member) => {
       let subtotal = 0;
       let totalScAmount = 0;
@@ -151,9 +162,9 @@ export const mathEngine = {
             scTaxShare = scShare * dynamicTaxRate;
           } else {
             itemTaxAmount = effectiveBaseShare * dynamicTaxRate;
-            const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
-            if (scPreset && scShare > 0) {
-              scTaxShare = scShare * (scPreset.rate / 100);
+            if (scTaxPresetId !== 'none') {
+              const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
+              if (scPreset && scShare > 0) scTaxShare = scShare * (scPreset.rate / 100);
             }
           }
 
@@ -171,8 +182,8 @@ export const mathEngine = {
       individualBreakdowns[member.name] = {
         subtotal,
         serviceCharge: totalScAmount,
-        totalOwed: utils.round2((subtotal + totalScAmount) * postTaxMultiplier),
-        items: consumedItems,
+        totalOwed: utils.round2((subtotal + totalScAmount) * distributionMultiplier),
+        items: consumedItems, // <-- Add this line back
       };
     });
 
