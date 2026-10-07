@@ -369,29 +369,32 @@ export function useSession(sessionId: string | null) {
         host_id: user?.id || null,
       });
     }
-    // ...
 
     // 2. SAFE HOST CREATION: Only insert the Host if they aren't already at the table
     if (user) {
       const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
-      const hostId = `host-${id}-${user.id}`;
 
+      // FIX: Query by session_id and user_id instead of a fabricated string ID,
+      // because members.id requires a strict UUID.
       const { data: existingHost } = await supabase
         .from('members')
         .select('id')
-        .eq('id', hostId)
+        .eq('session_id', id)
+        .eq('user_id', user.id)
         .maybeSingle();
 
       if (!existingHost) {
         const newHostMember = {
-          id: utils.generateId(),
+          id: utils.generateId(), // This correctly generates a valid UUID
           session_id: id,
           name: hostName,
           user_id: user.id,
           paid_amount: 0,
         };
 
-        setMembers((prev) => (prev.some((m) => m.id === hostId) ? prev : [...prev, newHostMember]));
+        setMembers((prev) =>
+          prev.some((m) => m.user_id === user.id) ? prev : [...prev, newHostMember]
+        );
         await supabase.from('members').insert(newHostMember);
       }
     }

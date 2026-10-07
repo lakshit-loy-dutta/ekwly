@@ -36,4 +36,5 @@ repomix-output*.xml
 
 # supabase temp files
 supabase/.temp/*
+supabase/.temp/
 schema_dump.sql

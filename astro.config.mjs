@@ -23,7 +23,7 @@ export default defineConfig({
     // 2. Automated PWA Generation
     AstroPWA({
       registerType: 'prompt',
-      injectRegister: 'script', // Automatically injects SW registration into HTML head
+      injectRegister: 'auto',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         ignoreURLParametersMatching: [/.*/], // Safely ignores all query parameters
