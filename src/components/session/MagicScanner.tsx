@@ -20,15 +20,17 @@ export default function MagicScanner() {
 
   if (!isHost) return null;
 
-  const fileToBase64 = (blob: Blob): Promise<string> => {
+  const fileToBase64 = (blob: Blob): Promise<{ base64: string; mimeType: string }> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(blob);
       reader.onload = () => {
-        let encoded = reader.result as string;
-        encoded = encoded.replace(/^data:(.*,)?/, '');
+        const result = reader.result as string;
+        // Extract the mime type (e.g. "image/png") before stripping the prefix
+        const mimeType = result.match(/^data:(.*?);base64,/)?.[1] || 'image/jpeg';
+        let encoded = result.replace(/^data:(.*,)?/, '');
         if (encoded.length % 4 > 0) encoded += '='.repeat(4 - (encoded.length % 4));
-        resolve(encoded);
+        resolve({ base64: encoded, mimeType });
       };
       reader.onerror = reject;
     });
@@ -43,14 +45,13 @@ export default function MagicScanner() {
 
     try {
       let base64Image = '';
+      let imageMimeType = 'image/jpeg'; // Default fallback
 
       if (Capacitor.isNativePlatform()) {
         let imageWebPath = '';
 
-        // CAPACITOR 8 API STANDARDS
         if (sourceType === 'CAMERA') {
           const image = await Camera.takePhoto({ quality: 90 });
-          // FIX: Strictly enforce that image.webPath exists before assigning
           if (!image || !image.webPath) throw new Error('Failed to capture image');
           imageWebPath = image.webPath;
         } else {
@@ -58,7 +59,6 @@ export default function MagicScanner() {
             allowMultipleSelection: false,
             quality: 90,
           });
-          // FIX: Strictly enforce that the results array exists and has a webPath
           if (
             !gallery ||
             !gallery.results ||
@@ -72,15 +72,29 @@ export default function MagicScanner() {
 
         const response = await fetch(imageWebPath);
         const blob = await response.blob();
-        base64Image = await fileToBase64(blob);
+
+        // 2. Use the new returned object
+        const extracted = await fileToBase64(blob);
+        base64Image = extracted.base64;
+        imageMimeType = extracted.mimeType;
       } else {
         const file = e?.target.files?.[0];
         if (!file) throw new Error('No file selected');
-        base64Image = await fileToBase64(file);
+
+        // 3. Use the new returned object
+        const extracted = await fileToBase64(file);
+        base64Image = extracted.base64;
+        imageMimeType = extracted.mimeType;
       }
 
+      // 4. Pass the extracted MIME type to the Edge Function
       const { data, error } = await supabase.functions.invoke('scan-receipt', {
-        body: { imageBase64: base64Image, currentRules: sessionRules, currentTaxes: taxPresets },
+        body: {
+          imageBase64: base64Image,
+          mimeType: imageMimeType,
+          currentRules: sessionRules,
+          currentTaxes: taxPresets,
+        },
       });
 
       const errMessage = error?.message || data?.error;

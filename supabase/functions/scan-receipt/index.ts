@@ -10,10 +10,11 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { imageBase64, currentRules, currentTaxes } = await req.json();
+    // 1. Accept the new mimeType property
+    const { imageBase64, mimeType = 'image/jpeg', currentRules, currentTaxes } = await req.json();
     if (!imageBase64) throw new Error('No image provided.');
 
-    // 1. AUTH & QUOTA CHECK
+    // 2. AUTH & QUOTA CHECK
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('UNAUTHORIZED: Sign in to use Magic Scan.');
 
@@ -41,7 +42,7 @@ Deno.serve(async (req) => {
       throw new Error('RATE_LIMIT_REACHED');
     }
 
-    // 2. GEMINI CALL
+    // 3. GEMINI CALL
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
     const prompt = `
 You are an expert tax accountant for Indian restaurants. Analyze this receipt and extract the data strictly into the provided JSON schema.
@@ -75,7 +76,8 @@ Return ONLY raw JSON matching this structure exactly:
             {
               parts: [
                 { text: prompt },
-                { inline_data: { mime_type: 'image/jpeg', data: imageBase64 } },
+                // 4. Inject the dynamic MIME type here
+                { inline_data: { mime_type: mimeType, data: imageBase64 } },
               ],
             },
           ],
@@ -84,7 +86,11 @@ Return ONLY raw JSON matching this structure exactly:
       }
     );
 
-    if (!geminiResponse.ok) throw new Error('AI Engine overloaded. Try again in a minute.');
+    // 5. Expose the actual Google AI error if it fails
+    if (!geminiResponse.ok) {
+      const errText = await geminiResponse.text();
+      throw new Error(`Google API Error: ${errText}`);
+    }
 
     const geminiData = await geminiResponse.json();
     if (!geminiData.candidates || geminiData.candidates.length === 0) {
@@ -93,7 +99,6 @@ Return ONLY raw JSON matching this structure exactly:
 
     const rawText = geminiData.candidates[0].content.parts[0].text;
 
-    // 3. SAFE PARSE & EXCEPTION HANDLING
     let parsedJson;
     try {
       parsedJson = JSON.parse(rawText);
@@ -104,7 +109,7 @@ Return ONLY raw JSON matching this structure exactly:
       throw new Error('AI could not extract valid items. Your quota was NOT charged.');
     }
 
-    // 4. CHARGE QUOTA ONLY UPON SUCCESS
+    // 6. CHARGE QUOTA ONLY UPON SUCCESS
     await supabaseClient
       .from('profiles')
       .update({ ai_scans_used: profile.ai_scans_used + 1 })
@@ -118,7 +123,8 @@ Return ONLY raw JSON matching this structure exactly:
     const errMessage = error instanceof Error ? error.message : String(error);
     return new Response(JSON.stringify({ error: errMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+      // 7. RETURN 200 SO THE SDK DOES NOT SWALLOW THE ERROR MESSAGE!
+      status: 200,
     });
   }
 });
