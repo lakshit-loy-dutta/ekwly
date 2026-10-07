@@ -163,7 +163,7 @@ export default function SessionRules() {
       {/* 1. VENUE NAME (MOVED TO TOP) */}
       <SectionHeader
         title="Location"
-        helpText="Search for a known restaurant first. This instantly loads their complex tax rules and significantly increases the Magic Scanner's accuracy."
+        helpText="Search for a known restaurant first. This instantly loads their specific tax rules (e.g., 6% Alcohol VAT vs 5% Food GST) and significantly increases the AI Scanner's accuracy."
       />
       <div className="bg-surface border-y border-border px-4 py-4 flex flex-col relative z-20">
         <div className="relative w-full">
@@ -211,7 +211,7 @@ export default function SessionRules() {
       {/* 3. SERVICE CHARGE SECTION */}
       <SectionHeader
         title="Service Charge"
-        helpText="This is a global fee applied across the entire bill. Set the rate here, and then enable it on a per-item basis in Step 2."
+        helpText="A global fee applied across the bill. Set the rate and specify how the venue taxes it. You can then enable or disable it per-item in Step 2."
       />
       <div className="bg-surface border-y border-border px-4 py-2 flex flex-col">
         <label className="flex items-center justify-between py-3 cursor-pointer">
@@ -329,7 +329,7 @@ export default function SessionRules() {
       {/* 4. DISCOUNT SECTION */}
       <SectionHeader
         title="Discount"
-        helpText="Specify if the restaurant's discount was subtracted before taxes were calculated (Pre-Tax) or taken off the final grand total (Post-Tax)."
+        helpText="Specify if the restaurant's discount was subtracted before taxes were calculated (Pre-Tax) or taken off the final grand total (Post-Tax). Ekwly will proportionally distribute the savings."
       />
       <div className="bg-surface border-y border-border px-4 py-4 flex flex-col gap-4">
         <div className="flex items-center gap-1 bg-page p-1 rounded-lg border border-border">
@@ -401,7 +401,7 @@ export default function SessionRules() {
         <>
           <SectionHeader
             title="Manual Tax Setup"
-            helpText="Create specific tax brackets (like 5% GST or 20% VAT) so you can accurately assign them to individual items in the next step."
+            helpText="Create specific tax brackets (like 5% GST or 20% VAT) to accurately assign them to items. Toggle 'Split' to automatically divide the tax into CGST and SGST on the final receipt."
           />
           <div className="bg-surface border-y border-border px-4 py-4 flex flex-col gap-4">
             <div className="grid grid-cols-12 gap-3">

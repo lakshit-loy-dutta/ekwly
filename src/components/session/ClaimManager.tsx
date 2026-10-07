@@ -55,7 +55,7 @@ export default function ClaimManager(props: Props) {
     <div className="w-full flex flex-col pb-6">
       <SectionHeader
         title="Claim Items"
-        helpText="Type '1' if you ate the whole item. If you shared it, type fractions like '1/2', '1/3', or decimals like '0.5'. The tracker below turns green when an item is fully claimed."
+        helpText="Use 'Quick Split' above for shared appetizers, or type fractions manually (e.g., '1/2', '1/3', '0.5'). The tracker turns green when an item is mathematically fully claimed."
       />
 
       {props.items.length > 0 && props.members.length > 0 && (

@@ -115,18 +115,41 @@ export const exportToPDF = (
     });
 
     startY = (doc as any).lastAutoTable.finalY + 12;
-    const { globalSummary, individualBreakdowns } = calculationResult;
+    const { globalSummary: gs, individualBreakdowns } = calculationResult;
 
     // --- SUMMARY SUB-TABLE ---
-    const summaryData: any[] = [['Base Subtotal:', `Rs. ${globalSummary.subTotal.toFixed(2)}`]];
-    for (const [taxName, amount] of Object.entries(globalSummary.taxBreakdown)) {
+    const computedGrossTotal =
+      gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
+    const summaryData: any[] = [];
+
+    if (gs.discountAmount > 0 && gs.discountMode === 'pre-tax') {
+      summaryData.push(['Raw Subtotal:', `Rs. ${gs.rawSubTotal.toFixed(2)}`]);
+      summaryData.push(['Discount (Pre-Tax):', `- Rs. ${gs.discountAmount.toFixed(2)}`]);
+    }
+
+    summaryData.push(['Base Subtotal:', `Rs. ${gs.subTotal.toFixed(2)}`]);
+
+    for (const [taxName, amount] of Object.entries(gs.taxBreakdown)) {
       if (amount > 0) summaryData.push([`${taxName}:`, `Rs. ${amount.toFixed(2)}`]);
     }
-    if (globalSummary.serviceCharge > 0)
-      summaryData.push(['Service Charge:', `Rs. ${globalSummary.serviceCharge.toFixed(2)}`]);
-    if (globalSummary.roundOff !== 0)
-      summaryData.push(['Round Off:', `Rs. ${globalSummary.roundOff.toFixed(2)}`]);
-    summaryData.push(['GRAND TOTAL:', `Rs. ${globalSummary.grandTotal.toFixed(2)}`]);
+
+    if (gs.serviceCharge > 0) {
+      summaryData.push(['Service Charge:', `Rs. ${gs.serviceCharge.toFixed(2)}`]);
+    }
+
+    if (gs.discountAmount > 0 && gs.discountMode === 'post-tax') {
+      summaryData.push(['Gross Total:', `Rs. ${computedGrossTotal.toFixed(2)}`]);
+      summaryData.push(['Discount (Post-Tax):', `- Rs. ${gs.discountAmount.toFixed(2)}`]);
+    }
+
+    if (gs.roundOff !== 0) {
+      summaryData.push([
+        'Round Off:',
+        `${gs.roundOff > 0 ? '+' : ''} Rs. ${gs.roundOff.toFixed(2)}`,
+      ]);
+    }
+
+    summaryData.push(['GRAND TOTAL:', `Rs. ${gs.grandTotal.toFixed(2)}`]);
 
     doc.autoTable({
       startY,

@@ -70,7 +70,7 @@ export default function DebtMatrix(props: Props) {
 
         <SectionHeader
           title="Debtors"
-          helpText="Toggle the switch to 'Paid' when someone sends you their share via UPI or cash. This instantly clears their debt in your Global Dashboard."
+          helpText="Toggle the switch to 'Paid' when someone settles up. Debtors can tap 'Pay via UPI' to deep-link directly into GPay or PhonePe with the exact split amount pre-filled."
         />
 
         <div className="bg-surface border-y border-border divide-y divide-border">
@@ -163,6 +163,10 @@ export default function DebtMatrix(props: Props) {
   }
 
   // --- DRAFT STATE: MATH SUMMARY ---
+  const gs = props.calculationResult.globalSummary;
+  const computedGrossTotal =
+    gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
+
   return (
     <div className="w-full flex flex-col pb-8">
       <div className="px-4 py-2">
@@ -174,33 +178,29 @@ export default function DebtMatrix(props: Props) {
         <div className="flex justify-between py-2.5 text-[0.95rem]">
           <span className="text-muted">Total Items</span>
           <span className="font-semibold text-main">
-            {props.calculationResult.globalSummary.totalQty.toFixed(2).replace(/\.00$/, '')}
+            {gs.totalQty.toFixed(2).replace(/\.00$/, '')}
           </span>
         </div>
-        {props.calculationResult.globalSummary.discountAmount > 0 &&
-          props.calculationResult.globalSummary.discountMode === 'pre-tax' && (
-            <>
-              <div className="flex justify-between py-2.5 text-[0.95rem]">
-                <span className="text-muted">Raw Subtotal</span>
-                <span className="font-semibold text-main">
-                  {utils.formatMoney(props.calculationResult.globalSummary.rawSubTotal)}
-                </span>
-              </div>
-              <div className="flex justify-between py-2.5 text-[0.95rem] text-success">
-                <span className="font-medium">Restaurant Discount (Pre-Tax)</span>
-                <span className="font-bold">
-                  - {utils.formatMoney(props.calculationResult.globalSummary.discountAmount)}
-                </span>
-              </div>
-            </>
-          )}
+
+        {gs.discountAmount > 0 && gs.discountMode === 'pre-tax' && (
+          <>
+            <div className="flex justify-between py-2.5 text-[0.95rem]">
+              <span className="text-muted">Raw Subtotal</span>
+              <span className="font-semibold text-main">{utils.formatMoney(gs.rawSubTotal)}</span>
+            </div>
+            <div className="flex justify-between py-2.5 text-[0.95rem] text-success">
+              <span className="font-medium">Restaurant Discount (Pre-Tax)</span>
+              <span className="font-bold">- {utils.formatMoney(gs.discountAmount)}</span>
+            </div>
+          </>
+        )}
+
         <div className="flex justify-between py-2.5 text-[0.95rem]">
           <span className="text-muted">Base Subtotal</span>
-          <span className="font-semibold text-main">
-            {utils.formatMoney(props.calculationResult.globalSummary.subTotal)}
-          </span>
+          <span className="font-semibold text-main">{utils.formatMoney(gs.subTotal)}</span>
         </div>
-        {Object.entries(props.calculationResult.globalSummary.taxBreakdown).map(
+
+        {Object.entries(gs.taxBreakdown).map(
           ([taxName, amount]) =>
             amount > 0 && (
               <div key={taxName} className="flex justify-between py-2.5 text-[0.95rem]">
@@ -209,55 +209,48 @@ export default function DebtMatrix(props: Props) {
               </div>
             )
         )}
-        {props.calculationResult.globalSummary.serviceCharge > 0 && (
+
+        {gs.serviceCharge > 0 && (
           <div className="flex justify-between py-2.5 text-[0.95rem]">
             <span className="text-muted">Service Charge</span>
-            <span className="font-semibold text-main">
-              {utils.formatMoney(props.calculationResult.globalSummary.serviceCharge)}
-            </span>
+            <span className="font-semibold text-main">{utils.formatMoney(gs.serviceCharge)}</span>
           </div>
         )}
-        {props.calculationResult.globalSummary.roundOff !== 0 && (
+
+        {gs.discountAmount > 0 && gs.discountMode === 'post-tax' && (
+          <>
+            <div className="flex justify-between py-2.5 text-[0.95rem] mt-1 border-t border-border/50">
+              <span className="text-muted">Gross Total</span>
+              <span className="font-semibold text-main">
+                {utils.formatMoney(computedGrossTotal)}
+              </span>
+            </div>
+            <div className="flex justify-between py-2.5 text-[0.95rem] text-success">
+              <span className="font-medium">Platform Discount (Post-Tax)</span>
+              <span className="font-bold">- {utils.formatMoney(gs.discountAmount)}</span>
+            </div>
+          </>
+        )}
+
+        {gs.roundOff !== 0 && (
           <div className="flex justify-between py-2.5 text-[0.95rem]">
             <span className="text-muted">Round Off</span>
             <span className="font-semibold text-main">
-              {props.calculationResult.globalSummary.roundOff > 0 ? '+' : ''}
-              {utils.formatMoney(props.calculationResult.globalSummary.roundOff)}
+              {gs.roundOff > 0 ? '+' : ''}
+              {utils.formatMoney(gs.roundOff)}
             </span>
           </div>
         )}
-        {props.calculationResult.globalSummary.discountAmount > 0 &&
-          props.calculationResult.globalSummary.discountMode === 'post-tax' && (
-            <>
-              <div className="flex justify-between py-2.5 text-[0.95rem] mt-1 border-t border-border/50">
-                <span className="text-muted">Gross Total</span>
-                <span className="font-semibold text-main">
-                  {utils.formatMoney(
-                    props.calculationResult.globalSummary.grandTotal +
-                      props.calculationResult.globalSummary.discountAmount
-                  )}
-                </span>
-              </div>
-              <div className="flex justify-between py-2.5 text-[0.95rem] text-success">
-                <span className="font-medium">Platform Discount (Post-Tax)</span>
-                <span className="font-bold">
-                  - {utils.formatMoney(props.calculationResult.globalSummary.discountAmount)}
-                </span>
-              </div>
-            </>
-          )}
+
         <div className="flex justify-between py-4 mt-1 border-t border-border">
           <span className="font-bold text-main text-lg">Grand Total</span>
-          <span className="font-bold text-primary text-lg">
-            {utils.formatMoney(props.calculationResult.globalSummary.grandTotal)}
-          </span>
+          <span className="font-bold text-primary text-lg">{utils.formatMoney(gs.grandTotal)}</span>
         </div>
       </div>
-
+      // ... (Keep the Individual Debt section exactly as it is)
       <div className="px-4 py-3 mt-4">
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Individual Debt</h3>
       </div>
-
       <div className="flex flex-col gap-6">
         {Object.entries(props.calculationResult.individualBreakdowns).map(
           ([person, b]) =>
@@ -299,7 +292,6 @@ export default function DebtMatrix(props: Props) {
             )
         )}
       </div>
-
       {props.isHost && (
         <div className="px-4 mt-8">
           <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-4 shadow-sm">

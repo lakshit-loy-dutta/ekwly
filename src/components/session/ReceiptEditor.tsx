@@ -218,7 +218,7 @@ export default function ReceiptEditor() {
 
       <SectionHeader
         title={`Added Items (${items.length})`}
-        helpText="Verify the extracted items below. If an item needs a different tax rate, tap the pencil icon to edit it."
+        helpText="Verify the extracted items below. The AI has automatically assigned tax brackets based on the venue's rules. If an item needs a different rate or shouldn't attract Service Charge, tap the pencil icon to edit it."
       />
 
       <div className="bg-surface border-y border-border divide-y divide-border overflow-hidden">

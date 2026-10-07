@@ -180,8 +180,11 @@ function ActiveSessionCore({
     );
 
   return (
-    <div className="flex flex-col h-full relative bg-page">
-      <div className="flex-1 overflow-x-hidden overflow-y-auto pb-32 relative no-scrollbar">
+    <div className="flex flex-col h-full relative bg-page min-h-screen">
+      {/* THE GLOBAL BACKGROUND TEXTURE FOR ALL ACTIVE SESSIONS */}
+      <div className="fixed inset-0 bg-grid-pattern z-0 pointer-events-none opacity-80"></div>
+
+      <div className="flex-1 overflow-x-hidden overflow-y-auto pb-32 relative z-10 no-scrollbar">
         <Suspense
           fallback={
             <div className="flex justify-center p-12">

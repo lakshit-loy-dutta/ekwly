@@ -75,7 +75,7 @@ export default function Payments(props: Props) {
 
       <SectionHeader
         title="Who Paid The Restaurant?"
-        helpText="Record exactly who paid the final bill to the waiter or cashier. Do NOT enter how much people owe each other here. Ekwly will calculate the individual debts in the next step based on these initial payments."
+        helpText="Record exactly who paid the final bill to the cashier. Do NOT enter how much people owe each other here. Ekwly's algorithm will calculate the minimum number of transactions needed to settle all debts in the next step."
       />
 
       <div className="bg-surface border-y border-border divide-y divide-border mt-2">
