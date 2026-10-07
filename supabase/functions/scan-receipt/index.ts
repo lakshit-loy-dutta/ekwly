@@ -10,13 +10,14 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    // 1. Accept the new mimeType property
     const { imageBase64, mimeType = 'image/jpeg', currentRules, currentTaxes } = await req.json();
     if (!imageBase64) throw new Error('No image provided.');
 
-    // 2. AUTH & QUOTA CHECK
+    // 1. AUTH & QUOTA CHECK
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('UNAUTHORIZED: Sign in to use Magic Scan.');
+
+    const token = authHeader.replace('Bearer ', '');
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -27,8 +28,10 @@ Deno.serve(async (req) => {
     const {
       data: { user },
       error: userError,
-    } = await supabaseClient.auth.getUser();
-    if (userError || !user) throw new Error('UNAUTHORIZED: Invalid session.');
+    } = await supabaseClient.auth.getUser(token);
+
+    if (userError || !user)
+      throw new Error(`UNAUTHORIZED: ${userError?.message || 'Invalid session.'}`);
 
     const { data: profile } = await supabaseClient
       .from('profiles')
@@ -42,7 +45,7 @@ Deno.serve(async (req) => {
       throw new Error('RATE_LIMIT_REACHED');
     }
 
-    // 3. GEMINI CALL
+    // 2. GEMINI CALL
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
     const prompt = `
 You are an expert tax accountant for Indian restaurants. Analyze this receipt and extract the data strictly into the provided JSON schema.
@@ -57,17 +60,11 @@ EXTRACTION RULES:
 3. If an item requires a tax that is NOT in the Existing Tax Presets, define it in the 'newTaxPresets' array with a unique 'tempId', and use that tempId for the item.
 4. If a Service Charge is applied to the items, set 'applySC' to true for those items.
 5. Mathematically normalize any discounts into a single 'discountValue'.
+`;
 
-OUTPUT SCHEMA:
-Return ONLY raw JSON matching this structure exactly:
-{
-  "sessionRules": { "isScApplicable": boolean, "serviceChargeRate": number, "discountType": "none" | "flat" | "percentage", "discountValue": "string", "discountMode": "pre-tax" | "post-tax" },
-  "newTaxPresets": [{ "tempId": "string", "name": "string", "rate": number, "split": boolean }],
-  "items": [{ "name": "string", "qty": number, "price": number, "taxPresetId": "string", "applySC": boolean }]
-}`;
-
+    // FIX 1: Point to the low-latency 3.5-flash-lite endpoint
     const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -76,17 +73,61 @@ Return ONLY raw JSON matching this structure exactly:
             {
               parts: [
                 { text: prompt },
-                // 4. Inject the dynamic MIME type here
                 { inline_data: { mime_type: mimeType, data: imageBase64 } },
               ],
             },
           ],
-          generationConfig: { temperature: 0.0, response_mime_type: 'application/json' },
+          // FIX 2: Provide a strict response schema to bypass the thinking loop
+          generationConfig: {
+            temperature: 0.0,
+            response_mime_type: 'application/json',
+            response_schema: {
+              type: 'OBJECT',
+              properties: {
+                sessionRules: {
+                  type: 'OBJECT',
+                  properties: {
+                    isScApplicable: { type: 'BOOLEAN' },
+                    serviceChargeRate: { type: 'NUMBER' },
+                    discountType: { type: 'STRING' },
+                    discountValue: { type: 'STRING' },
+                    discountMode: { type: 'STRING' },
+                  },
+                },
+                newTaxPresets: {
+                  type: 'ARRAY',
+                  items: {
+                    type: 'OBJECT',
+                    properties: {
+                      tempId: { type: 'STRING' },
+                      name: { type: 'STRING' },
+                      rate: { type: 'NUMBER' },
+                      split: { type: 'BOOLEAN' },
+                    },
+                  },
+                },
+                items: {
+                  type: 'ARRAY',
+                  items: {
+                    type: 'OBJECT',
+                    properties: {
+                      name: { type: 'STRING' },
+                      qty: { type: 'NUMBER' },
+                      price: { type: 'NUMBER' },
+                      taxPresetId: { type: 'STRING' },
+                      applySC: { type: 'BOOLEAN' },
+                    },
+                    required: ['name', 'qty', 'price'],
+                  },
+                },
+              },
+              required: ['items'],
+            },
+          },
         }),
       }
     );
 
-    // 5. Expose the actual Google AI error if it fails
     if (!geminiResponse.ok) {
       const errText = await geminiResponse.text();
       throw new Error(`Google API Error: ${errText}`);
@@ -109,7 +150,7 @@ Return ONLY raw JSON matching this structure exactly:
       throw new Error('AI could not extract valid items. Your quota was NOT charged.');
     }
 
-    // 6. CHARGE QUOTA ONLY UPON SUCCESS
+    // 3. CHARGE QUOTA ONLY UPON SUCCESS
     await supabaseClient
       .from('profiles')
       .update({ ai_scans_used: profile.ai_scans_used + 1 })
@@ -123,7 +164,6 @@ Return ONLY raw JSON matching this structure exactly:
     const errMessage = error instanceof Error ? error.message : String(error);
     return new Response(JSON.stringify({ error: errMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      // 7. RETURN 200 SO THE SDK DOES NOT SWALLOW THE ERROR MESSAGE!
       status: 200,
     });
   }
