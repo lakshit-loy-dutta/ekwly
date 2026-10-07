@@ -4,6 +4,7 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 import Home from './Home';
 import ActiveSession from './ActiveSession';
 import Auth from './Auth';
+import Lobby from './Lobby';
 import Profile from './Profile';
 import Friends from './Friends';
 import Ledger from './Ledger';
@@ -11,12 +12,29 @@ import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
-import { ChevronLeft, User, Users, LogOut, Moon, QrCode, Home as HomeIcon } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  User,
+  Users,
+  LogOut,
+  Moon,
+  QrCode,
+  Home as HomeIcon,
+  Edit2,
+  Wallet,
+  Shield,
+  FileText,
+  RefreshCcw,
+  ExternalLink,
+} from 'lucide-react';
 
 export default function AppRouter() {
   const [currentView, setCurrentView] = useState<
-    'auth' | 'home' | 'session' | 'profile' | 'friends' | 'ledger' | 'onboarding'
+    'auth' | 'home' | 'lobby' | 'session' | 'profile' | 'friends' | 'ledger' | 'onboarding'
   >('auth');
+  const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('create');
+  const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
@@ -123,16 +141,14 @@ export default function AppRouter() {
     }
   };
 
-  const handleStartNew = () => {
+  const handleLaunchRoom = (name: string, pin: string) => {
     const newSessionId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-    const newPin = Math.floor(1000 + Math.random() * 9000).toString();
-
     localStorage.setItem(`ekwly_host_${newSessionId}`, 'true');
-    localStorage.setItem(`ekwly_pin_${newSessionId}`, newPin);
-
-    window.history.pushState({}, '', `?s=${newSessionId}&p=${newPin}`);
+    localStorage.setItem(`ekwly_pin_${newSessionId}`, pin);
+    window.history.pushState({}, '', `?s=${newSessionId}&p=${pin}`);
     setActiveSessionId(newSessionId);
-    setActiveSessionPin(newPin);
+    setActiveSessionPin(pin);
+    setActiveSessionName(name); // Save name for ActiveSession!
     setIsHost(true);
     setCurrentStep(1);
     setCurrentView('session');
@@ -193,7 +209,7 @@ export default function AppRouter() {
   return (
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
       <PwaUpdater />
-      {currentView !== 'auth' && (
+      {currentView !== 'auth' && currentView !== 'lobby' && (
         <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
           {['session', 'profile', 'friends', 'ledger'].includes(currentView) ? (
             <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
@@ -276,42 +292,117 @@ export default function AppRouter() {
                 )}
               </button>
 
-              {isProfileOpen && (
-                <div className="absolute right-0 top-12 w-56 bg-surface border border-border rounded-xl shadow-md py-2 flex flex-col">
-                  <div className="px-4 py-2 border-b border-border mb-2">
-                    <p className="font-bold text-main text-sm truncate">
-                      {user?.user_metadata?.full_name || 'Guest User'}
-                    </p>
-                    <p className="text-xs text-muted truncate">
-                      {user?.email || 'Anonymous Session'}
-                    </p>
+              {/* THE NEW NATIVE MAIN MENU & LEGAL HUB */}
+              <BottomSheet
+                isOpen={isProfileOpen}
+                onClose={() => setIsProfileOpen(false)}
+                title="Menu"
+              >
+                <div className="flex flex-col gap-6 pb-4">
+                  {/* 1. Profile Header Card */}
+                  <div className="flex items-center gap-4 bg-surface border border-border p-4 rounded-3xl shadow-sm">
+                    <div className="w-14 h-14 rounded-full bg-primary-light border-2 border-primary/20 text-primary flex items-center justify-center font-bold text-xl overflow-hidden shrink-0">
+                      {user?.user_metadata?.avatar_url ? (
+                        <img
+                          src={user.user_metadata.avatar_url}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User size={24} />
+                      )}
+                    </div>
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="font-bold text-main text-lg tracking-tight truncate">
+                        {user?.user_metadata?.full_name || 'Guest User'}
+                      </span>
+                      <span className="text-xs text-muted font-medium truncate">
+                        {user?.email || 'Anonymous Session'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIsProfileOpen(false);
+                        setCurrentView('profile');
+                      }}
+                      className="p-3 text-primary bg-primary/10 hover:bg-primary/20 rounded-xl transition-colors shrink-0"
+                    >
+                      <Edit2 size={18} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setIsProfileOpen(false);
-                      setCurrentView('friends');
-                    }}
-                    className="px-4 py-2 text-left text-sm font-semibold text-main hover:bg-subtle flex items-center gap-2 mx-2 rounded-md transition-colors"
-                  >
-                    <Users size={16} className="text-muted" /> Friends List
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsProfileOpen(false);
-                      setCurrentView('profile');
-                    }}
-                    className="px-4 py-2 text-left text-sm font-semibold text-main hover:bg-subtle flex items-center gap-2 mx-2 rounded-md transition-colors"
-                  >
-                    <User size={16} className="text-muted" /> Edit Profile
-                  </button>
+
+                  {/* 2. Primary Navigation Rows */}
+                  <div className="flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm divide-y divide-border">
+                    <button
+                      onClick={() => {
+                        setIsProfileOpen(false);
+                        setCurrentView('ledger');
+                      }}
+                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Wallet size={20} className="text-muted" />{' '}
+                        <span className="font-semibold text-main">Global Ledger</span>
+                      </div>
+                      <ChevronRight size={18} className="text-muted/50" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsProfileOpen(false);
+                        setCurrentView('friends');
+                      }}
+                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Users size={20} className="text-muted" />{' '}
+                        <span className="font-semibold text-main">Friends Network</span>
+                      </div>
+                      <ChevronRight size={18} className="text-muted/50" />
+                    </button>
+                  </div>
+
+                  {/* 3. The Legal Hub */}
+                  <div className="flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm divide-y divide-border">
+                    <a
+                      href="/ekwly/privacy"
+                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Shield size={20} className="text-muted" />{' '}
+                        <span className="font-semibold text-main">Privacy Policy</span>
+                      </div>
+                      <ExternalLink size={16} className="text-muted/50" />
+                    </a>
+                    <a
+                      href="/ekwly/terms"
+                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText size={20} className="text-muted" />{' '}
+                        <span className="font-semibold text-main">Terms of Service</span>
+                      </div>
+                      <ExternalLink size={16} className="text-muted/50" />
+                    </a>
+                    <a
+                      href="/ekwly/refunds"
+                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <RefreshCcw size={20} className="text-muted" />{' '}
+                        <span className="font-semibold text-main">Refund Policy</span>
+                      </div>
+                      <ExternalLink size={16} className="text-muted/50" />
+                    </a>
+                  </div>
+
+                  {/* 4. Danger Zone */}
                   <button
                     onClick={handleSignOut}
-                    className="px-4 py-2 text-left text-sm font-semibold text-danger hover:bg-danger/10 flex items-center gap-2 mx-2 rounded-md transition-colors mt-1"
+                    className="h-14 w-full mt-2 bg-danger/10 text-danger border border-danger/20 rounded-2xl font-bold text-[0.95rem] flex items-center justify-center gap-2 active:bg-danger/20 transition-colors shadow-sm"
                   >
-                    <LogOut size={16} /> Sign Out
+                    <LogOut size={18} /> Sign Out
                   </button>
                 </div>
-              )}
+              </BottomSheet>
             </div>
           </div>
         </div>
@@ -321,10 +412,21 @@ export default function AppRouter() {
         {currentView === 'auth' && <Auth onContinueAsGuest={resolveInitialRoute} />}
         {currentView === 'home' && (
           <Home
-            onStartNew={handleStartNew}
+            onOpenLobby={(mode) => {
+              setLobbyMode(mode);
+              setCurrentView('lobby');
+            }}
             onJoinSession={handleJoinSession}
             onViewLedger={() => setCurrentView('ledger')}
             user={user}
+          />
+        )}
+        {currentView === 'lobby' && (
+          <Lobby
+            initialMode={lobbyMode}
+            onClose={() => setCurrentView('home')}
+            onLaunch={handleLaunchRoom}
+            onJoin={handleJoinSession}
           />
         )}
         {currentView === 'onboarding' && (
@@ -342,6 +444,7 @@ export default function AppRouter() {
           <ActiveSession
             sessionId={activeSessionId}
             pin={activeSessionPin}
+            initialName={activeSessionName}
             isHost={isHost}
             currentStep={currentStep}
             direction={direction}
@@ -350,10 +453,6 @@ export default function AppRouter() {
           />
         )}
       </div>
-
-      {isProfileOpen && (
-        <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
-      )}
 
       <BottomSheet
         isOpen={isShareModalOpen}

@@ -21,21 +21,18 @@ import {
 } from 'lucide-react';
 
 interface Props {
-  onStartNew: () => void;
+  onOpenLobby: (mode: 'create' | 'join') => void;
   onJoinSession: (sessionId: string, pin: string) => void;
   onViewLedger: () => void;
   user: SupabaseUser | null;
 }
 
-export default function Home({ onStartNew, onJoinSession, onViewLedger, user }: Props) {
+// FIX: Destructure onOpenLobby instead of onStartNew
+export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }: Props) {
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
   const [owedToMe, setOwedToMe] = useState(0);
   const [iOwe, setIOwe] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-
-  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
-  const [manualSessionId, setManualSessionId] = useState('');
-  const [manualPin, setManualPin] = useState('');
 
   // Editing Session Names
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -137,12 +134,6 @@ export default function Home({ onStartNew, onJoinSession, onViewLedger, user }: 
     } catch (error) {
       showToast('Error launching native scanner', 'error');
     }
-  };
-
-  const handleManualJoin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualSessionId.trim() || !manualPin.trim()) return showToast('Enter ID and PIN', 'error');
-    onJoinSession(manualSessionId.trim().toLowerCase(), manualPin.trim());
   };
 
   const handleDeleteSession = async (e: React.MouseEvent, delSessionId: string) => {
@@ -264,7 +255,7 @@ export default function Home({ onStartNew, onJoinSession, onViewLedger, user }: 
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           <button
-            onClick={onStartNew}
+            onClick={() => onOpenLobby('create')}
             className="bg-surface/80 backdrop-blur-md active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-all h-28"
           >
             <div className="bg-primary/10 p-2.5 rounded-full text-primary">
@@ -284,7 +275,7 @@ export default function Home({ onStartNew, onJoinSession, onViewLedger, user }: 
         </div>
 
         <button
-          onClick={() => setIsJoinModalOpen(true)}
+          onClick={() => onOpenLobby('join')}
           className="w-full h-12 bg-surface/80 backdrop-blur-md active:bg-subtle text-main border border-border rounded-xl flex items-center justify-center gap-2 font-semibold transition-all mb-8 shadow-sm hover:border-primary/30"
         >
           <KeyRound size={18} className="text-muted" /> Join with ID & PIN
@@ -410,49 +401,6 @@ export default function Home({ onStartNew, onJoinSession, onViewLedger, user }: 
           )}
         </div>
       </div>
-
-      <BottomSheet
-        isOpen={isJoinModalOpen}
-        onClose={() => setIsJoinModalOpen(false)}
-        title="Join Session"
-      >
-        <form onSubmit={handleManualJoin} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-muted uppercase tracking-widest">
-              Session ID
-            </label>
-            <input
-              type="text"
-              value={manualSessionId}
-              onChange={(e) => setManualSessionId(e.target.value)}
-              placeholder="e.g. kz2x9a"
-              className="w-full h-12 bg-page border border-border rounded-xl px-4 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              required
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-muted uppercase tracking-widest">
-              4-Digit PIN
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={4}
-              value={manualPin}
-              onChange={(e) => setManualPin(e.target.value)}
-              placeholder="e.g. 4821"
-              className="w-full h-12 bg-page border border-border rounded-xl px-4 font-mono font-bold tracking-widest text-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            className="h-14 mt-4 w-full bg-primary active:bg-primary-hover text-white rounded-xl font-bold shadow-sm transition-colors"
-          >
-            Enter Room
-          </button>
-        </form>
-      </BottomSheet>
     </div>
   );
 }

@@ -349,12 +349,11 @@ export function useSession(sessionId: string | null) {
     await supabase.from('tax_presets').delete().eq('id', id);
   };
 
-  const createSessionInDB = async (id: string, pin: string) => {
+  const createSessionInDB = async (id: string, pin: string, name?: string | null) => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    // 1. SAFE SESSION CREATION: Check if it exists before writing so we NEVER overwrite a locked room
     const { data: existingSession } = await supabase
       .from('sessions')
       .select('id')
@@ -362,10 +361,15 @@ export function useSession(sessionId: string | null) {
       .maybeSingle();
 
     if (!existingSession) {
-      await supabase
-        .from('sessions')
-        .insert({ id, status: 'draft', pin: pin, host_id: user?.id || null });
+      await supabase.from('sessions').insert({
+        id,
+        name: name || null, // Write the custom name!
+        status: 'draft',
+        pin: pin,
+        host_id: user?.id || null,
+      });
     }
+    // ...
 
     // 2. SAFE HOST CREATION: Only insert the Host if they aren't already at the table
     if (user) {

@@ -23,12 +23,14 @@ interface Props {
   direction: number;
   navigate: (step: number) => void;
   onExit: () => void;
+  initialName?: string | null;
 }
 
 // 1. INNER COMPONENT: Consumes the global context cleanly
 function ActiveSessionCore({
   sessionId,
   pin,
+  initialName,
   currentStep,
   direction,
   navigate,
@@ -51,9 +53,8 @@ function ActiveSessionCore({
   // Safe Room Initialization
   useEffect(() => {
     if (isHost && pin && sessionId) {
-      actions.createSessionInDB?.(sessionId, pin);
+      actions.createSessionInDB?.(sessionId, pin, initialName);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHost, sessionId, pin]);
 
   const formattedClaims = useMemo(() => {
