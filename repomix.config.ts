@@ -57,6 +57,7 @@ const config: RepomixConfig = {
   },
   include: [
     'ARCHITECTURE.md',
+    'DESIGN_SYSTEM.md',
     'README.md',
     'package.json',
     'tsconfig.json',
