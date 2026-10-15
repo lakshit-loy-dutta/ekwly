@@ -26,17 +26,41 @@ export default function MagicScanner({ onScanComplete }: Props) {
 
   const fileToBase64 = (blob: Blob): Promise<{ base64: string; mimeType: string }> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onload = () => {
-        const result = reader.result as string;
-        // Extract the mime type (e.g. "image/png") before stripping the prefix
-        const mimeType = result.match(/^data:(.*?);base64,/)?.[1] || 'image/jpeg';
-        let encoded = result.replace(/^data:(.*,)?/, '');
-        if (encoded.length % 4 > 0) encoded += '='.repeat(4 - (encoded.length % 4));
-        resolve({ base64: encoded, mimeType });
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const MAX_DIM = 1400;
+        let { width, height } = img;
+
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas context unavailable'));
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        const encoded = dataUrl.replace(/^data:image\/jpeg;base64,/, '');
+        resolve({ base64: encoded, mimeType: 'image/jpeg' });
       };
-      reader.onerror = reject;
+
+      img.onerror = (err) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(err);
+      };
+      img.src = objectUrl;
     });
   };
 
@@ -147,29 +171,30 @@ export default function MagicScanner({ onScanComplete }: Props) {
         });
       }
 
-      // 3. INSERT ITEMS
-      let addedCount = 0;
-      for (const extractedItem of data.items) {
-        if (!extractedItem.name || !extractedItem.price) continue;
-        const finalTaxId =
-          tempIdMap[extractedItem.taxPresetId] ||
-          extractedItem.taxPresetId ||
-          (taxPresets.length > 0 ? taxPresets[0].id : 'tx-1');
-
-        await actions.addItemToDB?.({
-          id: utils.generateId(),
-          name: extractedItem.name,
-          qty: extractedItem.qty || 1,
-          unitPrice: extractedItem.price,
-          taxRate: 0,
-          taxPresetId: finalTaxId,
-          applySC: extractedItem.applySC !== false,
-          totalBase: (extractedItem.qty || 1) * extractedItem.price,
+      // 3. BATCH INSERT ITEMS IN ONE NETWORK REQUEST
+      const itemsToInsert = data.items
+        .filter((extractedItem: any) => extractedItem.name && extractedItem.price)
+        .map((extractedItem: any) => {
+          const finalTaxId =
+            tempIdMap[extractedItem.taxPresetId] ||
+            extractedItem.taxPresetId ||
+            (taxPresets.length > 0 ? taxPresets[0].id : 'tx-1');
+          const qty = extractedItem.qty || 1;
+          return {
+            id: utils.generateId(),
+            name: extractedItem.name,
+            qty,
+            unitPrice: extractedItem.price,
+            taxRate: 0,
+            taxPresetId: finalTaxId,
+            applySC: extractedItem.applySC !== false,
+            totalBase: qty * extractedItem.price,
+          };
         });
-        addedCount++;
-      }
 
-      showToast(`Magic Scan complete! Extracted ${addedCount} items.`, 'success');
+      await actions.addItemsBatchToDB?.(itemsToInsert);
+
+      showToast(`Magic Scan complete! Extracted ${itemsToInsert.length} items.`, 'success');
       onScanComplete?.();
     } catch (err: any) {
       console.error('Scan Error:', err);

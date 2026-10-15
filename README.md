@@ -1,34 +1,33 @@
 # Ekwly
 
-**Real-time collaborative bill calculator & settlement engine.**
+**Real-time collaborative bill calculator, Indian POS tax router & UPI settlement engine.**
 
-Ekwly is an offline-capable, mobile-first Progressive Web Application (PWA) designed to eliminate the friction of splitting complex bills at restaurants. It natively handles uneven tax distributions (like Alcohol VAT vs. Food GST), global service charges, proportional discounts, and fractional consumption (e.g., sharing 1/3 of a pizza) across a synchronized real-time multiplayer table.
+Ekwly is an offline-capable, mobile-first Progressive Web Application (PWA) and native Android/iOS app designed to eliminate the friction of splitting complex restaurant bills in India. It natively handles uneven tax distributions (Food GST vs. Alcohol VAT vs. Tobacco GST), cascading vs. independent service charges, pre/post-tax discounts, and fractional consumption (e.g., sharing `1/3` of a pitcher) across a synchronized real-time multiplayer table.
 
-## Features
+## Key Features
 
-- **Real-Time Multiplayer:** Powered by Supabase WebSockets, multiple people can scan a QR code, join a session, and actively edit/claim items simultaneously with instant UI updates.
-- **Identity & Ledger (Phase 3):** Seamless anonymous onboarding with progressive enhancement to full Google OAuth/Magic Link accounts, paving the way for persistent debt tracking.
-- **Complex Math Engine:** Effortlessly splits disparate tax rates (CGST/SGST), proportional percentage discounts (pre/post-tax), and global service charges across only the people who consumed the items.
-- **PWA & Offline Resilience:** Fully installable as a standalone app via Workbox Service Workers, complete with `manifest.webmanifest`, splash screens, and edge-to-edge iOS/Android native UI styling.
-- **Native Camera Integrations:** Uses Capacitor MLKit for high-performance, native QR barcode scanning directly within the web view.
-- **PDF Export Engine:** Generates highly detailed, formatted PDF settlement receipts directly in the browser using `jsPDF`.
+- **Universal Indian Tax Engine:** Supports both **Model A (Cascading S.C.)** where item tax applies to `(Base + Service Charge)` and **Model B (Independent S.C.)** where Service Charge is taxed under its own global bracket, complete with CGST/SGST splitting and automatic POS round-off reconciliation.
+- **AI Magic Scan (Gemini 3.5 Flash-Lite):** Client-side compressed receipt OCR with Chain-of-Thought (CoT) mathematical self-verification that checks extracted item taxes against printed receipt totals before batch-inserting items.
+- **Crowd-Sourced Venue & Menu Autocomplete:** Automatically harvests verified restaurant tax brackets and service charge rates when rooms are locked, giving free-tier users instant 1-tap venue configuration and dish price autocomplete.
+- **Real-Time Multiplayer & Offline Queue:** Powered by Supabase Realtime WebSockets and a Promise-locked local mutation queue that caches claims offline and syncs automatically upon reconnection.
+- **Instant UPI & WhatsApp Settlement:** Generates 1-tap `upi://pay` deep links pre-filled with the exact split amount, 1-tap WhatsApp payment nudges, Splitwise CSV migration imports, and multi-page PDF receipts.
 
 ## Tech Stack
 
-- **Framework:** [Astro 5](https://astro.build/) & [React 19](https://react.dev/)
-- **Backend/DB:** [Supabase](https://supabase.com/) (PostgreSQL + Realtime + Auth)
-- **Styling & UI:** [Tailwind CSS v4](https://tailwindcss.com/) & [Framer Motion](https://www.framer.com/motion/)
-- **Native Wrap:** [Capacitor 6](https://capacitorjs.com/)
-- **Offline Cache:** `@vite-pwa/astro` (Workbox)
+- **Framework:** [Astro 7](https://astro.build/) & [React 19](https://react.dev/)
+- **Backend & Database:** [Supabase](https://supabase.com/) (PostgreSQL + Realtime + Auth + Deno Edge Functions)
+- **Styling & Motion:** [Tailwind CSS v4](https://tailwindcss.com/) & [Framer Motion](https://www.framer.com/motion/)
+- **Native Runtime:** [Capacitor 8](https://capacitorjs.com/) (Android & iOS)
+- **Offline Cache:** `@vite-pwa/astro` (Workbox Service Workers)
 
 ## Getting Started
 
 ### 1. Installation
 
-Clone the repository and install the dependencies using `pnpm`:
+Clone the repository and install dependencies using `pnpm`:
 
 ```bash
-git clone [https://github.com/lakshit-loy-dutta/ekwly.git](https://github.com/lakshit-loy-dutta/ekwly.git)
+git clone https://github.com/lakshit-loy-dutta/ekwly.git
 cd ekwly
 pnpm install
 ```
@@ -38,26 +37,35 @@ pnpm install
 Create a `.env` file in the root directory and add your Supabase credentials:
 
 ```env
-PUBLIC_SUPABASE_URL=[https://your-project-id.supabase.co](https://your-project-id.supabase.co)
+PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-### 3. Local Development
-
-Start the Astro development server.
-Note: Because the app is configured for GitHub Pages subpath deployment (/ekwly/), ensure you access it via the correct URL root.
+### 3. Local Development & Testing
 
 ```bash
-pnpm run dev
-# Open http://localhost:4321/ekwly/
+# Start the Astro dev server (http://localhost:4321/ekwly/)
+pnpm dev
+
+# Run the Vitest unit test suite (Math Engine, Splitwise CSV & Utilities)
+pnpm test
 ```
 
-### 4. Build for Production
-
-To generate the static HTML and Service Worker for deployment:
+### 4. Production Web & Native Mobile Builds
 
 ```bash
-pnpm run build
+# Build static PWA for GitHub Pages (/ekwly base path)
+pnpm build
+
+# Build for Capacitor Android/iOS (/ root path) + sync + auto-patch native manifests
+pnpm run build:mobile
+
+# Open native IDEs
+pnpm run cap:android
+pnpm run cap:ios
+
+# Pack repository context for AI code review
+pnpm run pack
 ```
 
-_~Built by Lakshit Loy Dutta_
+_~ Built by Lakshit Loy Dutta_

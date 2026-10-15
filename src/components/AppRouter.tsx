@@ -147,9 +147,9 @@ export default function AppRouter() {
         .from('profiles')
         .select('name')
         .eq('id', activeUser.id)
-        .maybeSingle(); // Changed from .single() to .maybeSingle()
+        .maybeSingle();
 
-      if (!profile?.name) {
+      if (!profile?.name || /^Guest\s+[0-9a-f]{5}$/i.test(profile.name)) {
         setCurrentView('onboarding');
         return; // Halt routing until setup is complete
       }

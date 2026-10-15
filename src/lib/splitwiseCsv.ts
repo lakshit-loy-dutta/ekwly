@@ -49,7 +49,7 @@ export const splitwiseCsv = {
     }
 
     const headers = parseCsvLine(lines[0]);
-    const currencyIdx = headers.findIndex((h) => /^currency\$/i.test(h));
+    const currencyIdx = headers.findIndex((h) => /^currency$/i.test(h));
     if (currencyIdx === -1 || currencyIdx >= headers.length - 1) {
       throw new Error('Invalid Splitwise CSV format: Missing Currency or member columns.');
     }

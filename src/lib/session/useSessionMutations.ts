@@ -337,6 +337,57 @@ export function useSessionMutations(deps: MutationDeps) {
     }
   };
 
+  const addItemsBatchToDB = async (newItems: BillItem[]) => {
+    if (!sessionId || newItems.length === 0) return;
+    setItems((prev) => [...prev, ...newItems]);
+
+    const payloads = newItems.map((item) => ({
+      id: item.id,
+      session_id: sessionId,
+      name: item.name,
+      qty: item.qty,
+      price: item.unitPrice,
+      apply_sc: item.applySC,
+      tax_preset_id: item.taxPresetId,
+    }));
+
+    if (!navigator.onLine) {
+      enqueueMutation('items', 'UPSERT', payloads);
+      return;
+    }
+
+    const { error } = await supabase.from('items').insert(payloads);
+    if (error) {
+      const addedIds = new Set(newItems.map((i) => i.id));
+      setItems((prev) => prev.filter((i) => !addedIds.has(i.id)));
+      showToast('Network error: Failed to save scanned items.', 'error');
+    }
+  };
+
+  const replaceTaxPresetsInDB = async (newPresets: TaxPreset[]) => {
+    if (!sessionId) return;
+    setTaxPresets(newPresets);
+
+    const payloads = newPresets.map((p) => ({
+      id: p.id,
+      session_id: sessionId,
+      name: p.name,
+      rate: p.rate,
+      split: p.split,
+    }));
+
+    if (!navigator.onLine) {
+      enqueueMutation('tax_presets', 'DELETE', null, { session_id: sessionId });
+      if (payloads.length > 0) enqueueMutation('tax_presets', 'UPSERT', payloads);
+      return;
+    }
+
+    await supabase.from('tax_presets').delete().eq('session_id', sessionId);
+    if (payloads.length > 0) {
+      await supabase.from('tax_presets').insert(payloads);
+    }
+  };
+
   const updateItemInDB = async (item: BillItem) => {
     if (!sessionId) return;
     setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
@@ -445,6 +496,8 @@ export function useSessionMutations(deps: MutationDeps) {
     addTaxPresetToDB,
     removeTaxPresetFromDB,
     addItemToDB,
+    addItemsBatchToDB,
+    replaceTaxPresetsInDB,
     updateItemInDB,
     removeItemFromDB,
     addMemberToDB,

@@ -110,6 +110,8 @@ export function useSessionSync(sessionId: string | null) {
     }
     fetchSessionData(false);
 
+    let isInitialSubscription = true;
+
     const channel = supabase
       .channel(`session-${sessionId}`)
       .on(
@@ -300,7 +302,13 @@ export function useSessionSync(sessionId: string | null) {
         }
       )
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED') fetchSessionData(true);
+        if (status === 'SUBSCRIBED') {
+          if (isInitialSubscription) {
+            isInitialSubscription = false;
+          } else {
+            fetchSessionData(true);
+          }
+        }
       });
 
     const handleWakeUp = async () => {
