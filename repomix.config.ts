@@ -72,6 +72,8 @@ const config: RepomixConfig = {
     '.github/**/*',
     '.vscode/*',
     'src/**/*',
+    'scripts/*.mjs',
+    'scripts/**/*.mjs',
     'supabase/functions/**/*.ts',
     'supabase/migrations/**/*.sql',
   ],

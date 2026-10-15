@@ -11,7 +11,7 @@
     "preview": "astro preview",
     "astro": "astro",
     "test": "vitest run",
-    "build:mobile": "node -e \"require('child_process').execSync('pnpm astro build', {stdio:'inherit', env:{...process.env, CAPACITOR_BUILD:'true'}})\" && pnpm cap sync",
+    "build:mobile": "node -e \"require('child_process').execSync('pnpm astro build', {stdio:'inherit', env:{...process.env, CAPACITOR_BUILD:'true'}})\" && pnpm cap sync && node scripts/configure-native.mjs",
     "cap:android": "pnpm cap open android",
     "cap:ios": "pnpm cap open ios",
     "pack": "pnpm dlx repomix"

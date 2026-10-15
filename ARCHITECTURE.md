@@ -1,6 +1,6 @@
 # Ekwly — Architecture, Engineering Standards & Product Roadmap
 
-> **Version:** 0.4.0 (Milestone 3: Modular Session Architecture, Analytics & WhatsApp Nudges)
+> **Version:** 0.5.0 (Milestone 3 Completed: Production-Ready Release Candidate)
 > **Stack:** Astro 7 + React 19 + Tailwind CSS v4 + Supabase (Postgres, Auth, Realtime, Edge Functions) + Capacitor 8 (Android & iOS) + Google Gemini Vision API
 
 ---
@@ -24,9 +24,12 @@
 ├── astro.config.mjs                  # Conditional Base Path ('/' for Capacitor, '/ekwly' for GH Pages)
 ├── capacitor.config.json             # Native Android/iOS WebView container settings
 ├── repomix.config.ts                 # AI context packing configuration
+├── scripts/
+│   └── configure-native.mjs          # Auto-patches AndroidManifest.xml & iOS Info.plist on build:mobile
 ├── supabase/
 │   └── functions/
-│       └── scan-receipt/index.ts     # Deno Edge Function: Auth, Quota Reset, Gemini CoT OCR
+│       ├── scan-receipt/index.ts     # Deno Edge Function: Auth, Quota Reset, Gemini CoT OCR
+│       └── razorpay-webhook/index.ts # Deno Edge Function: HMAC-SHA256 verification & Pro activation
 └── src/
     ├── env.d.ts                      # Global TypeScript declarations & env contracts
     ├── pages/                        # Astro static routes (index, privacy, terms, refunds, delete-account)
@@ -41,6 +44,8 @@
     │   ├── supabase.ts               # Singleton Supabase client
     │   ├── mathEngine.ts             # Pure deterministic tax, split, paisa-conservation & settlement engine
     │   ├── mathEngine.test.ts        # Vitest unit suite for Model A (TBC 66) & Model B (Chin Lung) receipts
+    │   ├── splitwiseCsv.ts           # Splitwise CSV parser & greedy pairwise balance extractor
+    │   ├── splitwiseCsv.test.ts      # Vitest unit suite for Splitwise CSV migration
     │   ├── useSession.ts             # Thin composer hook re-exporting sync + mutation sub-hooks
     │   ├── session/                  # Modularized Session Architecture:
     │   │   ├── offlineQueue.ts       # Promise-locked localStorage mutation queue
@@ -57,7 +62,7 @@
         ├── Analytics.tsx             # Ekwly Pro Personal Analytics (Top Venues, Debtor Concentration, Quota)
         ├── Lobby.tsx                 # Room creation (PIN generation) & Room joining gateway
         ├── ActiveSession.tsx         # 6-step wizard orchestrator & bottom progress stepper
-        ├── Ledger.tsx                # Cross-session aggregated receivables/payables + WhatsApp nudges
+        ├── Ledger.tsx                # Global receivables/payables, WhatsApp nudges & Splitwise CSV importer
         ├── Friends.tsx               # Network connections, QR scanner & personal QR invite links
         ├── Profile.tsx               # Identity, UPI VPA configuration, QR scanner, account deletion
         ├── PwaUpdater.tsx            # Service worker lifecycle & update banner
@@ -163,10 +168,10 @@ For each item `i` with tax rate `r_i` and service charge rate `s`:
 - [x] Extract unified `<QrScannerModal/>` to power both Room QR joins (`Home.tsx`) and Friend QR connections (`Friends.tsx`, `Profile.tsx`).
 - [x] Add Vitest unit suite (`src/lib/mathEngine.test.ts`) verifying TBC 66 (Model A) and Chin Lung (Model B) receipts.
 
-### Milestone 3: Growth, Analytics & Autonomous Monetization (In Progress)
+### Milestone 3: Growth, Analytics & Autonomous Monetization (Completed)
 
 - [x] Build `src/components/Analytics.tsx` consuming `personal_analytics` SQL view and wire it into `AppRouter.tsx`.
 - [x] Add "Remind on WhatsApp" deep-link generator (`utils.buildWhatsAppReminderUrl`) with pre-filled UPI links in `DebtMatrix.tsx` and `Ledger.tsx`.
-- [ ] Configure `AndroidManifest.xml` (`upi://` queries + ML Kit barcode metadata) and `Info.plist` (`NSCameraUsageDescription`) templates.
-- [ ] Build Splitwise CSV importer for instant group migration.
-- [ ] Integrate Razorpay Webhook Edge Function for automated `Ekwly Pro` (₹99/mo) and `7-Day Trip Pass` (₹49 one-off) activation.
+- [x] Build Splitwise CSV importer (`src/lib/splitwiseCsv.ts`) and unit test suite (`src/lib/splitwiseCsv.test.ts`) in `Ledger.tsx`.
+- [x] Automate `AndroidManifest.xml` (`upi://` queries + ML Kit barcode metadata) and `Info.plist` (`NSCameraUsageDescription`) patching via `scripts/configure-native.mjs`.
+- [x] Create Razorpay Webhook Edge Function (`supabase/functions/razorpay-webhook/index.ts`) for automated `Ekwly Pro` (₹99/mo, ₹799/yr) and `7-Day Trip Pass` (₹49) activation.

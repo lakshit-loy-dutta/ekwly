@@ -60,4 +60,4 @@ To generate the static HTML and Service Worker for deployment:
 pnpm run build
 ```
 
-_~ Built by Lakshit Loy Dutta_
+_~Built by Lakshit Loy Dutta_
