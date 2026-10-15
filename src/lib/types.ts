@@ -62,6 +62,16 @@ export interface DatabaseItem {
   price: number;
 }
 
+export interface DatabaseSession {
+  id: string;
+  name: string | null;
+  venue_name: string | null;
+  host_id: string | null;
+  pin: string | null;
+  status: 'draft' | 'locked' | 'archived';
+  created_at: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;

@@ -11,26 +11,30 @@
     "preview": "astro preview",
     "astro": "astro",
     "test": "vitest run",
-    "build:mobile": "astro build && npx cap sync",
-    "cap:android": "npx cap open android",
-    "cap:ios": "npx cap open ios"
+    "build:mobile": "node -e \"require('child_process').execSync('pnpm astro build', {stdio:'inherit', env:{...process.env, CAPACITOR_BUILD:'true'}})\" && pnpm cap sync",
+    "cap:android": "pnpm cap open android",
+    "cap:ios": "pnpm cap open ios",
+    "pack": "pnpm dlx repomix"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.6",
     "@astrojs/sitemap": "^3.7.4",
     "@capacitor-mlkit/barcode-scanning": "^8.2.1",
-    "@capacitor/android": "^8.5.2",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/camera": "^8.2.5",
-    "@capacitor/core": "^8.5.2",
-    "@capacitor/ios": "^8.5.2",
-    "@supabase/supabase-js": "^2.117.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
+    "@supabase/supabase-js": "^2.117.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "astro": "^7.3.6",
+    "astro": "^7.3.8",
     "framer-motion": "^13.5.1",
     "html5-qrcode": "^2.3.8",
-    "lucide-react": "^1.52.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "lucide-react": "^1.56.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-qr-code": "^2.2.0",
@@ -41,12 +45,12 @@
     "esbuild": true
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.2",
+    "@capacitor/cli": "^8.5.3",
     "@vite-pwa/astro": "^1.2.0",
-    "prettier": "^3.9.9",
-    "prettier-plugin-astro": "^1.1.0",
+    "prettier": "^3.9.10",
+    "prettier-plugin-astro": "^1.1.1",
     "typescript": "^7.0.2",
     "vite-plugin-pwa": "^2.0.0",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   }
 }

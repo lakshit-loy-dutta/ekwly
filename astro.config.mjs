@@ -4,10 +4,13 @@ import sitemap from '@astrojs/sitemap';
 import react from '@astrojs/react';
 import AstroPWA from '@vite-pwa/astro';
 
+const isCapacitor = process.env.CAPACITOR_BUILD === 'true';
+const basePath = isCapacitor ? '/' : '/ekwly';
+const startPath = isCapacitor ? '/' : '/ekwly/';
+
 export default defineConfig({
-  // 1. GitHub Pages Subpath Deployment Settings
   site: 'https://lakshit-loy-dutta.github.io',
-  base: '/ekwly',
+  base: basePath,
 
   vite: {
     plugins: [tailwindcss()],
@@ -19,14 +22,12 @@ export default defineConfig({
   integrations: [
     react(),
     sitemap(),
-
-    // 2. Automated PWA Generation
     AstroPWA({
       registerType: 'prompt',
       injectRegister: 'auto',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
-        ignoreURLParametersMatching: [/.*/], // Safely ignores all query parameters
+        ignoreURLParametersMatching: [/.*/],
         navigateFallbackDenylist: [/^\/rest\//, /^\/realtime\//, /supabase\.co/],
       },
       manifest: {
@@ -36,8 +37,8 @@ export default defineConfig({
         theme_color: '#0f172a',
         background_color: '#0b0f19',
         display: 'standalone',
-        start_url: '/ekwly/',
-        id: '/ekwly/',
+        start_url: startPath,
+        id: startPath,
         icons: [
           {
             src: 'icon-192.png',

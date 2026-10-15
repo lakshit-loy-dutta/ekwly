@@ -2,7 +2,7 @@ import { showToast } from './utils';
 import type { CalculationResult, BillItem, TaxPreset } from './types';
 import type { DBMember } from './useSession';
 
-export const exportToPDF = (
+export const exportToPDF = async (
   calculationResult: CalculationResult | null,
   receiptTitle: string,
   items: BillItem[],
@@ -14,19 +14,18 @@ export const exportToPDF = (
 ) => {
   try {
     if (!calculationResult) return showToast('Calculate split first.', 'error');
-    // @ts-ignore
-    if (!window.jspdf || !window.jspdf.jsPDF)
-      return showToast('PDF Library failed to load.', 'error');
 
-    // @ts-ignore
-    const { jsPDF } = window.jspdf;
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
+
     const doc = new jsPDF();
 
     const customTitle = receiptTitle.trim();
     const dateStr = new Date().toLocaleDateString();
     const docTitle = customTitle ? customTitle : 'Settlement Receipt';
 
-    // Brand Color Palette
     const primaryColor: [number, number, number] = [0, 128, 255];
     const primaryLight: [number, number, number] = [216, 235, 255];
     const darkText: [number, number, number] = [0, 30, 59];
@@ -59,7 +58,6 @@ export const exportToPDF = (
     doc.text('MASTER BILL BREAKDOWN', 14, startY);
     startY += 6;
 
-    const scTaxPreset = taxPresets.find((t) => t.id === scTaxPresetId);
     const masterTableData = items.map((i) => {
       const preset = taxPresets.find((t) => t.id === i.taxPresetId);
       const dynamicTaxRate = preset ? preset.rate / 100 : 0;
@@ -90,7 +88,7 @@ export const exportToPDF = (
       ];
     });
 
-    doc.autoTable({
+    autoTable(doc, {
       startY,
       head: [['Item', 'Qty', 'Unit Price', 'Tax & Fees', 'Total']],
       body: masterTableData,
@@ -100,7 +98,6 @@ export const exportToPDF = (
         textColor: mutedText,
         fontStyle: 'bold',
         fontSize: 8,
-        textTransform: 'uppercase',
       },
       bodyStyles: { textColor: darkText, fontSize: 9 },
       styles: { lineColor: borderColor, lineWidth: 0.1, cellPadding: 4 },
@@ -151,7 +148,7 @@ export const exportToPDF = (
 
     summaryData.push(['GRAND TOTAL:', `Rs. ${gs.grandTotal.toFixed(2)}`]);
 
-    doc.autoTable({
+    autoTable(doc, {
       startY,
       body: summaryData,
       theme: 'plain',
@@ -186,7 +183,7 @@ export const exportToPDF = (
       doc.text('PAYMENTS TO RESTAURANT', 14, startY);
       startY += 6;
 
-      doc.autoTable({
+      autoTable(doc, {
         startY,
         body: payers.map((m) => [m.name, `Rs. ${m.paid_amount.toFixed(2)}`]),
         theme: 'grid',
@@ -218,7 +215,7 @@ export const exportToPDF = (
         `Rs. ${Number(l.amount).toFixed(2)}`,
       ]);
 
-      doc.autoTable({
+      autoTable(doc, {
         startY,
         body: ledgerTableData,
         theme: 'grid',
@@ -298,7 +295,7 @@ export const exportToPDF = (
         },
       ]);
 
-      doc.autoTable({
+      autoTable(doc, {
         startY,
         head: [['Item Consumed', 'Qty', 'Allocated Cost']],
         body: tableData,
@@ -308,7 +305,6 @@ export const exportToPDF = (
           textColor: mutedText,
           fontStyle: 'bold',
           fontSize: 8,
-          textTransform: 'uppercase',
         },
         bodyStyles: { textColor: darkText, fontSize: 9 },
         styles: { lineColor: borderColor, lineWidth: 0.1, cellPadding: 4 },

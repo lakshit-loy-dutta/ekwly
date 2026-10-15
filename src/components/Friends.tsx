@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
+import QrScannerModal from './ui/QrScannerModal';
 import {
   User,
   Trash2,
@@ -28,48 +29,79 @@ interface Props {
   onBack: () => void;
 }
 
-export default function Friends({ user, onBack }: Props) {
+export default function Friends({ user }: Props) {
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showMyQR, setShowMyQR] = useState(false);
+  const [isScanningFriend, setIsScanningFriend] = useState(false);
 
-  // The unique link friends can tap to add you without scanning
   const friendLink =
     typeof window !== 'undefined'
       ? `${window.location.origin}${window.location.pathname}?add_friend=${user?.id}`
       : '';
 
-  useEffect(() => {
-    const fetchFriends = async () => {
-      if (!user || user.is_anonymous) {
-        setIsLoading(false);
-        return;
-      }
-
-      const { data: connections } = await supabase
-        .from('connections')
-        .select('user_id, friend_id')
-        .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`);
-
-      if (!connections || connections.length === 0) {
-        setFriends([]);
-        setIsLoading(false);
-        return;
-      }
-
-      const friendIds = connections.map((c) => (c.user_id === user.id ? c.friend_id : c.user_id));
-
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, upi_id')
-        .in('id', friendIds);
-
-      if (profiles) setFriends(profiles);
+  const fetchFriends = useCallback(async () => {
+    if (!user || user.is_anonymous) {
       setIsLoading(false);
-    };
+      return;
+    }
 
-    fetchFriends();
+    const { data: connections } = await supabase
+      .from('connections')
+      .select('user_id, friend_id')
+      .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`);
+
+    if (!connections || connections.length === 0) {
+      setFriends([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const friendIds = connections.map((c) => (c.user_id === user.id ? c.friend_id : c.user_id));
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, name, avatar_url, upi_id')
+      .in('id', friendIds);
+
+    if (profiles) setFriends(profiles);
+    setIsLoading(false);
   }, [user]);
+
+  useEffect(() => {
+    fetchFriends();
+  }, [fetchFriends]);
+
+  const handleScannedFriendUrl = async (scannedText: string) => {
+    if (!user || user.is_anonymous) {
+      return showToast('Sign in to add friends.', 'error');
+    }
+    let friendId: string | null = null;
+    try {
+      const url = new URL(scannedText);
+      friendId = url.searchParams.get('add_friend');
+    } catch {
+      const queryPart = scannedText.split('?')[1] || '';
+      friendId = new URLSearchParams(queryPart).get('add_friend');
+    }
+
+    if (!friendId) return showToast('Invalid Friend QR Code.', 'error');
+    if (friendId === user.id) return showToast("You can't add yourself as a friend.", 'default');
+    if (friends.some((f) => f.id === friendId)) {
+      return showToast('Already in your friends network!', 'default');
+    }
+
+    const { error } = await supabase
+      .from('connections')
+      .insert({ user_id: user.id, friend_id: friendId });
+
+    if (error) {
+      showToast('Could not add friend.', 'error');
+    } else {
+      showToast('Friend added to your network!', 'success');
+      fetchFriends();
+    }
+  };
 
   const handleRemoveFriend = async (friendId: string) => {
     if (!window.confirm('Remove this friend?')) return;
@@ -111,6 +143,13 @@ export default function Friends({ user, onBack }: Props) {
 
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-24">
+      <QrScannerModal
+        isOpen={isScanningFriend}
+        title="Scan Friend QR"
+        onClose={() => setIsScanningFriend(false)}
+        onScanSuccess={handleScannedFriendUrl}
+      />
+
       <div className="flex flex-col items-center mb-6 mt-2">
         <div className="w-16 h-16 rounded-full bg-primary-light text-primary flex items-center justify-center font-bold mb-4 shadow-sm">
           <Users size={28} />
@@ -129,7 +168,7 @@ export default function Friends({ user, onBack }: Props) {
           <span className="font-semibold text-[0.95rem]">My QR Code</span>
         </button>
         <button
-          onClick={() => showToast('Scanner initializing...', 'default')}
+          onClick={() => setIsScanningFriend(true)}
           className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
         >
           <ScanLine size={24} className="text-primary" strokeWidth={2.5} />

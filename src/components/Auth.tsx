@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, type Variants } from 'framer-motion';
 import { supabase } from '../lib/supabase';
-import { showToast } from '../lib/utils';
+import { showToast, utils } from '../lib/utils';
 import { Mail, ChevronRight, Loader2 } from 'lucide-react';
 
 interface Props {
@@ -97,7 +97,7 @@ export default function Auth({ onContinueAsGuest }: Props) {
           <div className="w-20 h-20 bg-surface border border-border shadow-xl rounded-3xl flex items-center justify-center mb-6 relative overflow-hidden">
             <div className="absolute inset-0 premium-gradient-card opacity-20"></div>
             <img
-              src="./icon.svg"
+              src={utils.resolvePath('icon.svg')}
               width="48"
               height="48"
               alt="Ekwly Logo"
@@ -186,11 +186,11 @@ export default function Auth({ onContinueAsGuest }: Props) {
         <motion.div variants={item} className="mt-8 text-center px-4">
           <p className="text-[0.7rem] text-muted/80 font-medium leading-relaxed">
             By continuing, you agree to Ekwly's <br />
-            <a href="/ekwly/terms" className="text-primary hover:underline">
+            <a href={utils.resolvePath('terms')} className="text-primary hover:underline">
               Terms of Service
             </a>{' '}
             &{' '}
-            <a href="/ekwly/privacy" className="text-primary hover:underline">
+            <a href={utils.resolvePath('privacy')} className="text-primary hover:underline">
               Privacy Policy
             </a>
             .

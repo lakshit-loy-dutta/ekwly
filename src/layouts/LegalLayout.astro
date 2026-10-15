@@ -2,6 +2,8 @@
 import '../styles/global.css';
 
 const { title, updated } = Astro.props;
+
+const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
 <html lang="en">
@@ -70,7 +72,7 @@ const { title, updated } = Astro.props;
 
     <div class="max-w-3xl mx-auto px-6 py-12 md:py-20 relative z-10">
       <a
-        href="/ekwly/"
+        href=${baseUrl}/
         class="inline-flex items-center gap-2 text-primary font-bold mb-10 hover:opacity-80 transition-opacity active:scale-95">
         <svg
           width="20"

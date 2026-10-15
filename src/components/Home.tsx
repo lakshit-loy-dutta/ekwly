@@ -1,12 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
-import { Capacitor } from '@capacitor/core';
-import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
-import { Html5Qrcode } from 'html5-qrcode';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import BottomSheet from './ui/BottomSheet';
+import type { DatabaseSession } from '../lib/types';
+import QrScannerModal from './ui/QrScannerModal';
 import {
   Plus,
   QrCode,
@@ -14,7 +12,6 @@ import {
   ChevronRight,
   KeyRound,
   Trash2,
-  X,
   Edit2,
   Check,
   Loader2,
@@ -27,19 +24,15 @@ interface Props {
   user: SupabaseUser | null;
 }
 
-// FIX: Destructure onOpenLobby instead of onStartNew
 export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }: Props) {
-  const [recentSessions, setRecentSessions] = useState<any[]>([]);
+  const [recentSessions, setRecentSessions] = useState<DatabaseSession[]>([]);
   const [owedToMe, setOwedToMe] = useState(0);
   const [iOwe, setIOwe] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Editing Session Names
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editSessionName, setEditSessionName] = useState('');
-
-  const [isWebScanning, setIsWebScanning] = useState(false);
-  const qrRef = useRef<Html5Qrcode | null>(null);
+  const [isScanningRoom, setIsScanningRoom] = useState(false);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -47,12 +40,12 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
 
       const { data: sessionData } = await supabase
         .from('sessions')
-        .select('*')
+        .select('id, name, venue_name, host_id, pin, status, created_at')
         .eq('host_id', user.id)
         .order('created_at', { ascending: false })
         .limit(15);
 
-      if (sessionData) setRecentSessions(sessionData);
+      if (sessionData) setRecentSessions(sessionData as DatabaseSession[]);
 
       const { data: creditorData } = await supabase
         .from('global_ledger')
@@ -69,9 +62,6 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
     };
 
     fetchDashboardData();
-    return () => {
-      if (qrRef.current?.isScanning) qrRef.current.stop().catch(console.error);
-    };
   }, [user]);
 
   const processScannedUrl = (scannedUrl: string) => {
@@ -87,53 +77,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
       pin = urlParams.get('p');
     }
     if (sessionId && pin) onJoinSession(sessionId, pin);
-    else showToast('Invalid QR Code.', 'error');
-  };
-
-  const startWebScan = () => {
-    setIsWebScanning(true);
-    setTimeout(async () => {
-      try {
-        qrRef.current = new Html5Qrcode('qr-reader');
-        await qrRef.current.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText) => {
-            stopWebScan();
-            processScannedUrl(decodedText);
-          },
-          () => {}
-        );
-      } catch (err) {
-        setIsWebScanning(false);
-        showToast('Camera permission denied.', 'error');
-      }
-    }, 100);
-  };
-
-  const stopWebScan = async () => {
-    try {
-      if (qrRef.current?.isScanning) {
-        await qrRef.current.stop();
-        qrRef.current.clear();
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsWebScanning(false);
-    }
-  };
-
-  const startScan = async () => {
-    if (!Capacitor.isNativePlatform()) return startWebScan();
-    try {
-      const { camera } = await BarcodeScanner.requestPermissions();
-      if (camera !== 'granted') return showToast('Camera permission denied', 'error');
-      const { barcodes } = await BarcodeScanner.scan();
-      if (barcodes.length > 0) processScannedUrl(barcodes[0].displayValue);
-    } catch (error) {
-      showToast('Error launching native scanner', 'error');
-    }
+    else showToast('Invalid Room QR Code.', 'error');
   };
 
   const handleDeleteSession = async (e: React.MouseEvent, delSessionId: string) => {
@@ -151,7 +95,6 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
     e.stopPropagation();
     if (!editSessionName.trim()) return setEditingSessionId(null);
 
-    // Optimistic UI Update
     setRecentSessions((prev) =>
       prev.map((s) => (s.id === sessionId ? { ...s, name: editSessionName.trim() } : s))
     );
@@ -164,11 +107,11 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
     if (error) showToast('Failed to rename session', 'error');
   };
 
-  // Theming Helpers
-  const getSessionTitle = (session: any) =>
+  const getSessionTitle = (session: DatabaseSession) =>
     session.name ||
     session.venue_name ||
     `${new Date(session.created_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} Session`;
+
   const getAvatarColor = (name: string) => {
     const colors = [
       'bg-blue-500',
@@ -181,30 +124,15 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
     return colors[charCode % colors.length];
   };
 
-  if (isWebScanning) {
-    return (
-      <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-6">
-        <button
-          onClick={stopWebScan}
-          className="absolute top-12 right-6 z-50 p-3 bg-white/20 rounded-full text-white backdrop-blur-md transition-colors active:bg-white/40"
-        >
-          <X size={24} />
-        </button>
-        <h2 className="text-white text-xl font-bold mb-8 text-center">Scan Room QR</h2>
-        <div
-          id="qr-reader"
-          className="w-full max-w-sm rounded-3xl overflow-hidden border-2 border-primary bg-black shadow-[0_0_40px_rgba(99,91,255,0.3)]"
-        ></div>
-        <p className="text-white/60 mt-8 text-sm font-medium text-center">
-          Align the QR code within the frame.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="w-full flex flex-col flex-1 relative bg-page">
-      {/* GLOBAL TEXTURE */}
+      <QrScannerModal
+        isOpen={isScanningRoom}
+        title="Scan Room QR"
+        onClose={() => setIsScanningRoom(false)}
+        onScanSuccess={processScannedUrl}
+      />
+
       <div className="absolute inset-0 bg-grid-pattern z-0"></div>
 
       <div className="w-full flex flex-col px-4 py-6 md:px-8 relative z-10">
@@ -236,7 +164,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
                 <span className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1.5 drop-shadow-sm">
                   Total Owed to You
                 </span>
-                <span className="text-4xl font-extrabold tracking-tight drop-shadow-md">
+                <span className="text-4xl font-extrabold tracking-tight tabular-nums drop-shadow-md">
                   {utils.formatMoney(owedToMe)}
                 </span>
               </div>
@@ -249,7 +177,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
               <span className="text-white/80 text-sm font-medium drop-shadow-sm">
                 You Owe Others
               </span>
-              <span className="font-bold tracking-wide drop-shadow-sm">
+              <span className="font-bold tracking-wide tabular-nums drop-shadow-sm">
                 {utils.formatMoney(iOwe)}
               </span>
             </div>
@@ -267,7 +195,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
             <span className="font-bold text-[0.95rem]">New Session</span>
           </button>
           <button
-            onClick={startScan}
+            onClick={() => setIsScanningRoom(true)}
             className="bg-surface/80 backdrop-blur-md active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-all h-28"
           >
             <div className="bg-primary/10 p-2.5 rounded-full text-primary">
@@ -364,7 +292,8 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
                                   setEditingSessionId(session.id);
                                   setEditSessionName(title);
                                 }}
-                                className="opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-primary transition-opacity"
+                                className="opacity-60 hover:opacity-100 p-1 text-muted hover:text-primary transition-opacity"
+                                aria-label="Rename session"
                               >
                                 <Edit2 size={14} />
                               </button>

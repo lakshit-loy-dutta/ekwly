@@ -1,6 +1,6 @@
 # Ekwly — Architecture, Engineering Standards & Product Roadmap
 
-> **Version:** 0.2.1 (Phase 1 Hardened)
+> **Version:** 0.3.0 (Milestone 2: Native & Offline Hardened)
 > **Stack:** Astro 7 + React 19 + Tailwind CSS v4 + Supabase (Postgres, Auth, Realtime, Edge Functions) + Capacitor 8 (Android & iOS) + Google Gemini Vision API
 
 ---
@@ -21,7 +21,7 @@
 ## 2. Directory & Module Architecture
 
 ```text
-├── astro.config.mjs                  # Astro + Vite + PWA Service Worker configuration
+├── astro.config.mjs                  # Conditional Base Path ('/' for Capacitor, '/ekwly' for GH Pages)
 ├── capacitor.config.json             # Native Android/iOS WebView container settings
 ├── supabase/
 │   └── functions/
@@ -36,23 +36,23 @@
     │   ├── base.css                  # Reset, tabular-nums typography, native safe-area insets
     │   └── components.css            # Custom switches, grid textures, gradients
     ├── lib/
-    │   ├── types.ts                  # Canonical TypeScript interfaces
+    │   ├── types.ts                  # Canonical TypeScript interfaces (including DatabaseSession)
     │   ├── supabase.ts               # Singleton Supabase client
     │   ├── mathEngine.ts             # Pure deterministic tax, split, paisa-conservation & settlement engine
-    │   ├── useSession.ts             # Realtime multiplayer state, optimistic UI & offline queue
+    │   ├── useSession.ts             # Realtime multiplayer state, optimistic UI & sequenced offline queue
     │   ├── SessionContext.tsx        # React Context provider for active room state
-    │   ├── pdf.ts                    # Multi-page settlement PDF generator (jsPDF + AutoTable)
-    │   ├── utils.ts                  # Fraction parser, GCD formatter, rounding, toast notifications
+    │   ├── pdf.ts                    # On-demand dynamic ESM PDF generator (jsPDF + AutoTable)
+    │   ├── utils.ts                  # Fraction parser, GCD formatter, resolvePath, toast notifications
     │   └── utils.test.ts             # Vitest unit suite for fractional and tax math
     └── components/
-        ├── AppRouter.tsx             # Top-level view state machine & deep-link interceptor
+        ├── AppRouter.tsx             # View state machine, @capacitor/app back-button & deep-link router
         ├── Auth.tsx                  # Google OAuth, Magic Link OTP & Anonymous Guest sign-in
         ├── Home.tsx                  # Dashboard, Global Ledger summary, QR room scanner, recent rooms
         ├── Lobby.tsx                 # Room creation (PIN generation) & Room joining gateway
         ├── ActiveSession.tsx         # 6-step wizard orchestrator & bottom progress stepper
         ├── Ledger.tsx                # Cross-session aggregated receivables/payables view
-        ├── Friends.tsx               # Network connections & personal QR invite links
-        ├── Profile.tsx               # Identity, UPI VPA configuration, account deletion
+        ├── Friends.tsx               # Network connections, QR scanner & personal QR invite links
+        ├── Profile.tsx               # Identity, UPI VPA configuration, QR scanner, account deletion
         ├── PwaUpdater.tsx            # Service worker lifecycle & update banner
         ├── session/                  # The 6 Wizard Steps:
         │   ├── SessionRules.tsx      # Step 1: Venue lookup, MagicScanner, SC, Discounts, Tax Presets
@@ -63,7 +63,7 @@
         │   ├── ClaimManager.tsx      # Step 4: Stepper + quick-fraction pill matrix for item claims
         │   ├── Payments.tsx          # Step 5: Cashier payment recording & bill coverage validation
         │   └── DebtMatrix.tsx        # Step 6: Draft summary, room locking, UPI collection tray, PDF export
-        └── ui/                       # Reusable primitives (BottomSheet, HelpTip, SectionHeader, ToggleSwitch)
+        └── ui/                       # Reusable primitives (BottomSheet, HelpTip, QrScannerModal, SectionHeader, ToggleSwitch)
 ```
 
 ---
@@ -143,23 +143,22 @@ For each item `i` with tax rate `r_i` and service charge rate `s`:
 - [x] Patch `scansUsed + 1` quota increment bug in `scan-receipt/index.ts`.
 - [x] Remove leaked JSX comment in `DebtMatrix.tsx` (line 235).
 - [x] Patch Paisa Conservation Pass in `mathEngine.ts` and key `individualBreakdowns` by `member.id`.
-- [x] Add quick-tap fraction pills (`1/4`, `1/3`, `1/2`, `1`) and stepper buttons to `ClaimManager.tsx` (fix `inputMode="decimal"` blocking `/` on iOS).
+- [x] Add quick-tap fraction pills (`1/4`, `1/3`, `1/2`, `1`) and stepper buttons to `ClaimManager.tsx`.
 - [x] Auto-advance from Step 1 to Step 2 upon successful Magic Scan completion.
 - [x] Add missing semantic design tokens (`warning`, `warning-700`, `success-dark`) and `tabular-nums` alignment.
 
-### Milestone 2: Native Mobile & Offline Perfection (Next Up)
+### Milestone 2: Native Mobile & Offline Perfection (Completed)
 
-- [ ] Make Astro `base` path conditional (`/` for Capacitor, `/ekwly` for GitHub Pages) and replace hardcoded `/ekwly/` strings with `import.meta.env.BASE_URL`.
-- [ ] Wire `@capacitor/app` hardware back-button and browser `popstate` history stack into `AppRouter.tsx`.
-- [ ] Sequence `processOfflineQueue` before `fetchSessionData` on `online` reconnect events, and pass `'item_id,member_id'` conflict target for batch claims.
-- [ ] Replace `<script src="cdnjs...jspdf">` in `index.astro` with npm-bundled dynamic `import('jspdf')` in `src/lib/pdf.ts`.
-- [ ] Extract unified `<QrScannerModal/>` to power both Room QR joins and Friend QR connections.
-- [ ] Configure `AndroidManifest.xml` (`upi://` queries + ML Kit barcode metadata) and `Info.plist` (`NSCameraUsageDescription`).
+- [x] Make Astro `base` path conditional (`/` for Capacitor, `/ekwly` for GitHub Pages) and add `utils.resolvePath`.
+- [x] Wire `@capacitor/app` hardware back-button into `AppRouter.tsx` and add dynamic Sun/Moon theme icon.
+- [x] Sequence `processOfflineQueue` before `fetchSessionData` on `online` reconnect events with mutex lock, and pass `'item_id,member_id'` conflict target for batch claims.
+- [x] Replace render-blocking `cdnjs` `jspdf` scripts in `index.astro` with npm-bundled dynamic `import('jspdf')` in `src/lib/pdf.ts`.
+- [x] Extract unified `<QrScannerModal/>` to power both Room QR joins (`Home.tsx`) and Friend QR connections (`Friends.tsx`, `Profile.tsx`).
 
-### Milestone 3: Growth, Analytics & Autonomous Monetization
+### Milestone 3: Growth, Analytics & Autonomous Monetization (Next Up)
 
-- [ ] Build `src/components/Analytics.tsx` consuming `personal_analytics` SQL view.
+- [ ] Build `src/components/Analytics.tsx` consuming `personal_analytics` SQL view and wire it into `AppRouter.tsx`.
 - [ ] Add "Remind on WhatsApp" deep-link generator (`[https://wa.me/?text=](https://wa.me/?text=)...`) with pre-filled UPI links in `DebtMatrix.tsx` and `Ledger.tsx`.
 - [ ] Build Splitwise CSV importer for instant group migration.
+- [ ] Configure `AndroidManifest.xml` (`upi://` queries + ML Kit barcode metadata) and `Info.plist` (`NSCameraUsageDescription`) templates.
 - [ ] Integrate Razorpay Webhook Edge Function for automated `Ekwly Pro` (₹99/mo) and `7-Day Trip Pass` (₹49 one-off) activation.
-- [ ] Integrate `@capgo/capacitor-updater` for instant OTA JS bundle deployments.

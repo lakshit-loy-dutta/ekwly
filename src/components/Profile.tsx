@@ -4,6 +4,7 @@ import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
+import QrScannerModal from './ui/QrScannerModal';
 import {
   User,
   ShieldCheck,
@@ -27,16 +28,16 @@ interface Props {
 
 export default function Profile({ user, onBack, isOnboarding = false, onComplete }: Props) {
   const [isLoading, setIsLoading] = useState(true);
-  const [isEditing, setIsEditing] = useState(isOnboarding); // Force edit mode if onboarding
+  const [isEditing, setIsEditing] = useState(isOnboarding);
   const [isSaving, setIsSaving] = useState(false);
   const [showMyQR, setShowMyQR] = useState(false);
+  const [isScanningFriend, setIsScanningFriend] = useState(false);
 
   const [name, setName] = useState('');
   const [upiId, setUpiId] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
 
-  // The unique link friends can tap to add you without scanning
   const friendLink =
     typeof window !== 'undefined'
       ? `${window.location.origin}${window.location.pathname}?add_friend=${user?.id}`
@@ -46,10 +47,8 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     const fetchProfile = async () => {
       if (!user) return;
 
-      // 1. Use maybeSingle() so it doesn't crash if the row doesn't exist yet
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
 
-      // 2. Safely apply fallbacks from the DB first, then the Google OAuth Auth token
       setName(data?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '');
       setUpiId(data?.upi_id || '');
       setEmail(data?.email || user?.email || '');
@@ -59,6 +58,33 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     };
     fetchProfile();
   }, [user]);
+
+  const handleScannedFriendUrl = async (scannedText: string) => {
+    if (!user || user.is_anonymous) {
+      return showToast('Sign in to add friends.', 'error');
+    }
+    let friendId: string | null = null;
+    try {
+      const url = new URL(scannedText);
+      friendId = url.searchParams.get('add_friend');
+    } catch {
+      const queryPart = scannedText.split('?')[1] || '';
+      friendId = new URLSearchParams(queryPart).get('add_friend');
+    }
+
+    if (!friendId) return showToast('Invalid Friend QR Code.', 'error');
+    if (friendId === user.id) return showToast("You can't add yourself as a friend.", 'default');
+
+    const { error } = await supabase
+      .from('connections')
+      .insert({ user_id: user.id, friend_id: friendId });
+
+    if (error) {
+      showToast('Could not add friend or already connected.', 'error');
+    } else {
+      showToast('Friend added to your network!', 'success');
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +102,6 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
 
     setIsSaving(false);
     if (error) {
-      // PRO FIX: Output the actual DB error message so we aren't blind in production
       showToast(error.message || 'Failed to save profile', 'error');
     } else {
       showToast('Profile updated successfully', 'success');
@@ -121,7 +146,7 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
 
       await supabase.auth.signOut();
       showToast('Your account has been permanently deleted.', 'success');
-      onBack(); // Send them back to the Auth screen
+      onBack();
     } catch (err: any) {
       showToast(err.message || 'Failed to delete account.', 'error');
       setIsLoading(false);
@@ -137,6 +162,13 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
 
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-24">
+      <QrScannerModal
+        isOpen={isScanningFriend}
+        title="Scan Friend QR"
+        onClose={() => setIsScanningFriend(false)}
+        onScanSuccess={handleScannedFriendUrl}
+      />
+
       <div className="flex flex-col items-center mb-6 mt-2">
         <div className="w-24 h-24 rounded-full bg-primary-light border-4 border-surface shadow-sm text-primary flex items-center justify-center font-bold overflow-hidden mb-4 relative">
           {user?.user_metadata?.avatar_url ? (
@@ -157,6 +189,7 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
       {!isOnboarding && (
         <div className="grid grid-cols-2 gap-3 mb-8">
           <button
+            type="button"
             onClick={() => setShowMyQR(true)}
             className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
           >
@@ -164,13 +197,15 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
             <span className="font-semibold text-[0.95rem]">My QR Code</span>
           </button>
           <button
-            onClick={() => showToast('Scanner initializing...', 'default')}
+            type="button"
+            onClick={() => setIsScanningFriend(true)}
             className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
           >
             <ScanLine size={24} className="text-primary" strokeWidth={2.5} />
             <span className="font-semibold text-[0.95rem]">Scan Friend</span>
           </button>
           <button
+            type="button"
             onClick={handleShareLink}
             className="col-span-2 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl p-3.5 flex items-center justify-center gap-2 shadow-sm transition-colors font-bold text-[0.95rem]"
           >
@@ -188,6 +223,7 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
         <h3 className="text-lg font-bold text-main">Personal Details</h3>
         {!isEditing && !isOnboarding && (
           <button
+            type="button"
             onClick={() => setIsEditing(true)}
             className="text-sm font-bold text-primary flex items-center gap-1.5 active:opacity-70"
           >

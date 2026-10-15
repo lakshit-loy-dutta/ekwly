@@ -5,6 +5,7 @@
     "source.fixAll.eslint": "explicit",
     "source.organizeImports": "never"
   },
+  "css.lint.unknownAtRules": "ignore",
   "[astro]": {
     "editor.defaultFormatter": "astro-build.astro-vscode"
   },

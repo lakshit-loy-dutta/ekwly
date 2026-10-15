@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import QRCode from 'react-qr-code';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
 import Home from './Home';
 import ActiveSession from './ActiveSession';
 import Auth from './Auth';
@@ -11,7 +13,7 @@ import Ledger from './Ledger';
 import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
-import { showToast } from '../lib/utils';
+import { showToast, utils } from '../lib/utils';
 import {
   ChevronLeft,
   ChevronRight,
@@ -19,6 +21,7 @@ import {
   Users,
   LogOut,
   Moon,
+  Sun,
   QrCode,
   Home as HomeIcon,
   Edit2,
@@ -71,6 +74,58 @@ export default function AppRouter() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const [isDark, setIsDark] = useState<boolean>(() =>
+    typeof document !== 'undefined'
+      ? document.documentElement.getAttribute('data-theme') !== 'light'
+      : true
+  );
+
+  // Hardware Back Button (Android/iOS Gesture) & Browser Back Handler
+  useEffect(() => {
+    const handleBackAction = () => {
+      if (isShareModalOpen) {
+        setIsShareModalOpen(false);
+        return true;
+      }
+      if (isProfileOpen) {
+        setIsProfileOpen(false);
+        return true;
+      }
+      if (['profile', 'friends', 'ledger', 'lobby'].includes(currentView)) {
+        setCurrentView('home');
+        return true;
+      }
+      if (currentView === 'session') {
+        if (currentStep > 1 && (isHost || currentStep > 3)) {
+          navigateStep(currentStep - 1);
+        } else {
+          handleLeaveSession();
+        }
+        return true;
+      }
+      return false;
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      const listener = CapApp.addListener('backButton', ({ canGoBack }) => {
+        const handled = handleBackAction();
+        if (!handled && !canGoBack) {
+          CapApp.exitApp();
+        }
+      });
+      return () => {
+        listener.then((l) => l.remove());
+      };
+    }
+  }, [currentView, currentStep, isHost, isShareModalOpen, isProfileOpen]);
+
+  const toggleNativeTheme = () => {
+    if (typeof window !== 'undefined' && window.toggleTheme) {
+      window.toggleTheme();
+      setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
+    }
+  };
 
   const resolveInitialRoute = async (currentUser?: SupabaseUser) => {
     if (typeof window === 'undefined') return;
@@ -212,12 +267,6 @@ export default function AppRouter() {
     window.history.pushState({}, '', window.location.pathname);
   };
 
-  const toggleNativeTheme = () => {
-    if (typeof window !== 'undefined' && (window as any).toggleTheme) {
-      (window as any).toggleTheme();
-    }
-  };
-
   return (
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
       <PwaUpdater />
@@ -254,7 +303,7 @@ export default function AppRouter() {
           ) : (
             <div className="flex items-center gap-3">
               <img
-                src="/ekwly/icon.svg"
+                src={utils.resolvePath('icon.svg')}
                 width="32"
                 height="32"
                 alt="Ekwly Logo"
@@ -285,7 +334,7 @@ export default function AppRouter() {
               onClick={toggleNativeTheme}
               className="p-2 hover:bg-subtle rounded-full text-muted transition-colors"
             >
-              <Moon size={20} />
+              {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
 
             <div className="relative">
@@ -375,7 +424,7 @@ export default function AppRouter() {
                   {/* 3. The Legal Hub */}
                   <div className="flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm divide-y divide-border">
                     <a
-                      href="/ekwly/privacy"
+                      href={utils.resolvePath('privacy')}
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
@@ -385,7 +434,7 @@ export default function AppRouter() {
                       <ExternalLink size={16} className="text-muted/50" />
                     </a>
                     <a
-                      href="/ekwly/terms"
+                      href={utils.resolvePath('terms')}
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
@@ -395,7 +444,7 @@ export default function AppRouter() {
                       <ExternalLink size={16} className="text-muted/50" />
                     </a>
                     <a
-                      href="/ekwly/refunds"
+                      href={utils.resolvePath('refunds')}
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">

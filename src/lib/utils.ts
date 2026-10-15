@@ -45,6 +45,12 @@ export const utils = {
     return `${n}/${d}`;
   },
 
+  resolvePath: (subpath: string) => {
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+    const clean = subpath.replace(/^\//, '');
+    return `${base}/${clean}`;
+  },
+
   getSplitNames: (name: string) => {
     let base = name.trim();
     if (/GST/i.test(base)) {
