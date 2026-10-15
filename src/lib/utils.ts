@@ -61,6 +61,23 @@ export const utils = {
     }
     return { cgst: `${base} (CGST)`, sgst: `${base} (SGST)` };
   },
+
+  buildWhatsAppReminderUrl: (params: {
+    debtorName: string;
+    creditorName: string;
+    amount: number;
+    venueName?: string;
+    upiId?: string | null;
+  }) => {
+    const formattedAmt = `₹${params.amount.toFixed(2)}`;
+    const contextStr = params.venueName ? ` for *${params.venueName}*` : '';
+    let message = `Hey ${params.debtorName}! 👋 Your split share${contextStr} on Ekwly is *${formattedAmt}* (owed to ${params.creditorName}).`;
+    if (params.upiId) {
+      const upiLink = `upi://pay?pa=${params.upiId}&pn=${encodeURIComponent(params.creditorName)}&am=${params.amount.toFixed(2)}&cu=INR`;
+      message += `\n\nPay instantly via UPI (${params.upiId}):\n${upiLink}`;
+    }
+    return `https://wa.me/?text=${encodeURIComponent(message)}`;
+  },
 };
 
 export const showToast = (message: string, type: 'default' | 'error' | 'success' = 'default') => {

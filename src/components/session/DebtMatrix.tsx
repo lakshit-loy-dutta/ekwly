@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { CalculationResult } from '../../lib/types';
 import { utils } from '../../lib/utils';
-import { DownloadCloud, LockKeyhole, Unlock, Home, Smartphone } from 'lucide-react';
+import { DownloadCloud, LockKeyhole, Unlock, Home, Smartphone, MessageCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import ToggleSwitch from '../ui/ToggleSwitch';
 import SectionHeader from '../ui/SectionHeader';
@@ -117,13 +117,31 @@ export default function DebtMatrix(props: Props) {
                   )}
                 </div>
 
-                {/* THE PHASE 4 MAGIC: NATIVE UPI DEEP LINK */}
+                {/* NATIVE UPI DEEP LINK FOR DEBTORS */}
                 {creditorUpi && !l.settled && !amICreditor && (
                   <a
                     href={`upi://pay?pa=${creditorUpi}&pn=${encodeURIComponent(l.creditor_name)}&am=${l.amount}&cu=INR`}
                     className="w-full h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl font-bold text-[0.95rem] flex items-center justify-center gap-2 transition-colors mt-1"
                   >
                     <Smartphone size={18} /> Pay {utils.formatMoney(l.amount)} via UPI
+                  </a>
+                )}
+
+                {/* 1-TAP WHATSAPP REMINDER FOR CREDITORS / HOST */}
+                {!l.settled && (props.isHost || amICreditor) && (
+                  <a
+                    href={utils.buildWhatsAppReminderUrl({
+                      debtorName: l.debtor_name,
+                      creditorName: l.creditor_name,
+                      amount: Number(l.amount),
+                      venueName: props.venueName,
+                      upiId: creditorUpi,
+                    })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full h-10 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors mt-1"
+                  >
+                    <MessageCircle size={15} /> Remind {l.debtor_name} on WhatsApp
                   </a>
                 )}
               </div>

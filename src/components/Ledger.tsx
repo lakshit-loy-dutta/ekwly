@@ -2,7 +2,15 @@ import { useState, useEffect } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import { Wallet, ArrowDownLeft, ArrowUpRight, CheckCircle2, User, Loader2 } from 'lucide-react';
+import {
+  Wallet,
+  ArrowDownLeft,
+  ArrowUpRight,
+  CheckCircle2,
+  User,
+  Loader2,
+  MessageCircle,
+} from 'lucide-react';
 
 interface LedgerEntry {
   debtor_id: string | null;
@@ -137,12 +145,27 @@ export default function Ledger({ user, onBack }: Props) {
                   </span>
                 </div>
               </div>
-              <button
-                onClick={() => handleSettleUp(entry, true)}
-                className="h-9 px-4 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
-              >
-                <CheckCircle2 size={16} /> Settle
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={utils.buildWhatsAppReminderUrl({
+                    debtorName: entry.debtor_name,
+                    creditorName: entry.creditor_name || 'me',
+                    amount: Number(entry.total_owed),
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="h-9 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/25 rounded-lg font-bold text-xs flex items-center gap-1 transition-all"
+                  title="Send WhatsApp Reminder"
+                >
+                  <MessageCircle size={15} /> Nudge
+                </a>
+                <button
+                  onClick={() => handleSettleUp(entry, true)}
+                  className="h-9 px-4 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
+                >
+                  <CheckCircle2 size={16} /> Settle
+                </button>
+              </div>
             </div>
           ))
         )}

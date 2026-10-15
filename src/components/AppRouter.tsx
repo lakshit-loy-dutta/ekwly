@@ -10,6 +10,7 @@ import Lobby from './Lobby';
 import Profile from './Profile';
 import Friends from './Friends';
 import Ledger from './Ledger';
+import Analytics from './Analytics';
 import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import { supabase } from '../lib/supabase';
@@ -20,6 +21,7 @@ import {
   User,
   Users,
   LogOut,
+  BarChart3,
   Moon,
   Sun,
   QrCode,
@@ -34,7 +36,15 @@ import {
 
 export default function AppRouter() {
   const [currentView, setCurrentView] = useState<
-    'auth' | 'home' | 'lobby' | 'session' | 'profile' | 'friends' | 'ledger' | 'onboarding'
+    | 'auth'
+    | 'home'
+    | 'lobby'
+    | 'session'
+    | 'profile'
+    | 'friends'
+    | 'ledger'
+    | 'analytics'
+    | 'onboarding'
   >('auth');
   const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('create');
   const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
@@ -92,7 +102,7 @@ export default function AppRouter() {
         setIsProfileOpen(false);
         return true;
       }
-      if (['profile', 'friends', 'ledger', 'lobby'].includes(currentView)) {
+      if (['profile', 'friends', 'ledger', 'lobby', 'analytics'].includes(currentView)) {
         setCurrentView('home');
         return true;
       }
@@ -272,11 +282,11 @@ export default function AppRouter() {
       <PwaUpdater />
       {currentView !== 'auth' && currentView !== 'lobby' && (
         <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
-          {['session', 'profile', 'friends', 'ledger'].includes(currentView) ? (
+          {['session', 'profile', 'friends', 'ledger', 'analytics'].includes(currentView) ? (
             <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
               <button
                 onClick={() => {
-                  if (['profile', 'friends', 'ledger'].includes(currentView)) {
+                  if (['profile', 'friends', 'ledger', 'analytics'].includes(currentView)) {
                     setCurrentView('home');
                   } else if (currentStep > 1 && (isHost || currentStep > 3)) {
                     navigateStep(currentStep - 1);
@@ -292,6 +302,7 @@ export default function AppRouter() {
                 {currentView === 'profile' && 'Your Profile'}
                 {currentView === 'friends' && 'Friends List'}
                 {currentView === 'ledger' && 'Global Ledger'}
+                {currentView === 'analytics' && 'Personal Analytics'}
                 {currentView === 'session' && currentStep === 1 && 'Taxes & Extra Charges'}
                 {currentView === 'session' && currentStep === 2 && 'Receipt Items'}
                 {currentView === 'session' && currentStep === 3 && 'Members'}
@@ -409,6 +420,19 @@ export default function AppRouter() {
                     <button
                       onClick={() => {
                         setIsProfileOpen(false);
+                        setCurrentView('analytics');
+                      }}
+                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <BarChart3 size={20} className="text-muted" />{' '}
+                        <span className="font-semibold text-main">Personal Analytics</span>
+                      </div>
+                      <ChevronRight size={18} className="text-muted/50" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsProfileOpen(false);
                         setCurrentView('friends');
                       }}
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
@@ -501,6 +525,9 @@ export default function AppRouter() {
         {currentView === 'profile' && <Profile user={user} onBack={() => setCurrentView('home')} />}
         {currentView === 'friends' && <Friends user={user} onBack={() => setCurrentView('home')} />}
         {currentView === 'ledger' && <Ledger user={user} onBack={() => setCurrentView('home')} />}
+        {currentView === 'analytics' && (
+          <Analytics user={user} onBack={() => setCurrentView('home')} />
+        )}
         {currentView === 'session' && (
           <ActiveSession
             sessionId={activeSessionId}

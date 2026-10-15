@@ -1,6 +1,6 @@
 # Ekwly — Architecture, Engineering Standards & Product Roadmap
 
-> **Version:** 0.3.0 (Milestone 2: Native & Offline Hardened)
+> **Version:** 0.4.0 (Milestone 3: Modular Session Architecture, Analytics & WhatsApp Nudges)
 > **Stack:** Astro 7 + React 19 + Tailwind CSS v4 + Supabase (Postgres, Auth, Realtime, Edge Functions) + Capacitor 8 (Android & iOS) + Google Gemini Vision API
 
 ---
@@ -14,7 +14,7 @@
    - **Model A (`inherit` / Cascading):** Item tax is computed on `(Effective Base + Item S.C.)`. Common in restobars where Service Charge is bundled per line item before VAT/GST.
    - **Model B (`global` / Independent):** Line items are taxed strictly on `Effective Base`, while the aggregated Service Charge is taxed independently under a global preset (typically 5% GST) or left untaxed (`none`).
 3. **AI Receipt OCR ("Magic Scan"):** Powered by `gemini-3.5-flash-lite` via Supabase Edge Functions with Chain-of-Thought (CoT) mathematical self-verification and automatic wizard progression.
-4. **Zero-Install Multiplayer & Instant UPI Settlement:** Guests join rooms via QR/PIN without downloading an app, claim fractional shares in real time using 1-tap fraction pills, and settle via native `upi://pay` deep links.
+4. **Zero-Install Multiplayer, UPI Deep-Links & WhatsApp Nudges:** Guests join rooms via QR/PIN without downloading an app, claim fractional shares in real time using 1-tap fraction pills, and settle via native `upi://pay` deep links or 1-tap WhatsApp reminders.
 
 ---
 
@@ -23,6 +23,7 @@
 ```text
 ├── astro.config.mjs                  # Conditional Base Path ('/' for Capacitor, '/ekwly' for GH Pages)
 ├── capacitor.config.json             # Native Android/iOS WebView container settings
+├── repomix.config.ts                 # AI context packing configuration
 ├── supabase/
 │   └── functions/
 │       └── scan-receipt/index.ts     # Deno Edge Function: Auth, Quota Reset, Gemini CoT OCR
@@ -39,18 +40,24 @@
     │   ├── types.ts                  # Canonical TypeScript interfaces (including DatabaseSession)
     │   ├── supabase.ts               # Singleton Supabase client
     │   ├── mathEngine.ts             # Pure deterministic tax, split, paisa-conservation & settlement engine
-    │   ├── useSession.ts             # Realtime multiplayer state, optimistic UI & sequenced offline queue
+    │   ├── mathEngine.test.ts        # Vitest unit suite for Model A (TBC 66) & Model B (Chin Lung) receipts
+    │   ├── useSession.ts             # Thin composer hook re-exporting sync + mutation sub-hooks
+    │   ├── session/                  # Modularized Session Architecture:
+    │   │   ├── offlineQueue.ts       # Promise-locked localStorage mutation queue
+    │   │   ├── useSessionSync.ts     # Initial parallel fetch & Realtime WebSocket listeners
+    │   │   └── useSessionMutations.ts# Optimistic UI + offline-aware CRUD mutations
     │   ├── SessionContext.tsx        # React Context provider for active room state
     │   ├── pdf.ts                    # On-demand dynamic ESM PDF generator (jsPDF + AutoTable)
-    │   ├── utils.ts                  # Fraction parser, GCD formatter, resolvePath, toast notifications
+    │   ├── utils.ts                  # Fraction parser, GCD formatter, resolvePath, WhatsApp link builder
     │   └── utils.test.ts             # Vitest unit suite for fractional and tax math
     └── components/
         ├── AppRouter.tsx             # View state machine, @capacitor/app back-button & deep-link router
         ├── Auth.tsx                  # Google OAuth, Magic Link OTP & Anonymous Guest sign-in
         ├── Home.tsx                  # Dashboard, Global Ledger summary, QR room scanner, recent rooms
+        ├── Analytics.tsx             # Ekwly Pro Personal Analytics (Top Venues, Debtor Concentration, Quota)
         ├── Lobby.tsx                 # Room creation (PIN generation) & Room joining gateway
         ├── ActiveSession.tsx         # 6-step wizard orchestrator & bottom progress stepper
-        ├── Ledger.tsx                # Cross-session aggregated receivables/payables view
+        ├── Ledger.tsx                # Cross-session aggregated receivables/payables + WhatsApp nudges
         ├── Friends.tsx               # Network connections, QR scanner & personal QR invite links
         ├── Profile.tsx               # Identity, UPI VPA configuration, QR scanner, account deletion
         ├── PwaUpdater.tsx            # Service worker lifecycle & update banner
@@ -62,7 +69,7 @@
         │   ├── QuickSplit.tsx        # Step 4 Sub-module: 1-tap even fraction generator
         │   ├── ClaimManager.tsx      # Step 4: Stepper + quick-fraction pill matrix for item claims
         │   ├── Payments.tsx          # Step 5: Cashier payment recording & bill coverage validation
-        │   └── DebtMatrix.tsx        # Step 6: Draft summary, room locking, UPI collection tray, PDF export
+        │   └── DebtMatrix.tsx        # Step 6: Draft summary, room locking, UPI + WhatsApp tray, PDF export
         └── ui/                       # Reusable primitives (BottomSheet, HelpTip, QrScannerModal, SectionHeader, ToggleSwitch)
 ```
 
@@ -151,14 +158,15 @@ For each item `i` with tax rate `r_i` and service charge rate `s`:
 
 - [x] Make Astro `base` path conditional (`/` for Capacitor, `/ekwly` for GitHub Pages) and add `utils.resolvePath`.
 - [x] Wire `@capacitor/app` hardware back-button into `AppRouter.tsx` and add dynamic Sun/Moon theme icon.
-- [x] Sequence `processOfflineQueue` before `fetchSessionData` on `online` reconnect events with mutex lock, and pass `'item_id,member_id'` conflict target for batch claims.
-- [x] Replace render-blocking `cdnjs` `jspdf` scripts in `index.astro` with npm-bundled dynamic `import('jspdf')` in `src/lib/pdf.ts`.
+- [x] Deconstruct `useSession.ts` into `offlineQueue.ts`, `useSessionSync.ts`, and `useSessionMutations.ts` with Promise-locked queue flushing.
+- [x] Replace render-blocking `cdnjs` `jspdf` scripts in `index.astro` with bundled dynamic `import('jspdf')` in `src/lib/pdf.ts`.
 - [x] Extract unified `<QrScannerModal/>` to power both Room QR joins (`Home.tsx`) and Friend QR connections (`Friends.tsx`, `Profile.tsx`).
+- [x] Add Vitest unit suite (`src/lib/mathEngine.test.ts`) verifying TBC 66 (Model A) and Chin Lung (Model B) receipts.
 
-### Milestone 3: Growth, Analytics & Autonomous Monetization (Next Up)
+### Milestone 3: Growth, Analytics & Autonomous Monetization (In Progress)
 
-- [ ] Build `src/components/Analytics.tsx` consuming `personal_analytics` SQL view and wire it into `AppRouter.tsx`.
-- [ ] Add "Remind on WhatsApp" deep-link generator (`[https://wa.me/?text=](https://wa.me/?text=)...`) with pre-filled UPI links in `DebtMatrix.tsx` and `Ledger.tsx`.
-- [ ] Build Splitwise CSV importer for instant group migration.
+- [x] Build `src/components/Analytics.tsx` consuming `personal_analytics` SQL view and wire it into `AppRouter.tsx`.
+- [x] Add "Remind on WhatsApp" deep-link generator (`utils.buildWhatsAppReminderUrl`) with pre-filled UPI links in `DebtMatrix.tsx` and `Ledger.tsx`.
 - [ ] Configure `AndroidManifest.xml` (`upi://` queries + ML Kit barcode metadata) and `Info.plist` (`NSCameraUsageDescription`) templates.
+- [ ] Build Splitwise CSV importer for instant group migration.
 - [ ] Integrate Razorpay Webhook Edge Function for automated `Ekwly Pro` (₹99/mo) and `7-Day Trip Pass` (₹49 one-off) activation.
