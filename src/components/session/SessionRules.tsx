@@ -8,7 +8,11 @@ import SectionHeader from '../ui/SectionHeader';
 import ToggleSwitch from '../ui/ToggleSwitch';
 import type { DatabaseVenue } from '../../lib/types';
 
-export default function SessionRules() {
+interface Props {
+  onScanComplete?: () => void;
+}
+
+export default function SessionRules({ onScanComplete }: Props) {
   const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
 
   const [localVenue, setLocalVenue] = useState<string>(sessionRules.venueName);
@@ -206,7 +210,7 @@ export default function SessionRules() {
       </div>
 
       {/* 2. THE ISOLATED MAGIC SCANNER COMPONENT */}
-      <MagicScanner />
+      <MagicScanner onScanComplete={onScanComplete} />
 
       {/* 3. SERVICE CHARGE SECTION */}
       <SectionHeader

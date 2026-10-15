@@ -13,7 +13,11 @@ import { useSessionContext } from '../../lib/SessionContext';
 import { showToast, utils } from '../../lib/utils';
 import BottomSheet from '../ui/BottomSheet';
 
-export default function MagicScanner() {
+interface Props {
+  onScanComplete?: () => void;
+}
+
+export default function MagicScanner({ onScanComplete }: Props) {
   const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
   const [isScanning, setIsScanning] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -166,6 +170,7 @@ export default function MagicScanner() {
       }
 
       showToast(`Magic Scan complete! Extracted ${addedCount} items.`, 'success');
+      onScanComplete?.();
     } catch (err: any) {
       console.error('Scan Error:', err);
       showToast(err.message || 'AI could not read this receipt cleanly.', 'error');

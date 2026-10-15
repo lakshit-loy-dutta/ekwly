@@ -254,7 +254,7 @@ export const exportToPDF = (
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(...darkText);
-      doc.text(person, 14, startY);
+      doc.text(b.memberName || person, 14, startY);
       startY += 4;
 
       const tableData: any[] = b.items.map((i) => [

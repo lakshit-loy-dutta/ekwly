@@ -93,12 +93,12 @@ export const mathEngine = {
       let scTaxAmount = 0;
 
       if (scTaxPresetId === 'inherit') {
-        // TBC 66 MODEL: Tax applies to (Base + SC)
+        // MODEL A (Cascading): Tax applies to (Base + SC)
         itemTaxAmount = effectiveBase * dynamicTaxRate;
         scTaxAmount = itemSC * dynamicTaxRate;
         addTaxToBreakdown(preset, itemTaxAmount + scTaxAmount, 'Other Tax');
       } else {
-        // CHIN LUNG MODEL: Item Base is taxed alone. SC is taxed by a global preset.
+        // MODEL B (Independent): Item Base is taxed alone. SC is taxed by a global preset.
         itemTaxAmount = effectiveBase * dynamicTaxRate;
         addTaxToBreakdown(preset, itemTaxAmount, 'Other Tax');
 
@@ -135,10 +135,9 @@ export const mathEngine = {
     globalSummary.roundOff = utils.round2(roundedGrandTotal - finalRawTotal);
     globalSummary.grandTotal = roundedGrandTotal;
 
-    // The magical multiplier to naturally and fairly distribute the round-off among users
     const distributionMultiplier = finalRawTotal > 0 ? roundedGrandTotal / finalRawTotal : 1;
 
-    // 2. INDIVIDUAL DEBT CALCULATION
+    // 2. INDIVIDUAL DEBT CALCULATION (Keyed by member.id to prevent name collisions)
     const individualBreakdowns: Record<string, IndividualBreakdown> = {};
 
     members.forEach((member) => {
@@ -179,13 +178,34 @@ export const mathEngine = {
           });
         }
       });
-      individualBreakdowns[member.name] = {
+
+      individualBreakdowns[member.id] = {
+        memberId: member.id,
+        memberName: member.name,
         subtotal,
         serviceCharge: totalScAmount,
         totalOwed: utils.round2((subtotal + totalScAmount) * distributionMultiplier),
-        items: consumedItems, // <-- Add this line back
+        items: consumedItems,
       };
     });
+
+    // 3. PAISA CONSERVATION PASS (Absorbs ±0.01–0.05 float rounding drift across splits)
+    const activeIds = Object.keys(individualBreakdowns).filter(
+      (id) => individualBreakdowns[id].totalOwed > 0
+    );
+    const totalClaimedOwed = utils.round2(
+      activeIds.reduce((sum, id) => sum + individualBreakdowns[id].totalOwed, 0)
+    );
+    const drift = utils.round2(globalSummary.grandTotal - totalClaimedOwed);
+    if (activeIds.length > 0 && Math.abs(drift) > 0 && Math.abs(drift) <= 0.05) {
+      // Allocate the 1-2 paisa remainder to the member with the largest share
+      const largestShareId = activeIds.reduce((a, b) =>
+        individualBreakdowns[a].totalOwed >= individualBreakdowns[b].totalOwed ? a : b
+      );
+      individualBreakdowns[largestShareId].totalOwed = utils.round2(
+        individualBreakdowns[largestShareId].totalOwed + drift
+      );
+    }
 
     return { individualBreakdowns, globalSummary };
   },
@@ -193,7 +213,9 @@ export const mathEngine = {
   generateTransactions: (members: DBMember[], breakdowns: Record<string, IndividualBreakdown>) => {
     const balances = members.map((m) => ({
       ...m,
-      balance: (m.paid_amount || 0) - (breakdowns[m.name]?.totalOwed || 0),
+      // Look up by m.id first, with fallback to m.name for legacy test compatibility
+      balance:
+        (m.paid_amount || 0) - (breakdowns[m.id]?.totalOwed ?? breakdowns[m.name]?.totalOwed ?? 0),
     }));
     const debtors = balances.filter((b) => b.balance < -0.01).sort((a, b) => a.balance - b.balance);
     const creditors = balances

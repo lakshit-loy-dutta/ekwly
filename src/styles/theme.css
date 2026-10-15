@@ -4,11 +4,14 @@
   --color-primary-hover: #004589;
   --color-primary-light: rgba(0, 128, 255, 0.15);
 
-  /* Restoring standard functional colors for financial clarity */
+  /* Functional Financial Colors */
   --color-danger: #df1b41;
   --color-danger-light: #fbeaee;
   --color-success: #10b981;
+  --color-success-dark: #059669;
   --color-success-light: #d1fae5;
+  --color-warning: #f59e0b;
+  --color-warning-700: #b45309;
 
   --color-page: var(--bg-page);
   --color-surface: var(--bg-surface);
@@ -28,28 +31,28 @@
 
 :root {
   /* LIGHT MODE: Crisp & Professional */
-  --bg-page: #f2f8ff; /* Extremely faint blue tint */
-  --bg-surface: #ffffff; /* Pure white cards */
-  --bg-subtle: #d8ebff; /* Lightest Azure for badges/secondary surfaces */
+  --bg-page: #f2f8ff;
+  --bg-surface: #ffffff;
+  --bg-subtle: #d8ebff;
 
-  --text-main: #001e3b; /* Deepest Azure Navy */
-  --text-muted: #004589; /* Dark Azure */
+  --text-main: #001e3b;
+  --text-muted: #475569; /* Neutralized slate for sharper visual hierarchy */
 
   --border: #d8ebff;
-  --border-hover: #89c4ff; /* Sky Blue */
+  --border-hover: #89c4ff;
 
   --input-h: 44px;
 }
 
 [data-theme='dark'] {
   /* DARK MODE: OLED-Friendly Deep Slate/Black */
-  --bg-page: #050914; /* Extremely dark, near-black canvas */
-  --bg-surface: #0f1724; /* Slightly elevated dark slate for cards */
-  --bg-subtle: #001e3b; /* The original Deep Navy used only for subtle accents */
+  --bg-page: #050914;
+  --bg-surface: #0f1724;
+  --bg-subtle: #001e3b;
 
-  --text-main: #ffffff; /* Pure White */
-  --text-muted: #89c4ff; /* Sky Blue */
+  --text-main: #ffffff;
+  --text-muted: #94a3b8; /* Neutralized slate for sharper contrast against azure accents */
 
-  --border: #1c2738; /* Crisp, dark slate borders */
-  --border-hover: #0080ff; /* Vibrant Azure */
+  --border: #1c2738;
+  --border-hover: #0080ff;
 }

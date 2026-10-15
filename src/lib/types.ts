@@ -17,6 +17,8 @@ export interface BillItem {
 }
 
 export interface IndividualBreakdown {
+  memberId: string;
+  memberName: string;
   subtotal: number;
   serviceCharge: number;
   totalOwed: number;

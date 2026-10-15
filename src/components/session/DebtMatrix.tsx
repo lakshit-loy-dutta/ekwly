@@ -247,17 +247,17 @@ export default function DebtMatrix(props: Props) {
           <span className="font-bold text-primary text-lg">{utils.formatMoney(gs.grandTotal)}</span>
         </div>
       </div>
-      // ... (Keep the Individual Debt section exactly as it is)
+
       <div className="px-4 py-3 mt-4">
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Individual Debt</h3>
       </div>
       <div className="flex flex-col gap-6">
         {Object.entries(props.calculationResult.individualBreakdowns).map(
-          ([person, b]) =>
+          ([personKey, b]) =>
             b.totalOwed > 0 && (
-              <div key={person} className="bg-surface border-y border-border flex flex-col">
+              <div key={personKey} className="bg-surface border-y border-border flex flex-col">
                 <div className="px-4 py-3 border-b border-border bg-page/50">
-                  <h3 className="font-bold text-main text-base">{person}</h3>
+                  <h3 className="font-bold text-main text-base">{b.memberName || personKey}</h3>
                 </div>
                 <div className="flex flex-col divide-y divide-border/50 px-4">
                   {b.items.map((i, idx) => (

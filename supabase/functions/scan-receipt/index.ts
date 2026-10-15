@@ -181,7 +181,7 @@ EXTRACTION RULES:
     // 3. CHARGE QUOTA ONLY UPON SUCCESS
     await supabaseClient
       .from('profiles')
-      .update({ ai_scans_used: profile.ai_scans_used + 1 })
+      .update({ ai_scans_used: scansUsed + 1 }) // <-- FIX: Use reset-aware scansUsed variable
       .eq('id', user.id);
 
     return new Response(JSON.stringify(parsedJson), {

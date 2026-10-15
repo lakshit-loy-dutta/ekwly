@@ -203,7 +203,7 @@ function ActiveSessionCore({
                 exit="exit"
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               >
-                <SessionRules />
+                <SessionRules onScanComplete={() => navigate(2)} />
               </motion.div>
             )}
             {currentStep === 2 && (

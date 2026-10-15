@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Minus, Plus } from 'lucide-react';
 import type { BillItem } from '../../lib/types';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
@@ -11,42 +12,116 @@ interface Props {
   handleUpdateClaim: (memberId: string, itemId: string, value: string) => void;
 }
 
-// 🚀 OPTIMIZATION: Localized Input with 400ms Debounce to prevent DB spam
+const FRACTION_PILLS = [
+  { label: 'Clear', value: '' },
+  { label: '1/4', value: '1/4' },
+  { label: '1/3', value: '1/3' },
+  { label: '1/2', value: '1/2' },
+  { label: '1', value: '1' },
+];
+
 function ClaimInput({
   initialValue,
+  maxQty,
   memberId,
   itemId,
   onSave,
 }: {
   initialValue: string;
+  maxQty: number;
   memberId: string;
   itemId: string;
   onSave: (mId: string, iId: string, val: string) => void;
 }) {
   const [localVal, setLocalVal] = useState(initialValue);
+  const [isFocused, setIsFocused] = useState(false);
 
-  // Sync with global state if it changes externally (e.g. Quick Split)
   useEffect(() => {
     setLocalVal(initialValue);
   }, [initialValue]);
 
-  // The Debounce Engine
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localVal !== initialValue) onSave(memberId, itemId, localVal);
-    }, 400);
+    }, 350);
     return () => clearTimeout(timer);
   }, [localVal, initialValue, memberId, itemId, onSave]);
 
+  const adjustQty = (delta: number) => {
+    const current = utils.parseQty(localVal);
+    const next = Math.max(0, utils.round2(current + delta));
+    const nextStr = next === 0 ? '' : next.toString();
+    setLocalVal(nextStr);
+    onSave(memberId, itemId, nextStr);
+  };
+
+  const applyPill = (val: string) => {
+    setLocalVal(val);
+    onSave(memberId, itemId, val);
+    setIsFocused(false);
+  };
+
   return (
-    <input
-      type="text"
-      inputMode="decimal"
-      className="w-24! h-11! shrink-0 text-center text-base font-medium bg-page border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-sm transition-all"
-      value={localVal}
-      onChange={(e) => setLocalVal(e.target.value)}
-      placeholder="0"
-    />
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={() => adjustQty(-1)}
+          className="w-8 h-9 rounded-lg bg-page border border-border text-muted hover:text-main active:scale-90 flex items-center justify-center transition-all"
+          aria-label="Decrease quantity"
+        >
+          <Minus size={14} />
+        </button>
+        <input
+          type="text"
+          inputMode="text"
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setTimeout(() => setIsFocused(false), 180)}
+          className="w-20! h-9! shrink-0 text-center text-sm font-bold tabular-nums bg-page border border-border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-sm transition-all"
+          value={localVal}
+          onChange={(e) => setLocalVal(e.target.value)}
+          placeholder="0"
+        />
+        <button
+          type="button"
+          onClick={() => adjustQty(1)}
+          className="w-8 h-9 rounded-lg bg-page border border-border text-muted hover:text-main active:scale-90 flex items-center justify-center transition-all"
+          aria-label="Increase quantity"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+
+      {isFocused && (
+        <div className="flex items-center gap-1 bg-page border border-border rounded-lg p-1 shadow-sm">
+          {FRACTION_PILLS.map((pill) => (
+            <button
+              key={pill.label}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyPill(pill.value)}
+              className={`px-2 py-1 text-[0.7rem] font-bold rounded transition-colors ${
+                localVal === pill.value
+                  ? 'bg-primary text-white'
+                  : 'text-muted hover:text-main active:bg-subtle'
+              }`}
+            >
+              {pill.label}
+            </button>
+          ))}
+          {maxQty > 1 && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyPill(maxQty.toString())}
+              className="px-2 py-1 text-[0.7rem] font-bold rounded text-primary hover:bg-primary/10 transition-colors"
+            >
+              All ({maxQty})
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -55,7 +130,7 @@ export default function ClaimManager(props: Props) {
     <div className="w-full flex flex-col pb-6">
       <SectionHeader
         title="Claim Items"
-        helpText="Use 'Quick Split' above for shared appetizers, or type fractions manually (e.g., '1/2', '1/3', '0.5'). The tracker turns green when an item is mathematically fully claimed."
+        helpText="Use 'Quick Split' above for shared appetizers, tap the input to pick a quick fraction ('1/4', '1/3', '1/2'), or use the +/- buttons. The tracker turns green when an item is fully claimed."
       />
 
       {props.items.length > 0 && props.members.length > 0 && (
@@ -93,7 +168,7 @@ export default function ClaimManager(props: Props) {
             return (
               <div
                 key={item.id}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-all duration-300 ${statusClasses}`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold tabular-nums transition-all duration-300 ${statusClasses}`}
               >
                 <svg
                   width="12"
@@ -129,16 +204,20 @@ export default function ClaimManager(props: Props) {
                 {props.items.map((item) => (
                   <div
                     key={item.id}
-                    className="flex items-center justify-between px-4 py-3 gap-4 hover:bg-subtle transition-colors"
+                    className="flex items-start justify-between px-4 py-3 gap-3 hover:bg-subtle transition-colors"
                   >
-                    <span
-                      className="flex-1 min-w-0 text-[0.95rem] font-medium text-main truncate pr-2"
-                      title={item.name}
-                    >
-                      {item.name}
-                    </span>
+                    <div className="flex flex-col min-w-0 flex-1 pr-2 pt-1.5">
+                      <span
+                        className="text-[0.95rem] font-medium text-main truncate"
+                        title={item.name}
+                      >
+                        {item.name}
+                      </span>
+                      <span className="text-xs text-muted tabular-nums">Total Qty: {item.qty}</span>
+                    </div>
                     <ClaimInput
                       initialValue={props.claims[member.id]?.[item.id] || ''}
+                      maxQty={item.qty}
                       memberId={member.id}
                       itemId={item.id}
                       onSave={props.handleUpdateClaim}
