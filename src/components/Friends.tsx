@@ -4,18 +4,10 @@ import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
+import ConfirmSheet from './ui/ConfirmSheet';
+import BrandLoader from './ui/BrandLoader';
 import QrScannerModal from './ui/QrScannerModal';
-import {
-  User,
-  Trash2,
-  Users,
-  Loader2,
-  UserPlus,
-  QrCode,
-  ScanLine,
-  Share,
-  Copy,
-} from 'lucide-react';
+import { User, Trash2, Users, UserPlus, QrCode, ScanLine, Share, Copy } from 'lucide-react';
 
 interface FriendProfile {
   id: string;
@@ -34,6 +26,7 @@ export default function Friends({ user }: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const [showMyQR, setShowMyQR] = useState(false);
   const [isScanningFriend, setIsScanningFriend] = useState(false);
+  const [friendToRemove, setFriendToRemove] = useState<FriendProfile | null>(null);
 
   const friendLink =
     typeof window !== 'undefined'
@@ -103,8 +96,9 @@ export default function Friends({ user }: Props) {
     }
   };
 
-  const handleRemoveFriend = async (friendId: string) => {
-    if (!window.confirm('Remove this friend?')) return;
+  const confirmRemoveFriend = async () => {
+    if (!friendToRemove) return;
+    const friendId = friendToRemove.id;
 
     await supabase
       .from('connections')
@@ -122,7 +116,7 @@ export default function Friends({ user }: Props) {
       try {
         await navigator.share({
           title: 'Add me on Ekwly',
-          text: `Tap this link to add me as a friend on Ekwly so we can split bills!`,
+          text: 'Tap this link to add me as a friend on Ekwly so we can split bills!',
           url: friendLink,
         });
       } catch (err) {
@@ -134,20 +128,27 @@ export default function Friends({ user }: Props) {
     }
   };
 
-  if (isLoading)
-    return (
-      <div className="flex h-full flex-1 items-center justify-center">
-        <Loader2 className="animate-spin text-primary opacity-50" size={32} />
-      </div>
-    );
+  if (isLoading) {
+    return <BrandLoader label="Loading Network..." fullScreen />;
+  }
 
   return (
-    <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-24">
+    <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-28">
       <QrScannerModal
         isOpen={isScanningFriend}
         title="Scan Friend QR"
         onClose={() => setIsScanningFriend(false)}
         onScanSuccess={handleScannedFriendUrl}
+      />
+
+      <ConfirmSheet
+        isOpen={!!friendToRemove}
+        onClose={() => setFriendToRemove(null)}
+        onConfirm={confirmRemoveFriend}
+        title="Remove Friend?"
+        description={`Remove ${friendToRemove?.name || 'this user'} from your Ekwly connections?`}
+        confirmLabel="Remove"
+        variant="danger"
       />
 
       <div className="flex flex-col items-center mb-6 mt-2">
@@ -226,7 +227,7 @@ export default function Friends({ user }: Props) {
                 </div>
               </div>
               <button
-                onClick={() => handleRemoveFriend(friend.id)}
+                onClick={() => setFriendToRemove(friend)}
                 className="p-2 text-muted hover:text-danger hover:bg-danger/10 active:bg-danger/20 rounded-full transition-colors shrink-0"
               >
                 <Trash2 size={18} />

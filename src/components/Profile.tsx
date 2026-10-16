@@ -4,6 +4,8 @@ import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
 import { showToast } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
+import ConfirmSheet from './ui/ConfirmSheet';
+import BrandLoader from './ui/BrandLoader';
 import QrScannerModal from './ui/QrScannerModal';
 import {
   User,
@@ -32,6 +34,7 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
   const [isSaving, setIsSaving] = useState(false);
   const [showMyQR, setShowMyQR] = useState(false);
   const [isScanningFriend, setIsScanningFriend] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const [name, setName] = useState('');
   const [upiId, setUpiId] = useState('');
@@ -49,7 +52,11 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
 
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
 
-      setName(data?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '');
+      const rawName =
+        data?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '';
+      const cleanName = /^Guest\s+[0-9a-f]{5}\$/i.test(rawName) ? '' : rawName;
+
+      setName(cleanName);
       setUpiId(data?.upi_id || '');
       setEmail(data?.email || user?.email || '');
       setPhone(data?.phone || user?.phone || '');
@@ -83,6 +90,20 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
       showToast('Could not add friend or already connected.', 'error');
     } else {
       showToast('Friend added to your network!', 'success');
+    }
+  };
+
+  const executeAccountDeletion = async () => {
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.rpc('delete_user_account');
+      if (error) throw error;
+      await supabase.auth.signOut();
+      showToast('Your account has been permanently deleted.', 'success');
+      onBack();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete account.', 'error');
+      setIsLoading(false);
     }
   };
 
@@ -130,43 +151,28 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     }
   };
 
-  const handleDeleteAccount = async () => {
-    const confirm1 = window.confirm(
-      'Are you absolutely sure you want to delete your account? This action is permanent and cannot be undone.'
-    );
-    if (!confirm1) return;
-
-    const confirm2 = window.prompt("Type 'DELETE' to confirm account closure.");
-    if (confirm2 !== 'DELETE') return;
-
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.rpc('delete_user_account');
-      if (error) throw error;
-
-      await supabase.auth.signOut();
-      showToast('Your account has been permanently deleted.', 'success');
-      onBack();
-    } catch (err: any) {
-      showToast(err.message || 'Failed to delete account.', 'error');
-      setIsLoading(false);
-    }
-  };
-
-  if (isLoading)
-    return (
-      <div className="flex h-full flex-1 items-center justify-center">
-        <Loader2 className="animate-spin text-primary opacity-50" size={32} />
-      </div>
-    );
+  if (isLoading) {
+    return <BrandLoader label="Loading Profile..." fullScreen />;
+  }
 
   return (
-    <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-24">
+    <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-28">
       <QrScannerModal
         isOpen={isScanningFriend}
         title="Scan Friend QR"
         onClose={() => setIsScanningFriend(false)}
         onScanSuccess={handleScannedFriendUrl}
+      />
+
+      <ConfirmSheet
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={executeAccountDeletion}
+        title="Delete Account Permanently"
+        description="This action permanently wipes your Ekwly profile, friend connections, and personal ledger records. It cannot be undone."
+        confirmLabel="Delete Forever"
+        variant="danger"
+        requireMatchText="DELETE"
       />
 
       <div className="flex flex-col items-center mb-6 mt-2">
@@ -336,7 +342,7 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
           <div className="mt-8 pt-6 border-t border-border flex flex-col items-center">
             <button
               type="button"
-              onClick={handleDeleteAccount}
+              onClick={() => setShowDeleteConfirm(true)}
               className="text-sm font-bold text-danger hover:text-danger/80 transition-colors"
             >
               Delete Account Permanently

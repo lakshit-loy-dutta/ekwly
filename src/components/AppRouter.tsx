@@ -13,6 +13,8 @@ import Ledger from './Ledger';
 import Analytics from './Analytics';
 import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
+import BottomDock, { type DockTab } from './ui/BottomDock';
+import { BrandLogo } from './ui/BrandLoader';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import {
@@ -34,18 +36,21 @@ import {
   ExternalLink,
 } from 'lucide-react';
 
+type AppView =
+  | 'auth'
+  | 'home'
+  | 'lobby'
+  | 'session'
+  | 'profile'
+  | 'friends'
+  | 'ledger'
+  | 'analytics'
+  | 'onboarding';
+
+const DOCK_VIEWS: AppView[] = ['home', 'ledger', 'friends', 'analytics', 'profile'];
+
 export default function AppRouter() {
-  const [currentView, setCurrentView] = useState<
-    | 'auth'
-    | 'home'
-    | 'lobby'
-    | 'session'
-    | 'profile'
-    | 'friends'
-    | 'ledger'
-    | 'analytics'
-    | 'onboarding'
-  >('auth');
+  const [currentView, setCurrentView] = useState<AppView>('auth');
   const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('create');
   const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -58,16 +63,14 @@ export default function AppRouter() {
   const [direction, setDirection] = useState<number>(1);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
-  // 1. Add this ref to track if we've already routed
   const hasRoutedRef = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      // 2. Only route if we haven't already
       if (session?.user && !hasRoutedRef.current) {
         hasRoutedRef.current = true;
-        resolveInitialRoute();
+        resolveInitialRoute(session.user);
       }
     });
 
@@ -75,7 +78,6 @@ export default function AppRouter() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      // 3. Ignore background refreshes if already routed
       if (event === 'SIGNED_IN' && !hasRoutedRef.current) {
         hasRoutedRef.current = true;
         resolveInitialRoute(session?.user);
@@ -91,7 +93,7 @@ export default function AppRouter() {
       : true
   );
 
-  // Hardware Back Button (Android/iOS Gesture) & Browser Back Handler
+  // Unified Hardware Back Button (Capacitor) & Browser History (popstate) Handler
   useEffect(() => {
     const handleBackAction = () => {
       if (isShareModalOpen) {
@@ -117,6 +119,12 @@ export default function AppRouter() {
       return false;
     };
 
+    const onPopState = () => {
+      handleBackAction();
+    };
+    window.addEventListener('popstate', onPopState);
+
+    let capCleanup: (() => void) | undefined;
     if (Capacitor.isNativePlatform()) {
       const listener = CapApp.addListener('backButton', ({ canGoBack }) => {
         const handled = handleBackAction();
@@ -124,14 +132,20 @@ export default function AppRouter() {
           CapApp.exitApp();
         }
       });
-      return () => {
+      capCleanup = () => {
         listener.then((l) => l.remove());
       };
     }
+
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      capCleanup?.();
+    };
   }, [currentView, currentStep, isHost, isShareModalOpen, isProfileOpen]);
 
   const toggleNativeTheme = () => {
     if (typeof window !== 'undefined' && window.toggleTheme) {
+      utils.haptic('light');
       window.toggleTheme();
       setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
     }
@@ -140,7 +154,6 @@ export default function AppRouter() {
   const resolveInitialRoute = async (currentUser?: SupabaseUser) => {
     if (typeof window === 'undefined') return;
 
-    // --- NEW: ONBOARDING INTERCEPTOR ---
     const activeUser = currentUser || user;
     if (activeUser && !activeUser.is_anonymous) {
       const { data: profile } = await supabase
@@ -151,7 +164,7 @@ export default function AppRouter() {
 
       if (!profile?.name || /^Guest\s+[0-9a-f]{5}$/i.test(profile.name)) {
         setCurrentView('onboarding');
-        return; // Halt routing until setup is complete
+        return;
       }
     }
 
@@ -160,12 +173,11 @@ export default function AppRouter() {
     const pPin = params.get('p');
     const addFriendId = params.get('add_friend');
 
-    // Handle Friend Invites
     if (addFriendId) {
       if (activeUser && !activeUser.is_anonymous) {
-        if (activeUser.id === addFriendId)
+        if (activeUser.id === addFriendId) {
           showToast("You can't add yourself as a friend.", 'default');
-        else {
+        } else {
           await supabase
             .from('connections')
             .insert({ user_id: activeUser.id, friend_id: addFriendId });
@@ -174,18 +186,18 @@ export default function AppRouter() {
       } else {
         showToast('Sign in to add this friend.', 'error');
       }
-      window.history.pushState({}, '', window.location.pathname);
+      window.history.replaceState({}, '', window.location.pathname);
       setCurrentView('friends');
       return;
     }
 
-    // Handle Session Invites
     if (sId) {
       const hostCheck = localStorage.getItem(`ekwly_host_${sId}`);
       const host = hostCheck === 'true';
       const savedPin = pPin || localStorage.getItem(`ekwly_pin_${sId}`);
 
       if (host) {
+        window.history.replaceState({}, '', `?s=${sId}`);
         setActiveSessionId(sId);
         setActiveSessionPin(savedPin || '');
         setIsHost(true);
@@ -198,6 +210,7 @@ export default function AppRouter() {
         });
         if (isValid) {
           localStorage.setItem(`ekwly_pin_${sId}`, savedPin);
+          window.history.replaceState({}, '', `?s=${sId}`);
           setActiveSessionId(sId);
           setActiveSessionPin(savedPin);
           setIsHost(false);
@@ -205,11 +218,11 @@ export default function AppRouter() {
           setCurrentView('session');
         } else {
           showToast('Invalid or expired PIN.', 'error');
-          window.history.pushState({}, '', window.location.pathname);
+          window.history.replaceState({}, '', window.location.pathname);
           setCurrentView('home');
         }
       } else {
-        window.history.pushState({}, '', window.location.pathname);
+        window.history.replaceState({}, '', window.location.pathname);
         setCurrentView('home');
       }
     } else {
@@ -221,10 +234,10 @@ export default function AppRouter() {
     const newSessionId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
     localStorage.setItem(`ekwly_host_${newSessionId}`, 'true');
     localStorage.setItem(`ekwly_pin_${newSessionId}`, pin);
-    window.history.pushState({}, '', `?s=${newSessionId}&p=${pin}`);
+    window.history.pushState({ view: 'session' }, '', `?s=${newSessionId}`);
     setActiveSessionId(newSessionId);
     setActiveSessionPin(pin);
-    setActiveSessionName(name); // Save name for ActiveSession!
+    setActiveSessionName(name);
     setIsHost(true);
     setCurrentStep(1);
     setCurrentView('session');
@@ -245,9 +258,9 @@ export default function AppRouter() {
       }
     }
 
-    showToast(`Joining session...`, 'success');
+    showToast('Joining session...', 'success');
     localStorage.setItem(`ekwly_pin_${sessionId}`, pin);
-    window.history.pushState({}, '', `?s=${sessionId}&p=${pin}`);
+    window.history.pushState({ view: 'session' }, '', `?s=${sessionId}`);
     setActiveSessionId(sessionId);
     setActiveSessionPin(pin);
     setIsHost(host);
@@ -256,17 +269,24 @@ export default function AppRouter() {
   };
 
   const navigateStep = (newStep: number) => {
+    utils.haptic('light');
     setDirection(newStep > currentStep ? 1 : -1);
     setCurrentStep(newStep);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleLeaveSession = () => {
-    window.history.pushState({}, '', window.location.pathname);
+    window.history.pushState({ view: 'home' }, '', window.location.pathname);
     setActiveSessionId(null);
     setActiveSessionPin(null);
     setIsHost(false);
     setCurrentView('home');
+  };
+
+  const handleSelectDockTab = (tab: DockTab) => {
+    window.history.pushState({ view: tab }, '', window.location.pathname);
+    setCurrentView(tab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSignOut = async () => {
@@ -274,18 +294,24 @@ export default function AppRouter() {
     hasRoutedRef.current = false;
     setIsProfileOpen(false);
     setCurrentView('auth');
-    window.history.pushState({}, '', window.location.pathname);
+    window.history.replaceState({}, '', window.location.pathname);
   };
+
+  const shareUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}?s=${activeSessionId}&p=${activeSessionPin}`
+      : '';
 
   return (
     <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
       <PwaUpdater />
       {currentView !== 'auth' && currentView !== 'lobby' && (
-        <div className="w-full max-w-2xl bg-surface border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-50 shadow-sm">
+        <div className="w-full max-w-2xl bg-surface/85 backdrop-blur-xl border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-40 shadow-sm gpu-layer">
           {['session', 'profile', 'friends', 'ledger', 'analytics'].includes(currentView) ? (
             <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
               <button
                 onClick={() => {
+                  utils.haptic('light');
                   if (['profile', 'friends', 'ledger', 'analytics'].includes(currentView)) {
                     setCurrentView('home');
                   } else if (currentStep > 1 && (isHost || currentStep > 3)) {
@@ -298,9 +324,9 @@ export default function AppRouter() {
               >
                 <ChevronLeft size={24} />
               </button>
-              <h1 className="text-[1.05rem] sm:text-[1.1rem] font-semibold text-main tracking-tight truncate">
+              <h1 className="text-[1.05rem] sm:text-[1.1rem] font-bold text-main tracking-tight truncate">
                 {currentView === 'profile' && 'Your Profile'}
-                {currentView === 'friends' && 'Friends List'}
+                {currentView === 'friends' && 'Friends Network'}
                 {currentView === 'ledger' && 'Global Ledger'}
                 {currentView === 'analytics' && 'Personal Analytics'}
                 {currentView === 'session' && currentStep === 1 && 'Taxes & Extra Charges'}
@@ -313,14 +339,8 @@ export default function AppRouter() {
             </div>
           ) : (
             <div className="flex items-center gap-3">
-              <img
-                src={utils.resolvePath('icon.svg')}
-                width="32"
-                height="32"
-                alt="Ekwly Logo"
-                className="rounded-lg shadow-sm"
-              />
-              <h1 className="font-bold text-xl text-main tracking-tight">Ekwly</h1>
+              <BrandLogo className="shadow-sm" size={32} />
+              <h1 className="font-extrabold text-xl text-main tracking-tight">Ekwly</h1>
             </div>
           )}
 
@@ -328,14 +348,19 @@ export default function AppRouter() {
             {currentView === 'session' && (
               <>
                 <button
-                  onClick={() => setIsShareModalOpen(true)}
+                  onClick={() => {
+                    utils.haptic('light');
+                    setIsShareModalOpen(true);
+                  }}
                   className="p-2 rounded-full text-primary hover:bg-subtle transition-colors"
+                  aria-label="Share Room QR"
                 >
                   <QrCode size={20} />
                 </button>
                 <button
                   onClick={handleLeaveSession}
                   className="p-2 rounded-full text-danger hover:bg-danger/10 transition-colors"
+                  aria-label="Exit Room"
                 >
                   <HomeIcon size={20} />
                 </button>
@@ -344,13 +369,17 @@ export default function AppRouter() {
             <button
               onClick={toggleNativeTheme}
               className="p-2 hover:bg-subtle rounded-full text-muted transition-colors"
+              aria-label="Toggle theme"
             >
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
 
             <div className="relative">
               <button
-                onClick={() => setIsProfileOpen(!isProfileOpen)}
+                onClick={() => {
+                  utils.haptic('light');
+                  setIsProfileOpen(!isProfileOpen);
+                }}
                 className="w-9 h-9 rounded-full bg-primary-light border-2 border-primary text-primary flex items-center justify-center font-bold overflow-hidden ml-1"
               >
                 {user?.user_metadata?.avatar_url ? (
@@ -364,19 +393,18 @@ export default function AppRouter() {
                 )}
               </button>
 
-              {/* THE NEW NATIVE MAIN MENU & LEGAL HUB */}
               <BottomSheet
                 isOpen={isProfileOpen}
                 onClose={() => setIsProfileOpen(false)}
-                title="Menu"
+                title="Account & Settings"
               >
                 <div className="flex flex-col gap-6 pb-4">
-                  {/* 1. Profile Header Card */}
                   <div className="flex items-center gap-4 bg-surface border border-border p-4 rounded-3xl shadow-sm">
                     <div className="w-14 h-14 rounded-full bg-primary-light border-2 border-primary/20 text-primary flex items-center justify-center font-bold text-xl overflow-hidden shrink-0">
                       {user?.user_metadata?.avatar_url ? (
                         <img
                           src={user.user_metadata.avatar_url}
+                          alt="Avatar"
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -402,7 +430,6 @@ export default function AppRouter() {
                     </button>
                   </div>
 
-                  {/* 2. Primary Navigation Rows */}
                   <div className="flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm divide-y divide-border">
                     <button
                       onClick={() => {
@@ -412,10 +439,10 @@ export default function AppRouter() {
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <Wallet size={20} className="text-muted" />{' '}
+                        <Wallet className="text-muted" size={20} />
                         <span className="font-semibold text-main">Global Ledger</span>
                       </div>
-                      <ChevronRight size={18} className="text-muted/50" />
+                      <ChevronRight className="text-muted/50" size={18} />
                     </button>
                     <button
                       onClick={() => {
@@ -425,10 +452,10 @@ export default function AppRouter() {
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <BarChart3 size={20} className="text-muted" />{' '}
+                        <BarChart3 className="text-muted" size={20} />
                         <span className="font-semibold text-main">Personal Analytics</span>
                       </div>
-                      <ChevronRight size={18} className="text-muted/50" />
+                      <ChevronRight className="text-muted/50" size={18} />
                     </button>
                     <button
                       onClick={() => {
@@ -438,48 +465,46 @@ export default function AppRouter() {
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <Users size={20} className="text-muted" />{' '}
+                        <Users className="text-muted" size={20} />
                         <span className="font-semibold text-main">Friends Network</span>
                       </div>
-                      <ChevronRight size={18} className="text-muted/50" />
+                      <ChevronRight className="text-muted/50" size={18} />
                     </button>
                   </div>
 
-                  {/* 3. The Legal Hub */}
                   <div className="flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm divide-y divide-border">
                     <a
                       href={utils.resolvePath('privacy')}
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <Shield size={20} className="text-muted" />{' '}
+                        <Shield className="text-muted" size={20} />
                         <span className="font-semibold text-main">Privacy Policy</span>
                       </div>
-                      <ExternalLink size={16} className="text-muted/50" />
+                      <ExternalLink className="text-muted/50" size={16} />
                     </a>
                     <a
                       href={utils.resolvePath('terms')}
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <FileText size={20} className="text-muted" />{' '}
+                        <FileText className="text-muted" size={20} />
                         <span className="font-semibold text-main">Terms of Service</span>
                       </div>
-                      <ExternalLink size={16} className="text-muted/50" />
+                      <ExternalLink className="text-muted/50" size={16} />
                     </a>
                     <a
                       href={utils.resolvePath('refunds')}
                       className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <RefreshCcw size={20} className="text-muted" />{' '}
+                        <RefreshCcw className="text-muted" size={20} />
                         <span className="font-semibold text-main">Refund Policy</span>
                       </div>
-                      <ExternalLink size={16} className="text-muted/50" />
+                      <ExternalLink className="text-muted/50" size={16} />
                     </a>
                   </div>
 
-                  {/* 4. Danger Zone */}
                   <button
                     onClick={handleSignOut}
                     className="h-14 w-full mt-2 bg-danger/10 text-danger border border-danger/20 rounded-2xl font-bold text-[0.95rem] flex items-center justify-center gap-2 active:bg-danger/20 transition-colors shadow-sm"
@@ -502,7 +527,7 @@ export default function AppRouter() {
               setCurrentView('lobby');
             }}
             onJoinSession={handleJoinSession}
-            onViewLedger={() => setCurrentView('ledger')}
+            onViewLedger={() => handleSelectDockTab('ledger')}
             user={user}
           />
         )}
@@ -542,6 +567,18 @@ export default function AppRouter() {
         )}
       </div>
 
+      {/* FLOATING THUMB-ZONE BOTTOM DOCK */}
+      {DOCK_VIEWS.includes(currentView) && (
+        <BottomDock
+          activeTab={currentView as DockTab}
+          onSelectTab={handleSelectDockTab}
+          onNewSession={() => {
+            setLobbyMode('create');
+            setCurrentView('lobby');
+          }}
+        />
+      )}
+
       <BottomSheet
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
@@ -560,10 +597,7 @@ export default function AppRouter() {
             </p>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-border mb-4">
-            <QRCode
-              value={`${typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}?s=${activeSessionId}&p=${activeSessionPin}`}
-              size={200}
-            />
+            <QRCode value={shareUrl} size={200} />
           </div>
         </div>
       </BottomSheet>

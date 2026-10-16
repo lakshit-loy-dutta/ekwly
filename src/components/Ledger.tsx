@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import { splitwiseCsv, type SplitwiseParseResult } from '../lib/splitwiseCsv';
 import BottomSheet from './ui/BottomSheet';
+import ConfirmSheet from './ui/ConfirmSheet';
+import BrandLoader from './ui/BrandLoader';
 import {
   Wallet,
   ArrowDownLeft,
@@ -33,8 +35,11 @@ export default function Ledger({ user }: Props) {
   const [owedToMe, setOwedToMe] = useState<LedgerEntry[]>([]);
   const [iOwe, setIOwe] = useState<LedgerEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingSettle, setPendingSettle] = useState<{
+    entry: LedgerEntry;
+    amICreditor: boolean;
+  } | null>(null);
 
-  // Splitwise CSV Import State
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [parsedCsv, setParsedCsv] = useState<SplitwiseParseResult | null>(null);
   const [selectedSelfName, setSelectedSelfName] = useState<string>('');
@@ -60,18 +65,19 @@ export default function Ledger({ user }: Props) {
     fetchLedger();
   }, [user]);
 
-  const handleSettleUp = async (entry: LedgerEntry, amICreditor: boolean) => {
+  const executeSettleUp = async () => {
+    if (!pendingSettle || !user) return;
+    const { entry, amICreditor } = pendingSettle;
     const otherName = amICreditor ? entry.debtor_name : entry.creditor_name;
-    if (!window.confirm(`Mark all pending debts with ${otherName} as settled?`)) return;
 
     let query = supabase.from('ledger').update({ settled: true }).eq('settled', false);
 
     if (amICreditor) {
-      query = query.eq('creditor_id', user!.id);
+      query = query.eq('creditor_id', user.id);
       if (entry.debtor_id) query = query.eq('debtor_id', entry.debtor_id);
       else query = query.is('debtor_id', null).eq('debtor_fallback_name', entry.debtor_name);
     } else {
-      query = query.eq('debtor_id', user!.id);
+      query = query.eq('debtor_id', user.id);
       if (entry.creditor_id) query = query.eq('creditor_id', entry.creditor_id);
       else query = query.is('creditor_id', null).eq('creditor_fallback_name', entry.creditor_name);
     }
@@ -168,12 +174,9 @@ export default function Ledger({ user }: Props) {
     }
   };
 
-  if (isLoading)
-    return (
-      <div className="flex h-full flex-1 items-center justify-center">
-        <Loader2 className="animate-spin text-primary opacity-50" size={32} />
-      </div>
-    );
+  if (isLoading) {
+    return <BrandLoader label="Syncing Ledger..." fullScreen />;
+  }
 
   const totalOwedToMe = owedToMe.reduce((sum, row) => sum + Number(row.total_owed), 0);
   const totalIOwe = iOwe.reduce((sum, row) => sum + Number(row.total_owed), 0);
@@ -182,8 +185,24 @@ export default function Ledger({ user }: Props) {
       ? splitwiseCsv.extractUserDebts(parsedCsv.netBalances, selectedSelfName)
       : [];
 
+  const pendingOtherName = pendingSettle
+    ? pendingSettle.amICreditor
+      ? pendingSettle.entry.debtor_name
+      : pendingSettle.entry.creditor_name
+    : '';
+
   return (
-    <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-24">
+    <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-28">
+      <ConfirmSheet
+        isOpen={!!pendingSettle}
+        onClose={() => setPendingSettle(null)}
+        onConfirm={executeSettleUp}
+        title="Settle Balance?"
+        description={`Mark all pending debts with ${pendingOtherName} as settled?`}
+        confirmLabel="Mark Settled"
+        variant="success"
+      />
+
       <div className="flex flex-col items-center mb-6 mt-2">
         <div className="w-16 h-16 rounded-full bg-primary-light text-primary flex items-center justify-center font-bold mb-4 shadow-sm">
           <Wallet size={28} />
@@ -272,7 +291,7 @@ export default function Ledger({ user }: Props) {
                   <MessageCircle size={15} /> Nudge
                 </a>
                 <button
-                  onClick={() => handleSettleUp(entry, true)}
+                  onClick={() => setPendingSettle({ entry, amICreditor: true })}
                   className="h-9 px-4 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
                 >
                   <CheckCircle2 size={16} /> Settle
@@ -312,7 +331,7 @@ export default function Ledger({ user }: Props) {
                 </div>
               </div>
               <button
-                onClick={() => handleSettleUp(entry, false)}
+                onClick={() => setPendingSettle({ entry, amICreditor: false })}
                 className="h-9 px-4 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
               >
                 <CheckCircle2 size={16} /> Mark Paid

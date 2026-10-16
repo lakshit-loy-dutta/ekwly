@@ -113,15 +113,13 @@ export default function SessionRules({ onScanComplete }: Props) {
       serviceChargeRate: parsedScRate,
     });
     if (venue.tax_presets && Array.isArray(venue.tax_presets)) {
-      for (const t of taxPresets) await actions.removeTaxPresetFromDB(t.id);
-      for (const t of venue.tax_presets) {
-        await actions.addTaxPresetToDB({
-          id: utils.generateId(),
-          name: t.name,
-          rate: t.rate,
-          split: t.split !== false,
-        });
-      }
+      const mappedPresets = venue.tax_presets.map((t) => ({
+        id: utils.generateId(),
+        name: t.name,
+        rate: t.rate,
+        split: t.split !== false,
+      }));
+      await actions.replaceTaxPresetsInDB(mappedPresets);
       showToast(`${venue.name} rules applied!`, 'success');
     }
   };

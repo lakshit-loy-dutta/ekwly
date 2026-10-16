@@ -5,17 +5,9 @@ import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import type { DatabaseSession } from '../lib/types';
 import QrScannerModal from './ui/QrScannerModal';
-import {
-  Plus,
-  QrCode,
-  Clock,
-  ChevronRight,
-  KeyRound,
-  Trash2,
-  Edit2,
-  Check,
-  Loader2,
-} from 'lucide-react';
+import ConfirmSheet from './ui/ConfirmSheet';
+import BrandLoader from './ui/BrandLoader';
+import { Plus, QrCode, Clock, ChevronRight, KeyRound, Trash2, Edit2, Check } from 'lucide-react';
 
 interface Props {
   onOpenLobby: (mode: 'create' | 'join') => void;
@@ -33,31 +25,26 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editSessionName, setEditSessionName] = useState('');
   const [isScanningRoom, setIsScanningRoom] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<DatabaseSession | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       if (!user || user.is_anonymous) return setIsLoading(false);
 
-      const { data: sessionData } = await supabase
-        .from('sessions')
-        .select('id, name, venue_name, host_id, pin, status, created_at')
-        .eq('host_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(15);
+      const [sessionRes, creditorRes, debtorRes] = await Promise.all([
+        supabase
+          .from('sessions')
+          .select('id, name, venue_name, host_id, pin, status, created_at')
+          .eq('host_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(15),
+        supabase.from('global_ledger').select('total_owed').eq('creditor_id', user.id),
+        supabase.from('global_ledger').select('total_owed').eq('debtor_id', user.id),
+      ]);
 
-      if (sessionData) setRecentSessions(sessionData as DatabaseSession[]);
-
-      const { data: creditorData } = await supabase
-        .from('global_ledger')
-        .select('total_owed')
-        .eq('creditor_id', user.id);
-      const { data: debtorData } = await supabase
-        .from('global_ledger')
-        .select('total_owed')
-        .eq('debtor_id', user.id);
-
-      setOwedToMe(creditorData?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0);
-      setIOwe(debtorData?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0);
+      if (sessionRes.data) setRecentSessions(sessionRes.data as DatabaseSession[]);
+      setOwedToMe(creditorRes.data?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0);
+      setIOwe(debtorRes.data?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0);
       setIsLoading(false);
     };
 
@@ -80,11 +67,11 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
     else showToast('Invalid Room QR Code.', 'error');
   };
 
-  const handleDeleteSession = async (e: React.MouseEvent, delSessionId: string) => {
-    e.stopPropagation();
-    if (!window.confirm('Permanently delete this session?')) return;
-    setRecentSessions((prev) => prev.filter((s) => s.id !== delSessionId));
-    await supabase.from('sessions').delete().eq('id', delSessionId);
+  const confirmDeleteSession = async () => {
+    if (!sessionToDelete) return;
+    const delId = sessionToDelete.id;
+    setRecentSessions((prev) => prev.filter((s) => s.id !== delId));
+    await supabase.from('sessions').delete().eq('id', delId);
     showToast('Session deleted', 'success');
   };
 
@@ -125,7 +112,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
   };
 
   return (
-    <div className="w-full flex flex-col flex-1 relative bg-page">
+    <div className="w-full flex flex-col flex-1 relative bg-page pb-24">
       <QrScannerModal
         isOpen={isScanningRoom}
         title="Scan Room QR"
@@ -133,14 +120,24 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
         onScanSuccess={processScannedUrl}
       />
 
-      <div className="absolute inset-0 bg-grid-pattern z-0"></div>
+      <ConfirmSheet
+        isOpen={!!sessionToDelete}
+        onClose={() => setSessionToDelete(null)}
+        onConfirm={confirmDeleteSession}
+        title="Delete Session?"
+        description={`Are you sure you want to permanently delete "${sessionToDelete ? getSessionTitle(sessionToDelete) : ''}" and all of its split records?`}
+        confirmLabel="Delete Room"
+        variant="danger"
+      />
+
+      <div className="absolute inset-0 bg-grid-pattern z-0" />
 
       <div className="w-full flex flex-col px-4 py-6 md:px-8 relative z-10">
         <div className="mb-6 flex justify-between items-end">
           <div>
-            <h2 className="text-3xl font-bold text-main tracking-tight">
+            <h2 className="text-3xl font-extrabold text-main tracking-tight">
               {user?.user_metadata?.full_name
-                ? `Hi, ${user.user_metadata.full_name.split(' ')[0]} 👋`
+                ? `Hi, ${user.user_metadata.full_name.split(' ')[0]}`
                 : 'Dashboard'}
             </h2>
             <p className="text-muted text-sm mt-1 font-medium">Ready to settle up?</p>
@@ -148,90 +145,97 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
         </div>
 
         {user?.is_anonymous ? (
-          <div className="bg-warning/10 border border-warning/20 rounded-2xl p-4 mb-6 flex flex-col gap-1 backdrop-blur-sm">
+          <div className="bg-warning/10 border border-warning/20 rounded-2xl p-4 mb-6 flex flex-col gap-1">
             <h4 className="text-warning-700 font-bold text-sm">Guest Mode Active</h4>
             <p className="text-warning-700/80 text-xs font-medium leading-relaxed">
               Sign in from the profile menu to permanently save your session history and ledger.
             </p>
           </div>
         ) : (
-          <button
-            onClick={onViewLedger}
-            className="w-full text-left premium-gradient-card text-white rounded-3xl p-6 mb-6 flex flex-col gap-5 transition-transform active:scale-[0.98]"
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              utils.haptic('light');
+              onViewLedger();
+            }}
+            className="w-full text-left premium-gradient-card text-white rounded-3xl p-6 mb-6 flex flex-col gap-5 gpu-layer"
           >
             <div className="flex justify-between items-end">
               <div className="flex flex-col">
-                <span className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1.5 drop-shadow-sm">
+                <span className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1.5">
                   Total Owed to You
                 </span>
-                <span className="text-4xl font-extrabold tracking-tight tabular-nums drop-shadow-md">
+                <span className="text-4xl font-extrabold tracking-tight tabular-nums">
                   {utils.formatMoney(owedToMe)}
                 </span>
               </div>
-              <div className="flex items-center gap-1 text-white text-sm font-bold bg-white/20 hover:bg-white/30 px-4 py-2 rounded-full backdrop-blur-md transition-colors shadow-sm">
+              <div className="flex items-center gap-1 text-white text-sm font-bold bg-white/20 hover:bg-white/30 px-4 py-2 rounded-full transition-colors shadow-sm">
                 Ledger <ChevronRight size={16} />
               </div>
             </div>
-            <div className="h-px w-full bg-white/20"></div>
+            <div className="h-px w-full bg-white/20" />
             <div className="flex justify-between items-center">
-              <span className="text-white/80 text-sm font-medium drop-shadow-sm">
-                You Owe Others
-              </span>
-              <span className="font-bold tracking-wide tabular-nums drop-shadow-sm">
+              <span className="text-white/80 text-sm font-medium">You Owe Others</span>
+              <span className="font-bold tracking-wide tabular-nums">
                 {utils.formatMoney(iOwe)}
               </span>
             </div>
-          </button>
+          </motion.button>
         )}
 
         <div className="grid grid-cols-2 gap-3 mb-4">
-          <button
-            onClick={() => onOpenLobby('create')}
-            className="bg-surface/80 backdrop-blur-md active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-all h-28"
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => {
+              utils.haptic('light');
+              onOpenLobby('create');
+            }}
+            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-colors h-28"
           >
             <div className="bg-primary/10 p-2.5 rounded-full text-primary">
               <Plus size={24} strokeWidth={2.5} />
             </div>
             <span className="font-bold text-[0.95rem]">New Session</span>
-          </button>
-          <button
-            onClick={() => setIsScanningRoom(true)}
-            className="bg-surface/80 backdrop-blur-md active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-all h-28"
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => {
+              utils.haptic('light');
+              setIsScanningRoom(true);
+            }}
+            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-colors h-28"
           >
             <div className="bg-primary/10 p-2.5 rounded-full text-primary">
               <QrCode size={24} strokeWidth={2.5} />
             </div>
             <span className="font-bold text-[0.95rem]">Scan Room</span>
-          </button>
+          </motion.button>
         </div>
 
-        <button
-          onClick={() => onOpenLobby('join')}
-          className="w-full h-12 bg-surface/80 backdrop-blur-md active:bg-subtle text-main border border-border rounded-xl flex items-center justify-center gap-2 font-semibold transition-all mb-8 shadow-sm hover:border-primary/30"
+        <motion.button
+          whileTap={{ scale: 0.98 }}
+          onClick={() => {
+            utils.haptic('light');
+            onOpenLobby('join');
+          }}
+          className="w-full h-12 bg-surface active:bg-subtle text-main border border-border rounded-xl flex items-center justify-center gap-2 font-semibold transition-colors mb-8 shadow-sm hover:border-primary/30"
         >
-          <KeyRound size={18} className="text-muted" /> Join with ID & PIN
-        </button>
+          <KeyRound className="text-muted" size={18} /> Join with ID & PIN
+        </motion.button>
 
-        <div className="flex flex-col flex-1 pb-10">
+        <div className="flex flex-col flex-1 pb-6">
           <div className="flex items-center gap-2 mb-4 px-1">
-            <Clock size={16} className="text-muted" />
+            <Clock className="text-muted" size={16} />
             <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
               Recent Activity
             </h3>
           </div>
 
           {isLoading ? (
-            <div className="flex justify-center p-8">
-              <Loader2 className="animate-spin text-primary opacity-50" size={24} />
-            </div>
+            <BrandLoader label="Loading Sessions..." />
           ) : recentSessions.length > 0 ? (
-            <motion.div
-              initial="hidden"
-              animate="visible"
-              variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
-              className="flex flex-col gap-3"
-            >
-              <AnimatePresence>
+            <div className="flex flex-col gap-3">
+              <AnimatePresence initial={false}>
                 {recentSessions.map((session) => {
                   const title = getSessionTitle(session);
                   const isEditing = editingSessionId === session.id;
@@ -239,9 +243,12 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
                   return (
                     <motion.div
                       key={session.id}
-                      variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="bg-surface/90 backdrop-blur-xl border border-border hover:border-primary/40 rounded-2xl p-4 flex items-center justify-between text-left transition-all shadow-sm group"
+                      layout="position"
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.96 }}
+                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                      className="bg-surface border border-border hover:border-primary/40 rounded-2xl p-4 flex items-center justify-between text-left shadow-sm group gpu-layer"
                     >
                       <div
                         className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer"
@@ -299,7 +306,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
                               </button>
                             </div>
                           )}
-                          <span className="text-[0.75rem] text-muted font-medium mt-0.5">
+                          <span className="text-[0.75rem] text-muted font-medium tabular-nums mt-0.5">
                             {new Date(session.created_at).toLocaleDateString()} • ID:{' '}
                             {session.id.toUpperCase()}
                           </span>
@@ -308,22 +315,26 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
 
                       <div className="flex items-center gap-2 pl-2">
                         <button
-                          onClick={(e) => handleDeleteSession(e, session.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSessionToDelete(session);
+                          }}
                           className="p-2 text-muted hover:text-danger hover:bg-danger/10 rounded-full transition-colors active:scale-90"
+                          aria-label="Delete session"
                         >
                           <Trash2 size={18} />
                         </button>
-                        <ChevronRight size={20} className="text-muted/40" />
+                        <ChevronRight className="text-muted/40" size={20} />
                       </div>
                     </motion.div>
                   );
                 })}
               </AnimatePresence>
-            </motion.div>
+            </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 px-6 bg-surface/50 border border-dashed border-border rounded-2xl text-center">
+            <div className="flex flex-col items-center justify-center py-12 px-6 bg-surface border border-dashed border-border rounded-2xl text-center">
               <div className="w-16 h-16 bg-page rounded-full flex items-center justify-center mb-4">
-                <Plus size={32} className="text-muted/50" />
+                <Plus className="text-muted/50" size={32} />
               </div>
               <h3 className="font-bold text-main mb-1">No sessions yet</h3>
               <p className="text-sm font-medium text-muted">

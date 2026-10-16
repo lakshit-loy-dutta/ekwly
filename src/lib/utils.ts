@@ -62,6 +62,16 @@ export const utils = {
     return { cgst: `${base} (CGST)`, sgst: `${base} (SGST)` };
   },
 
+  haptic: (style: 'light' | 'medium' | 'heavy' = 'light') => {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate(style === 'heavy' ? 25 : style === 'medium' ? 14 : 7);
+      } catch {
+        // Ignore on unsupported browsers
+      }
+    }
+  },
+
   buildWhatsAppReminderUrl: (params: {
     debtorName: string;
     creditorName: string;

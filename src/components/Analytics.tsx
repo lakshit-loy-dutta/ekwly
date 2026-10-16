@@ -3,16 +3,8 @@ import { motion } from 'framer-motion';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { utils, showToast } from '../lib/utils';
-import {
-  BarChart3,
-  Sparkles,
-  TrendingUp,
-  Store,
-  Users,
-  Lock,
-  Loader2,
-  CheckCircle2,
-} from 'lucide-react';
+import BrandLoader from './ui/BrandLoader';
+import { BarChart3, Sparkles, TrendingUp, Store, Users, Lock, CheckCircle2 } from 'lucide-react';
 
 interface VenueStat {
   venue_name: string | null;
@@ -109,7 +101,7 @@ export default function Analytics({ user }: Props) {
   if (isLoading) {
     return (
       <div className="flex h-full flex-1 items-center justify-center p-12">
-        <Loader2 className="animate-spin text-primary opacity-50" size={32} />
+        <BrandLoader fullScreen label="Loading Insights..." />
       </div>
     );
   }
