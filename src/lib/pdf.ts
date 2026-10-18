@@ -333,8 +333,26 @@ export const exportToPDF = async (
     const safeFilename = customTitle
       ? customTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()
       : `Settlement_${new Date().toISOString().slice(0, 10)}`;
-    doc.save(`${safeFilename}.pdf`);
-    showToast('PDF Generated Successfully!', 'success');
+    const fileNameWithExt = `${safeFilename}.pdf`;
+
+    const pdfBlob = doc.output('blob');
+    const pdfFile = new File([pdfBlob], fileNameWithExt, { type: 'application/pdf' });
+
+    if (
+      typeof navigator !== 'undefined' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [pdfFile] })
+    ) {
+      await navigator.share({
+        title: docTitle,
+        text: `Settlement receipt for ${docTitle} generated via Ekwly.`,
+        files: [pdfFile],
+      });
+      showToast('Receipt shared!', 'success');
+    } else {
+      doc.save(fileNameWithExt);
+      showToast('PDF Generated Successfully!', 'success');
+    }
   } catch (error) {
     console.error(error);
     showToast('Error generating PDF.', 'error');

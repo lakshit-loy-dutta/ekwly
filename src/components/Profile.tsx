@@ -54,7 +54,7 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
 
       const rawName =
         data?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '';
-      const cleanName = /^Guest\s+[0-9a-f]{5}\$/i.test(rawName) ? '' : rawName;
+      const cleanName = /^Guest\s+[0-9a-f]{5}$/i.test(rawName) ? '' : rawName;
 
       setName(cleanName);
       setUpiId(data?.upi_id || '');

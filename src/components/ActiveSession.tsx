@@ -1,20 +1,17 @@
-import { useState, useMemo, useEffect, Suspense, lazy } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, Check } from 'lucide-react'; // Added Check
-import type { CalculationResult } from '../lib/types';
+import { Receipt, Wallet, Check, Users, ChevronRight } from 'lucide-react';
 import { utils, showToast } from '../lib/utils';
 import { exportToPDF } from '../lib/pdf';
 import { mathEngine } from '../lib/mathEngine';
 import { SessionProvider, useSessionContext } from '../lib/SessionContext';
+import BrandLoader from './ui/BrandLoader';
+import BottomSheet from './ui/BottomSheet';
 
-// LAZY LOADED COMPONENTS (Massive initial load speedup)
-const SessionRules = lazy(() => import('./session/SessionRules'));
-const ReceiptEditor = lazy(() => import('./session/ReceiptEditor'));
-const MembersList = lazy(() => import('./session/MembersList'));
-const ClaimManager = lazy(() => import('./session/ClaimManager'));
-const Payments = lazy(() => import('./session/Payments'));
+const ReceiptWorkbench = lazy(() => import('./session/ReceiptWorkbench'));
 const DebtMatrix = lazy(() => import('./session/DebtMatrix'));
-const QuickSplit = lazy(() => import('./session/QuickSplit'));
+const Payments = lazy(() => import('./session/Payments'));
+
 interface Props {
   sessionId?: string | null;
   pin?: string | null;
@@ -26,16 +23,7 @@ interface Props {
   initialName?: string | null;
 }
 
-// 1. INNER COMPONENT: Consumes the global context cleanly
-function ActiveSessionCore({
-  sessionId,
-  pin,
-  initialName,
-  currentStep,
-  direction,
-  navigate,
-  onExit,
-}: Props & { sessionId: string }) {
+function ActiveSessionCore({ sessionId, pin, initialName, onExit }: Props & { sessionId: string }) {
   const {
     isLoading,
     sessionStatus,
@@ -44,117 +32,27 @@ function ActiveSessionCore({
     ledger,
     items,
     members,
-    claims,
     currentUserId,
     isHost,
     actions,
+    formattedClaims,
+    liveCalculation,
   } = useSessionContext();
 
-  // Safe Room Initialization
+  const [activeTab, setActiveTab] = useState<'workbench' | 'settle'>('workbench');
+  const [receiptTitle, setReceiptTitle] = useState<string>('');
+  const [showMultiPayerSheet, setShowMultiPayerSheet] = useState(false);
+
   useEffect(() => {
     if (isHost && pin && sessionId) {
-      actions.createSessionInDB?.(sessionId, pin, initialName);
+      actions.createSessionInDB(sessionId, pin, initialName);
     }
-  }, [isHost, sessionId, pin]);
-
-  const formattedClaims = useMemo(() => {
-    const map: Record<string, Record<string, string>> = {};
-    members.forEach((m) => {
-      map[m.id] = {};
-    });
-    claims.forEach((c) => {
-      if (!map[c.member_id]) map[c.member_id] = {};
-      map[c.member_id][c.item_id] = c.value;
-    });
-    return map;
-  }, [claims, members]);
-
-  const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
-  const [receiptTitle, setReceiptTitle] = useState<string>('');
-
-  // Quick Split State (Needs to stay here because it spans multiple components in Step 4)
-  const [qsItemId, setQsItemId] = useState<string>('');
-  const [qsSelectedMembers, setQsSelectedMembers] = useState<string[]>([]);
-
-  // Clean up ghost selections if a member is deleted
-  useEffect(() => {
-    setQsSelectedMembers((prev) => prev.filter((id) => members.some((m) => m.id === id)));
-  }, [members]);
+  }, [isHost, sessionId, pin, initialName]);
 
   useEffect(() => {
-    if (items.length > 0 && (!qsItemId || !items.find((i) => i.id === qsItemId)))
-      setQsItemId(items[0].id);
-  }, [items, qsItemId]);
-
-  const toggleQsMember = (id: string) => {
-    setQsSelectedMembers((prev) =>
-      prev.includes(id) ? prev.filter((mid) => mid !== id) : [...prev, id]
-    );
-  };
-
-  const handleApplyQuickSplit = () => {
-    const item = items.find((i) => i.id === qsItemId);
-    if (!item) return showToast('Please select an item first.', 'error');
-    if (qsSelectedMembers.length === 0) return showToast('Select at least one member.', 'error');
-
-    const fractionString = utils.getFractionString(item.qty, qsSelectedMembers.length);
-
-    // Build the batch array
-    const updates = members
-      .map((member) => {
-        if (qsSelectedMembers.includes(member.id)) {
-          return { memberId: member.id, itemId: item.id, value: fractionString };
-        } else if (formattedClaims[member.id]?.[item.id]) {
-          return { memberId: member.id, itemId: item.id, value: '' };
-        }
-        return null;
-      })
-      .filter(Boolean) as { memberId: string; itemId: string; value: string }[];
-
-    // Send it all at once!
-    actions.batchUpdateClaimsInDB?.(updates);
-    setQsSelectedMembers([]);
-    showToast(`Divided evenly.`, 'success');
-  };
-
-  const triggerMathCalculation = () => {
-    return mathEngine.generateSplit({
-      items,
-      members,
-      formattedClaims,
-      discountType: sessionRules.discountType,
-      discountMode: sessionRules.discountMode,
-      discountValue: sessionRules.discountValue,
-      taxPresets,
-      scTaxPresetId: sessionRules.scTaxPresetId,
-      serviceChargeRate: sessionRules.serviceChargeRate,
-    });
-  };
-
-  const handleGenerateSettlement = () => {
-    const totalPaid = members.reduce((sum, m) => sum + (m.paid_amount || 0), 0);
-    const grandTotal = calculationResult!.globalSummary.grandTotal;
-
-    if (Math.abs(totalPaid - grandTotal) > 0.05)
-      return showToast('Payments must equal the Grand Total.', 'error');
-
-    const transactions = mathEngine.generateTransactions(
-      members,
-      calculationResult!.individualBreakdowns
-    );
-    if (isHost) actions.saveLedgerToDB?.(transactions);
-    navigate(6);
-  };
-
-  useEffect(() => {
-    if (sessionStatus === 'locked' && items.length > 0 && members.length > 0) {
-      setCalculationResult(triggerMathCalculation());
+    if (sessionStatus === 'locked') {
+      setActiveTab('settle');
     }
-  }, [sessionStatus, items, members, formattedClaims, sessionRules, taxPresets]);
-
-  useEffect(() => {
-    if (sessionStatus === 'locked' && currentStep !== 6) navigate(6);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStatus]);
 
   const isSplitComplete =
@@ -162,160 +60,185 @@ function ActiveSessionCore({
     members.length > 0 &&
     items.every((item) => {
       let claimed = 0;
-      members.forEach((m) => (claimed += utils.parseQty(formattedClaims[m.id]?.[item.id])));
+      members.forEach((m) => {
+        claimed += utils.parseQty(formattedClaims[m.id]?.[item.id]);
+      });
       return Math.abs(item.qty - claimed) < 0.01;
     });
 
-  const slideVariants = {
-    enter: (direction: number) => ({ x: direction > 0 ? '100%' : '-100%', opacity: 0 }),
-    center: { x: 0, opacity: 1 },
-    exit: (direction: number) => ({ x: direction < 0 ? '100%' : '-100%', opacity: 0 }),
+  const grandTotal = liveCalculation.globalSummary.grandTotal;
+  const totalPaid = members.reduce((sum, m) => sum + (m.paid_amount || 0), 0);
+  const isPaymentBalanced = Math.abs(totalPaid - grandTotal) <= 0.05;
+
+  // Smart Cashier Default: When moving to Settle tab, if ₹0 is recorded, auto-assign to Host/Me
+  const handleProceedToSettle = async () => {
+    if (!isSplitComplete) {
+      return showToast('Assign all dishes to table members before settling.', 'error');
+    }
+    utils.haptic('medium');
+
+    let updatedMembers = [...members];
+    if (isHost && grandTotal > 0 && Math.abs(totalPaid - grandTotal) > 0.05) {
+      const hostMember = members.find((m) => m.user_id === currentUserId) || members[0];
+      if (hostMember && totalPaid === 0) {
+        await actions.updateMemberPaymentInDB(hostMember.id, grandTotal);
+        updatedMembers = members.map((m) =>
+          m.id === hostMember.id ? { ...m, paid_amount: grandTotal } : m
+        );
+      }
+    }
+
+    const tx = mathEngine.generateTransactions(
+      updatedMembers,
+      liveCalculation.individualBreakdowns
+    );
+    if (isHost) {
+      await actions.saveLedgerToDB(tx);
+    }
+    setActiveTab('settle');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  if (isLoading)
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="animate-pulse text-primary font-bold">Syncing Session...</div>
-      </div>
-    );
+  if (isLoading) {
+    return <BrandLoader label="Syncing Room..." fullScreen />;
+  }
 
   return (
     <div className="flex flex-col h-full relative bg-page min-h-screen">
-      {/* THE GLOBAL BACKGROUND TEXTURE FOR ALL ACTIVE SESSIONS */}
-      <div className="fixed inset-0 bg-grid-pattern z-0 pointer-events-none opacity-80"></div>
+      <div className="fixed inset-0 bg-grid-pattern z-0 pointer-events-none opacity-80" />
 
-      <div className="flex-1 overflow-x-hidden overflow-y-auto pb-32 relative z-10 no-scrollbar">
-        <Suspense
-          fallback={
-            <div className="flex justify-center p-12">
-              <div className="animate-pulse text-primary font-bold">Loading component...</div>
-            </div>
-          }
-        >
-          <AnimatePresence custom={direction} mode="wait">
-            {currentStep === 1 && (
+      {/* 2-TAB SEGMENTED SWITCHER */}
+      <div className="sticky top-0 z-30 bg-page/90 backdrop-blur-md px-4 pt-3 pb-2 border-b border-border/60">
+        <div className="grid grid-cols-2 gap-1.5 bg-surface border border-border p-1 rounded-2xl shadow-sm">
+          <button
+            type="button"
+            onClick={() => {
+              utils.haptic('light');
+              setActiveTab('workbench');
+            }}
+            className={`relative py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
+              activeTab === 'workbench' ? 'text-white' : 'text-muted hover:text-main'
+            }`}
+          >
+            {activeTab === 'workbench' && (
               <motion.div
-                key="step1"
-                custom={direction}
-                variants={slideVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              >
-                <SessionRules onScanComplete={() => navigate(2)} />
-              </motion.div>
+                layoutId="session-tab-pill"
+                transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+                className="absolute inset-0 bg-primary rounded-xl z-0 shadow-sm"
+              />
             )}
-            {currentStep === 2 && (
+            <Receipt size={14} className="relative z-10" />
+            <span className="relative z-10">1. Receipt & Split</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleProceedToSettle}
+            className={`relative py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
+              activeTab === 'settle' ? 'text-white' : 'text-muted hover:text-main'
+            }`}
+          >
+            {activeTab === 'settle' && (
               <motion.div
-                key="step2"
-                custom={direction}
-                variants={slideVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              >
-                <ReceiptEditor />
-              </motion.div>
+                layoutId="session-tab-pill"
+                transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+                className="absolute inset-0 bg-primary rounded-xl z-0 shadow-sm"
+              />
             )}
-            {currentStep === 3 && (
+            <Wallet size={14} className="relative z-10" />
+            <span className="relative z-10">2. Settle & Collect</span>
+          </button>
+        </div>
+      </div>
+
+      {/* MAIN WORKBENCH CONTENT */}
+      <div className="flex-1 overflow-x-hidden overflow-y-auto relative z-10 no-scrollbar">
+        <Suspense fallback={<BrandLoader label="Loading Workbench..." />}>
+          <AnimatePresence mode="wait">
+            {activeTab === 'workbench' ? (
               <motion.div
-                key="step3"
-                custom={direction}
-                variants={slideVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                key="workbench"
+                initial={{ opacity: 0, x: -16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -16 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 32 }}
               >
-                <MembersList />
+                <ReceiptWorkbench />
               </motion.div>
-            )}
-            {currentStep === 4 && (
+            ) : (
               <motion.div
-                key="step4"
-                custom={direction}
-                variants={slideVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                className="flex flex-col"
+                key="settle"
+                initial={{ opacity: 0, x: 16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 16 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                className="flex flex-col pb-24"
               >
-                {items.length > 0 && members.length > 0 && (
-                  <QuickSplit
-                    items={items}
-                    members={members}
-                    qsItemId={qsItemId}
-                    setQsItemId={setQsItemId}
-                    qsSelectedMembers={qsSelectedMembers}
-                    toggleQsMember={toggleQsMember}
-                    handleApplyQuickSplit={handleApplyQuickSplit}
-                  />
+                {/* Cashier Payment Summary Banner (Replaces Mandatory Step 5) */}
+                {sessionStatus !== 'locked' && (
+                  <div className="mx-4 mt-4 mb-2 bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3">
+                    <div className="flex flex-col">
+                      <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                        Paid the Restaurant Cashier
+                      </span>
+                      <span className="text-sm font-bold text-main mt-0.5">
+                        {members
+                          .filter((m) => m.paid_amount > 0)
+                          .map((m) => `${m.name} (${utils.formatMoney(m.paid_amount)})`)
+                          .join(', ') || 'No payer selected'}
+                      </span>
+                      {!isPaymentBalanced && (
+                        <span className="text-xs font-bold text-danger mt-0.5">
+                          Cashier payments ({utils.formatMoney(totalPaid)}) must match{' '}
+                          {utils.formatMoney(grandTotal)}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowMultiPayerSheet(true)}
+                      className="px-3 py-2 rounded-xl bg-primary/10 text-primary font-bold text-xs shrink-0 hover:bg-primary/20 transition-colors"
+                    >
+                      Change Payer
+                    </button>
+                  </div>
                 )}
-                <ClaimManager
-                  items={items}
-                  members={members}
-                  claims={formattedClaims}
-                  handleUpdateClaim={actions.updateClaimInDB}
-                />
-              </motion.div>
-            )}
-            {currentStep === 5 && calculationResult && (
-              <motion.div
-                key="step5"
-                custom={direction}
-                variants={slideVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              >
-                <Payments
-                  isHost={isHost}
-                  members={members}
-                  grandTotal={calculationResult.globalSummary.grandTotal}
-                  handleUpdatePayment={(id, val) =>
-                    actions.updateMemberPaymentInDB?.(id, parseFloat(val) || 0)
-                  }
-                />
-              </motion.div>
-            )}
-            {currentStep === 6 && calculationResult && (
-              <motion.div
-                key="step6"
-                custom={direction}
-                variants={slideVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              >
+
                 <DebtMatrix
-                  calculationResult={calculationResult}
+                  calculationResult={liveCalculation}
                   receiptTitle={receiptTitle}
                   setReceiptTitle={setReceiptTitle}
                   sessionStatus={sessionStatus}
                   ledger={ledger}
                   isHost={isHost}
                   currentUserId={currentUserId}
-                  venueName={sessionRules.venueName} // <-- NEW PROP
-                  handleLockSession={() => actions.lockSessionInDB?.()}
-                  handleUnlockSession={() => actions.unlockSessionInDB?.()}
+                  venueName={sessionRules.venueName}
+                  handleLockSession={async () => {
+                    if (!isPaymentBalanced) {
+                      setShowMultiPayerSheet(true);
+                      return showToast('Balance who paid the cashier first.', 'error');
+                    }
+                    const tx = mathEngine.generateTransactions(
+                      members,
+                      liveCalculation.individualBreakdowns
+                    );
+                    await actions.saveLedgerToDB(tx);
+                    await actions.lockSessionInDB();
+                  }}
+                  handleUnlockSession={() => actions.unlockSessionInDB()}
                   handleToggleSettled={(id, current) =>
-                    actions.toggleLedgerSettledInDB?.(id, current)
+                    actions.toggleLedgerSettledInDB(id, current)
                   }
                   handleExportPDF={() =>
                     exportToPDF(
-                      calculationResult,
-                      receiptTitle || sessionRules.venueName, // <-- AUTO-FALLBACK
+                      liveCalculation,
+                      receiptTitle || sessionRules.venueName,
                       items,
                       taxPresets,
                       sessionRules.scTaxPresetId,
                       sessionRules.serviceChargeRate,
-                      members, // <-- PASS MEMBERS TO PDF
-                      ledger // <-- PASS LEDGER TO PDF
+                      members,
+                      ledger
                     )
                   }
                   handleGoHome={onExit}
@@ -326,105 +249,77 @@ function ActiveSessionCore({
         </Suspense>
       </div>
 
-      {/* FIXED BOTTOM STEPPER UI */}
-      {currentStep < 6 && (
-        <div className="fixed bottom-0 w-full max-w-2xl mx-auto bg-surface/95 backdrop-blur-xl border-t border-border z-30 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
-          {/* THE INTERACTIVE STEPPER TRACK */}
-          <div className="flex justify-between items-center px-8 pt-4 pb-3 relative">
-            {/* Background connecting line */}
-            <div className="absolute top-1/2 left-8 right-8 h-0.5 bg-border -translate-y-0.5 z-0"></div>
+      {/* FLOATING BOTTOM CTA ON WORKBENCH TAB */}
+      {activeTab === 'workbench' && items.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 flex justify-center px-4 pb-4 pb-safe pointer-events-none">
+          <div className="w-full max-w-2xl bg-surface/95 backdrop-blur-xl border border-border rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-3 pointer-events-auto gpu-layer">
+            <div className="flex flex-col pl-1">
+              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                Grand Total
+              </span>
+              <span className="text-xl font-extrabold text-primary tabular-nums">
+                {utils.formatMoney(grandTotal)}
+              </span>
+            </div>
 
-            {[1, 2, 3, 4, 5].map((step) => {
-              const isActive = currentStep === step;
-              const isPassed = currentStep > step;
-              return (
-                <button
-                  key={step}
-                  onClick={() => {
-                    if (step > currentStep) {
-                      // Validate forward movement: don't let them skip to payments without finishing claims
-                      if (step >= 5 && !isSplitComplete)
-                        return showToast('Finish splitting items first', 'error');
-                    }
-                    navigate(step);
-                  }}
-                  className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center text-[0.8rem] font-bold transition-all duration-300 ${
-                    isActive
-                      ? 'bg-primary text-white shadow-[0_0_0_4px_rgba(0,128,255,0.15)] scale-110'
-                      : isPassed
-                        ? 'bg-primary text-white'
-                        : 'bg-page border border-border text-muted hover:border-primary/50 hover:text-primary'
-                  }`}
-                >
-                  {isPassed ? <Check size={14} strokeWidth={3} /> : step}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* THE MAIN ACTION BUTTON */}
-          <div className="px-4 pb-4">
-            {currentStep === 1 && (
-              <button
-                onClick={() => navigate(2)}
-                className="w-full h-12 bg-primary active:bg-primary-hover text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
-              >
-                Next: Add Items <ChevronRight size={18} />
-              </button>
-            )}
-            {currentStep === 2 && (
-              <button
-                onClick={() => navigate(3)}
-                className="w-full h-12 bg-primary active:bg-primary-hover text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
-              >
-                Next: Members <ChevronRight size={18} />
-              </button>
-            )}
-            {currentStep === 3 && (
-              <button
-                onClick={() => navigate(4)}
-                className="w-full h-12 bg-primary active:bg-primary-hover text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
-              >
-                Next: Claims <ChevronRight size={18} />
-              </button>
-            )}
-            {currentStep === 4 && (
-              <button
-                onClick={
-                  isSplitComplete
-                    ? () => {
-                        setCalculationResult(triggerMathCalculation());
-                        navigate(5);
-                      }
-                    : () => showToast('Finish splitting all items first.', 'error')
-                }
-                className={`w-full h-12 font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors ${isSplitComplete ? 'bg-primary text-white active:bg-primary-hover' : 'bg-surface border border-border text-muted opacity-75'}`}
-              >
-                {isSplitComplete ? 'Next: Enter Payments' : 'Incomplete Claims'}{' '}
-                <ChevronRight size={18} />
-              </button>
-            )}
-            {currentStep === 5 && isHost && (
-              <button
-                onClick={handleGenerateSettlement}
-                className="w-full h-12 bg-success hover:bg-success-dark active:scale-95 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
-              >
-                <Check size={18} /> Calculate Settlement
-              </button>
-            )}
-            {currentStep === 5 && !isHost && (
-              <div className="w-full h-12 bg-subtle text-muted font-bold rounded-xl flex items-center justify-center shadow-sm border border-border">
-                Waiting for Host...
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={handleProceedToSettle}
+              className={`h-12 px-6 rounded-xl font-bold text-sm flex items-center gap-2 transition-all active:scale-95 shadow-sm ${
+                isSplitComplete
+                  ? 'bg-success hover:bg-success-dark text-white'
+                  : 'bg-page border border-border text-muted'
+              }`}
+            >
+              {isSplitComplete ? (
+                <>
+                  <Check size={18} /> Review & Settle
+                </>
+              ) : (
+                <>
+                  Assign Remaining Items <ChevronRight size={16} />
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}
+
+      {/* MULTI-PAYER CASHIER DRAWER */}
+      <BottomSheet
+        isOpen={showMultiPayerSheet}
+        onClose={() => setShowMultiPayerSheet(false)}
+        title="Who Paid the Cashier?"
+      >
+        <div className="flex flex-col gap-4 pb-4">
+          <Payments
+            isHost={isHost}
+            members={members}
+            grandTotal={grandTotal}
+            handleUpdatePayment={(id, val) =>
+              actions.updateMemberPaymentInDB(id, parseFloat(val) || 0)
+            }
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const tx = mathEngine.generateTransactions(
+                members,
+                liveCalculation.individualBreakdowns
+              );
+              if (isHost) await actions.saveLedgerToDB(tx);
+              setShowMultiPayerSheet(false);
+            }}
+            className="w-full h-12 bg-primary text-white font-bold rounded-xl shadow-sm"
+          >
+            Save Cashier Payments
+          </button>
+        </div>
+      </BottomSheet>
     </div>
   );
 }
 
-// 2. OUTER COMPONENT: Wraps the core in the Context Provider
 export default function ActiveSession(props: Props) {
   const [currentSessionId] = useState<string>(props.sessionId || utils.generateId());
 

@@ -120,3 +120,18 @@ The Ekwly mark represents **fairness, division, and financial balance**:
 2. **Browser & Hardware Back Parity:** Navigating between views or wizard steps must push/pop state cleanly so both the Android hardware back gesture (`@capacitor/app`), iOS edge swipe, and Web Browser Back button behave identically.
 3. **Universal Haptic Utility (`utils.haptic`):** Calls Capacitor Haptics on native builds or `navigator.vibrate` on web with a silent no-op fallback on unsupported desktop browsers.
 4. **Universal UPI Settlement:** Always provide both the `upi://pay` deep-link button (for mobile devices with UPI apps installed) **and** a 1-tap **"Show UPI QR"** modal (so users on iOS Safari, desktop PWA, or across the restaurant table can scan to pay with GPay/PhonePe).
+
+---
+
+## 8. The 2-Tab Live Receipt Workbench (Solo-Host-First UX Spec)
+
+To optimize for the primary real-world workflow (one person logging and splitting the bill for their group) while preserving 100% of Ekwly's accounting power and multiplayer support:
+
+1. **Zero-Friction Room Entry:** Tapping the center `+` button in `<BottomDock/>` launches a workspace immediately with a 4-digit PIN generated silently in the background. Multiplayer QR sharing remains 1 tap away in the header (`[QR Invite]`).
+2. **2-Mode Segmented Header (`[1. Receipt & Split]` | `[2. Settle & Collect]`):**
+   - Replaces the 6-step linear wizard so users never have to click Back/Next 5 times to adjust a tax, discount, or service charge setting.
+3. **1-Tap Friend & Squad Population:** The top Member Bar surfaces connected Ekwly Friends and Saved Squads as 1-tap chips alongside guest text entry.
+4. **Item-Centric Dish Cards:**
+   - Each dish card displays inline `[All]` and `[Member]` avatar pills for 1-tap even assignment, plus an expandable fractional bar (`1/4`, `1/3`, `1/2`, `1`, `-`/`+`) when uneven quantities are needed.
+   - Per-item tax bracket selection and `+S.C.` applicability toggles live directly on the dish card.
+5. **Interactive Receipt Footer:** Pre/Post-Tax Discounts, Service Charge rate & tax inheritance (`Inherit` vs `Global` vs `None`), and Tax Bracket management sit directly in the live Master Bill Summary at the bottom of the canvas so every rule change reflects in the Grand Total instantaneously.

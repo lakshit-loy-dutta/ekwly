@@ -43,7 +43,16 @@
     "**/dist/**": true,
     "**/.astro/**": true
   },
-  "java.import.exclusions": ["**/node_modules/**", "**/.pnpm/**", "**/dist/**", "**/.astro/**"],
+  "java.import.exclusions": [
+    "**/.pnpm/**",
+    "**/node_modules/**",
+    "**/android/**",
+    "**/ios/**",
+    "**/dist/**",
+    "**/.astro/**"
+  ],
+  "java.import.gradle.wrapper.enabled": true,
+  "java.import.gradle.version": "8.11.1",
   "java.project.resourceFilters": ["node_modules", ".pnpm", "dist", ".astro"],
   "gradle.version": "8.14.3",
   "deno.enablePaths": ["supabase/functions"],
