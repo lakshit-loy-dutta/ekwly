@@ -1,3 +1,5 @@
+import type { GlobalLedgerRow, NettedBalanceRow } from './types';
+
 export const utils = {
   round2: (num: number) => Math.round((num + Number.EPSILON) * 100) / 100,
 
@@ -72,6 +74,22 @@ export const utils = {
     }
   },
 
+  buildUpiUrl: (params: {
+    upiId: string;
+    payeeName: string;
+    amount: number;
+    note?: string;
+  }): string => {
+    const cleanUpi = params.upiId.trim();
+    const cleanAmt = utils.round2(params.amount).toFixed(2);
+    const encodedName = encodeURIComponent(params.payeeName.trim() || 'Ekwly User');
+    let url = `upi://pay?pa=${encodeURIComponent(cleanUpi)}&pn=${encodedName}&am=${cleanAmt}&cu=INR`;
+    if (params.note && params.note.trim()) {
+      url += `&tn=${encodeURIComponent(params.note.trim())}`;
+    }
+    return url;
+  },
+
   buildWhatsAppReminderUrl: (params: {
     debtorName: string;
     creditorName: string;
@@ -83,10 +101,131 @@ export const utils = {
     const contextStr = params.venueName ? ` for *${params.venueName}*` : '';
     let message = `Hey ${params.debtorName}! 👋 Your split share${contextStr} on Ekwly is *${formattedAmt}* (owed to ${params.creditorName}).`;
     if (params.upiId) {
-      const upiLink = `upi://pay?pa=${params.upiId}&pn=${encodeURIComponent(params.creditorName)}&am=${params.amount.toFixed(2)}&cu=INR`;
+      const upiLink = utils.buildUpiUrl({
+        upiId: params.upiId,
+        payeeName: params.creditorName,
+        amount: params.amount,
+        note: params.venueName ? `Ekwly: ${params.venueName}` : 'Ekwly Split',
+      });
       message += `\n\nPay instantly via UPI (${params.upiId}):\n${upiLink}`;
     }
     return `https://wa.me/?text=${encodeURIComponent(message)}`;
+  },
+
+  /**
+   * Consolidates and nets opposing balances between the current user and each counterparty.
+   * Groups by registered UUID when available, or case-insensitive fallback name for guests.
+   */
+  netBilateralBalances: (
+    owedToMeRows: GlobalLedgerRow[],
+    iOweRows: GlobalLedgerRow[]
+  ): {
+    netOwedToMe: NettedBalanceRow[];
+    netIOwe: NettedBalanceRow[];
+    zeroedCounterparties: NettedBalanceRow[];
+    totalOwedToMe: number;
+    totalIOwe: number;
+  } => {
+    const map = new Map<
+      string,
+      {
+        counterpartyKey: string;
+        counterpartyId: string | null;
+        counterpartyName: string;
+        selfName: string;
+        grossOwedToMe: number;
+        grossIOwe: number;
+      }
+    >();
+
+    const getKey = (id: string | null, name: string) =>
+      id ? `id:${id}` : `name:${(name || 'guest').trim().toLowerCase()}`;
+
+    for (const row of owedToMeRows) {
+      const amt = Number(row.total_owed || 0);
+      if (amt <= 0) continue;
+      const key = getKey(row.debtor_id, row.debtor_name);
+      const existing = map.get(key);
+      if (existing) {
+        existing.grossOwedToMe = utils.round2(existing.grossOwedToMe + amt);
+        if (!existing.counterpartyId && row.debtor_id) existing.counterpartyId = row.debtor_id;
+      } else {
+        map.set(key, {
+          counterpartyKey: key,
+          counterpartyId: row.debtor_id || null,
+          counterpartyName: (row.debtor_name || 'Guest').trim(),
+          selfName: (row.creditor_name || 'Me').trim(),
+          grossOwedToMe: utils.round2(amt),
+          grossIOwe: 0,
+        });
+      }
+    }
+
+    for (const row of iOweRows) {
+      const amt = Number(row.total_owed || 0);
+      if (amt <= 0) continue;
+      const key = getKey(row.creditor_id, row.creditor_name);
+      const existing = map.get(key);
+      if (existing) {
+        existing.grossIOwe = utils.round2(existing.grossIOwe + amt);
+        if (!existing.counterpartyId && row.creditor_id) existing.counterpartyId = row.creditor_id;
+      } else {
+        map.set(key, {
+          counterpartyKey: key,
+          counterpartyId: row.creditor_id || null,
+          counterpartyName: (row.creditor_name || 'Guest').trim(),
+          selfName: (row.debtor_name || 'Me').trim(),
+          grossOwedToMe: 0,
+          grossIOwe: utils.round2(amt),
+        });
+      }
+    }
+
+    const netOwedToMe: NettedBalanceRow[] = [];
+    const netIOwe: NettedBalanceRow[] = [];
+    const zeroedCounterparties: NettedBalanceRow[] = [];
+
+    for (const entry of map.values()) {
+      const diff = utils.round2(entry.grossOwedToMe - entry.grossIOwe);
+      const hasOpposing = entry.grossOwedToMe > 0 && entry.grossIOwe > 0;
+
+      if (diff > 0.01) {
+        netOwedToMe.push({
+          ...entry,
+          direction: 'owed_to_me',
+          netAmount: diff,
+          hasOpposing,
+        });
+      } else if (diff < -0.01) {
+        netIOwe.push({
+          ...entry,
+          direction: 'i_owe',
+          netAmount: Math.abs(diff),
+          hasOpposing,
+        });
+      } else if (hasOpposing) {
+        zeroedCounterparties.push({
+          ...entry,
+          direction: 'owed_to_me',
+          netAmount: 0,
+          hasOpposing: true,
+        });
+      }
+    }
+
+    netOwedToMe.sort((a, b) => b.netAmount - a.netAmount);
+    netIOwe.sort((a, b) => b.netAmount - a.netAmount);
+
+    const totalOwedToMe = utils.round2(netOwedToMe.reduce((sum, item) => sum + item.netAmount, 0));
+    const totalIOwe = utils.round2(netIOwe.reduce((sum, item) => sum + item.netAmount, 0));
+
+    return {
+      netOwedToMe,
+      netIOwe,
+      zeroedCounterparties,
+      totalOwedToMe,
+      totalIOwe,
+    };
   },
 };
 

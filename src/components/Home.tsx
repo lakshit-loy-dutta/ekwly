@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import type { DatabaseSession } from '../lib/types';
+import type { DatabaseSession, GlobalLedgerRow } from '../lib/types';
 import QrScannerModal from './ui/QrScannerModal';
 import ConfirmSheet from './ui/ConfirmSheet';
 import BrandLoader from './ui/BrandLoader';
@@ -38,13 +38,18 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
           .eq('host_id', user.id)
           .order('created_at', { ascending: false })
           .limit(15),
-        supabase.from('global_ledger').select('total_owed').eq('creditor_id', user.id),
-        supabase.from('global_ledger').select('total_owed').eq('debtor_id', user.id),
+        supabase.from('global_ledger').select('*').eq('creditor_id', user.id),
+        supabase.from('global_ledger').select('*').eq('debtor_id', user.id),
       ]);
 
       if (sessionRes.data) setRecentSessions(sessionRes.data as DatabaseSession[]);
-      setOwedToMe(creditorRes.data?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0);
-      setIOwe(debtorRes.data?.reduce((sum, row) => sum + Number(row.total_owed), 0) || 0);
+
+      const netted = utils.netBilateralBalances(
+        (creditorRes.data || []) as GlobalLedgerRow[],
+        (debtorRes.data || []) as GlobalLedgerRow[]
+      );
+      setOwedToMe(netted.totalOwedToMe);
+      setIOwe(netted.totalIOwe);
       setIsLoading(false);
     };
 
@@ -163,7 +168,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
             <div className="flex justify-between items-end">
               <div className="flex flex-col">
                 <span className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1.5">
-                  Total Owed to You
+                  Net Owed to You
                 </span>
                 <span className="text-4xl font-extrabold tracking-tight tabular-nums">
                   {utils.formatMoney(owedToMe)}
@@ -175,7 +180,7 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
             </div>
             <div className="h-px w-full bg-white/20" />
             <div className="flex justify-between items-center">
-              <span className="text-white/80 text-sm font-medium">You Owe Others</span>
+              <span className="text-white/80 text-sm font-medium">Net You Owe Others</span>
               <span className="font-bold tracking-wide tabular-nums">
                 {utils.formatMoney(iOwe)}
               </span>

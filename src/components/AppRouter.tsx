@@ -51,7 +51,7 @@ const DOCK_VIEWS: AppView[] = ['home', 'ledger', 'friends', 'analytics', 'profil
 
 export default function AppRouter() {
   const [currentView, setCurrentView] = useState<AppView>('auth');
-  const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('create');
+  const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('join');
   const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
@@ -109,11 +109,7 @@ export default function AppRouter() {
         return true;
       }
       if (currentView === 'session') {
-        if (currentStep > 1 && (isHost || currentStep > 3)) {
-          navigateStep(currentStep - 1);
-        } else {
-          handleLeaveSession();
-        }
+        handleLeaveSession();
         return true;
       }
       return false;
@@ -141,7 +137,7 @@ export default function AppRouter() {
       window.removeEventListener('popstate', onPopState);
       capCleanup?.();
     };
-  }, [currentView, currentStep, isHost, isShareModalOpen, isProfileOpen]);
+  }, [currentView, isShareModalOpen, isProfileOpen]);
 
   const toggleNativeTheme = () => {
     if (typeof window !== 'undefined' && window.toggleTheme) {
@@ -162,7 +158,7 @@ export default function AppRouter() {
         .eq('id', activeUser.id)
         .maybeSingle();
 
-      if (!profile?.name || /^Guest\s+[0-9a-f]{5}$/i.test(profile.name)) {
+      if (!profile?.name || /^Guest\s+[0-9a-f]{5}\$/i.test(profile.name)) {
         setCurrentView('onboarding');
         return;
       }
@@ -214,7 +210,7 @@ export default function AppRouter() {
           setActiveSessionId(sId);
           setActiveSessionPin(savedPin);
           setIsHost(false);
-          setCurrentStep(3);
+          setCurrentStep(1);
           setCurrentView('session');
         } else {
           showToast('Invalid or expired PIN.', 'error');
@@ -237,10 +233,16 @@ export default function AppRouter() {
     window.history.pushState({ view: 'session' }, '', `?s=${newSessionId}`);
     setActiveSessionId(newSessionId);
     setActiveSessionPin(pin);
-    setActiveSessionName(name);
+    setActiveSessionName(name || null);
     setIsHost(true);
     setCurrentStep(1);
     setCurrentView('session');
+  };
+
+  // Zero-Friction Room Entry: Auto-generates 4-digit PIN silently and opens Workbench immediately
+  const handleQuickLaunchRoom = () => {
+    const autoPin = Math.floor(1000 + Math.random() * 9000).toString();
+    handleLaunchRoom('', autoPin);
   };
 
   const handleJoinSession = async (sessionId: string, pin: string) => {
@@ -263,8 +265,9 @@ export default function AppRouter() {
     window.history.pushState({ view: 'session' }, '', `?s=${sessionId}`);
     setActiveSessionId(sessionId);
     setActiveSessionPin(pin);
+    setActiveSessionName(null);
     setIsHost(host);
-    setCurrentStep(host ? 1 : 3);
+    setCurrentStep(1);
     setCurrentView('session');
   };
 
@@ -279,6 +282,7 @@ export default function AppRouter() {
     window.history.pushState({ view: 'home' }, '', window.location.pathname);
     setActiveSessionId(null);
     setActiveSessionPin(null);
+    setActiveSessionName(null);
     setIsHost(false);
     setCurrentView('home');
   };
@@ -314,8 +318,6 @@ export default function AppRouter() {
                   utils.haptic('light');
                   if (['profile', 'friends', 'ledger', 'analytics'].includes(currentView)) {
                     setCurrentView('home');
-                  } else if (currentStep > 1 && (isHost || currentStep > 3)) {
-                    navigateStep(currentStep - 1);
                   } else {
                     handleLeaveSession();
                   }
@@ -329,12 +331,7 @@ export default function AppRouter() {
                 {currentView === 'friends' && 'Friends Network'}
                 {currentView === 'ledger' && 'Global Ledger'}
                 {currentView === 'analytics' && 'Personal Analytics'}
-                {currentView === 'session' && currentStep === 1 && 'Taxes & Extra Charges'}
-                {currentView === 'session' && currentStep === 2 && 'Receipt Items'}
-                {currentView === 'session' && currentStep === 3 && 'Members'}
-                {currentView === 'session' && currentStep === 4 && 'Claims'}
-                {currentView === 'session' && currentStep === 5 && 'Payments'}
-                {currentView === 'session' && currentStep === 6 && 'Bill Summary'}
+                {currentView === 'session' && (activeSessionName || 'Split Workbench')}
               </h1>
             </div>
           ) : (
@@ -352,10 +349,11 @@ export default function AppRouter() {
                     utils.haptic('light');
                     setIsShareModalOpen(true);
                   }}
-                  className="p-2 rounded-full text-primary hover:bg-subtle transition-colors"
+                  className="px-2.5 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1.5 text-xs font-bold"
                   aria-label="Share Room QR"
                 >
-                  <QrCode size={20} />
+                  <QrCode size={16} />
+                  <span className="hidden sm:inline">Invite QR</span>
                 </button>
                 <button
                   onClick={handleLeaveSession}
@@ -523,8 +521,12 @@ export default function AppRouter() {
         {currentView === 'home' && (
           <Home
             onOpenLobby={(mode) => {
-              setLobbyMode(mode);
-              setCurrentView('lobby');
+              if (mode === 'create') {
+                handleQuickLaunchRoom();
+              } else {
+                setLobbyMode('join');
+                setCurrentView('lobby');
+              }
             }}
             onJoinSession={handleJoinSession}
             onViewLedger={() => handleSelectDockTab('ledger')}
@@ -572,10 +574,7 @@ export default function AppRouter() {
         <BottomDock
           activeTab={currentView as DockTab}
           onSelectTab={handleSelectDockTab}
-          onNewSession={() => {
-            setLobbyMode('create');
-            setCurrentView('lobby');
-          }}
+          onNewSession={handleQuickLaunchRoom}
         />
       )}
 
@@ -592,7 +591,7 @@ export default function AppRouter() {
             <p className="text-xs font-bold uppercase tracking-widest text-muted mb-1 text-center">
               Room PIN
             </p>
-            <p className="text-3xl font-mono font-bold text-primary tracking-[0.2em]">
+            <p className="text-3xl font-mono font-bold text-primary tracking-[0.2em] tabular-nums">
               {activeSessionPin}
             </p>
           </div>

@@ -50,6 +50,26 @@ export interface Transaction {
   amount: number;
 }
 
+export interface GlobalLedgerRow {
+  debtor_id: string | null;
+  debtor_name: string;
+  creditor_id: string | null;
+  creditor_name: string;
+  total_owed: number;
+}
+
+export interface NettedBalanceRow {
+  counterpartyKey: string;
+  counterpartyId: string | null;
+  counterpartyName: string;
+  selfName: string;
+  direction: 'owed_to_me' | 'i_owe';
+  netAmount: number;
+  grossOwedToMe: number;
+  grossIOwe: number;
+  hasOpposing: boolean;
+}
+
 export interface DatabaseVenue {
   id: string;
   name: string;
