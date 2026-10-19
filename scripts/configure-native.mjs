@@ -7,6 +7,10 @@ const rootDir = process.cwd();
 const isWindows = os.platform() === 'win32';
 const mode = process.argv[2] || 'patch'; // 'patch' | 'apk-debug' | 'apk-release'
 
+// Target versions for Capacitor 8.5.x
+const TARGET_GRADLE_VERSION = '8.14.3';
+const TARGET_AGP_VERSION = '8.13.0';
+
 // --- 1. AUTO-DETECT ANDROID STUDIO JBR 21 & ANDROID SDK ON WINDOWS ---
 function findJavaHome() {
   if (process.env.JAVA_HOME && fs.existsSync(process.env.JAVA_HOME)) {
@@ -37,30 +41,77 @@ function findAndroidSdk() {
 
 const javaHome = findJavaHome();
 const androidSdk = findAndroidSdk();
-
-// --- 2. PATCH ANDROID MANIFEST, LOCAL.PROPERTIES & GRADLE.PROPERTIES ---
 const androidDir = path.join(rootDir, 'android');
-const androidManifestPath = path.join(androidDir, 'app', 'src', 'main', 'AndroidManifest.xml');
 
+// --- 2. ENFORCE LATEST COMPATIBLE GRADLE, AGP, SDK 36 & JDK 21 ---
 if (fs.existsSync(androidDir)) {
+  // 2a. Link Android SDK in local.properties
   if (androidSdk) {
     const escapedSdk = androidSdk.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
     fs.writeFileSync(path.join(androidDir, 'local.properties'), `sdk.dir=${escapedSdk}\n`, 'utf8');
     console.log(`[Ekwly Native] Linked Android SDK -> ${androidSdk}`);
   }
 
+  // 2b. Pin Gradle Wrapper away from 9.6.x (which removed InternalProblems needed by AGP 8)
+  const wrapperPropsPath = path.join(androidDir, 'gradle', 'wrapper', 'gradle-wrapper.properties');
+  if (fs.existsSync(wrapperPropsPath)) {
+    let wrapperProps = fs.readFileSync(wrapperPropsPath, 'utf8');
+    wrapperProps = wrapperProps.replace(
+      /^distributionUrl=.*$/m,
+      `distributionUrl=https\\://services.gradle.org/distributions/gradle-${TARGET_GRADLE_VERSION}-all.zip`
+    );
+    fs.writeFileSync(wrapperPropsPath, wrapperProps, 'utf8');
+    console.log(`[Ekwly Native] Pinned Gradle Wrapper -> ${TARGET_GRADLE_VERSION}`);
+  }
+
+  // 2c. Upgrade Root build.gradle to AGP 8.13.0
+  const rootBuildGradlePath = path.join(androidDir, 'build.gradle');
+  if (fs.existsSync(rootBuildGradlePath)) {
+    let rootGradle = fs.readFileSync(rootBuildGradlePath, 'utf8');
+    rootGradle = rootGradle.replace(
+      /classpath\s+['"]com\.android\.tools\.build:gradle:[^'"]+['"]/g,
+      `classpath 'com.android.tools.build:gradle:${TARGET_AGP_VERSION}'`
+    );
+    fs.writeFileSync(rootBuildGradlePath, rootGradle, 'utf8');
+    console.log(`[Ekwly Native] Pinned Android Gradle Plugin -> ${TARGET_AGP_VERSION}`);
+  }
+
+  // 2d. Upgrade variables.gradle to Android SDK 36 & minSdk 24
+  const varsGradlePath = path.join(androidDir, 'variables.gradle');
+  if (fs.existsSync(varsGradlePath)) {
+    let varsGradle = fs.readFileSync(varsGradlePath, 'utf8');
+    varsGradle = varsGradle
+      .replace(/minSdkVersion\s*=\s*\d+/g, 'minSdkVersion = 24')
+      .replace(/compileSdkVersion\s*=\s*\d+/g, 'compileSdkVersion = 36')
+      .replace(/targetSdkVersion\s*=\s*\d+/g, 'targetSdkVersion = 36');
+    fs.writeFileSync(varsGradlePath, varsGradle, 'utf8');
+    console.log(
+      '[Ekwly Native] Upgraded variables.gradle -> compileSdk 36, targetSdk 36, minSdk 24'
+    );
+  }
+
+  // 2e. Link JBR 21 in gradle.properties
   const gradlePropsPath = path.join(androidDir, 'gradle.properties');
   if (fs.existsSync(gradlePropsPath)) {
     let gradleProps = fs.readFileSync(gradlePropsPath, 'utf8');
-    if (javaHome && !gradleProps.includes('org.gradle.java.home')) {
+    if (javaHome) {
       const escapedJava = javaHome.replace(/\\/g, '/');
-      gradleProps += `\n# Auto-configured by Ekwly configure-native.mjs\norg.gradle.java.home=${escapedJava}\norg.gradle.parallel=true\norg.gradle.caching=true\n`;
+      if (gradleProps.includes('org.gradle.java.home=')) {
+        gradleProps = gradleProps.replace(
+          /^org\.gradle\.java\.home=.*$/m,
+          `org.gradle.java.home=${escapedJava}`
+        );
+      } else {
+        gradleProps += `\n# Auto-configured by Ekwly configure-native.mjs\norg.gradle.java.home=${escapedJava}\norg.gradle.parallel=true\norg.gradle.caching=true\n`;
+      }
       fs.writeFileSync(gradlePropsPath, gradleProps, 'utf8');
       console.log(`[Ekwly Native] Linked Gradle JDK 21 -> ${javaHome}`);
     }
   }
 }
 
+// --- 3. PATCH ANDROID MANIFEST ---
+const androidManifestPath = path.join(androidDir, 'app', 'src', 'main', 'AndroidManifest.xml');
 if (fs.existsSync(androidManifestPath)) {
   let manifest = fs.readFileSync(androidManifestPath, 'utf8');
 
@@ -98,9 +149,8 @@ if (fs.existsSync(androidManifestPath)) {
   );
 }
 
-// --- 3. PATCH iOS INFO.PLIST & XTOOL.YML ---
+// --- 4. PATCH iOS INFO.PLIST ---
 const iosPlistPath = path.join(rootDir, 'ios', 'App', 'App', 'Info.plist');
-
 if (fs.existsSync(iosPlistPath)) {
   let plist = fs.readFileSync(iosPlistPath, 'utf8');
 
@@ -127,7 +177,7 @@ if (fs.existsSync(iosPlistPath)) {
   }
 }
 
-// --- 4. OPTIONAL CLI APK BUILDER ---
+// --- 5. OPTIONAL CLI APK BUILDER ---
 if (mode === 'apk-debug' || mode === 'apk-release') {
   if (!fs.existsSync(androidDir)) {
     console.error('[Ekwly Native] android/ folder not found. Run "pnpm cap add android" first.');

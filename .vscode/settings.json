@@ -43,18 +43,15 @@
     "**/dist/**": true,
     "**/.astro/**": true
   },
-  "java.import.exclusions": [
-    "**/.pnpm/**",
-    "**/node_modules/**",
-    "**/android/**",
-    "**/ios/**",
-    "**/dist/**",
-    "**/.astro/**"
-  ],
+  "java.import.exclusions": ["**/node_modules/**", "**/dist/**", "**/.astro/**", "**/ios/**"],
   "java.import.gradle.wrapper.enabled": true,
-  "java.import.gradle.version": "8.11.1",
+  "java.import.gradle.version": "8.14.3",
+  "java.import.gradle.java.home": "C:\\Program Files\\Java\\jdk-21.0.12.1",
+  "java.jdt.ls.java.home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+  "java.configuration.updateBuildConfiguration": "interactive",
   "java.project.resourceFilters": ["node_modules", ".pnpm", "dist", ".astro"],
   "gradle.version": "8.14.3",
+  "gradle.nestedProjects": ["android"],
   "deno.enablePaths": ["supabase/functions"],
   "deno.lint": true,
   "deno.unstable": [
