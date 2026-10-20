@@ -57,8 +57,9 @@ export const utils = {
   },
 
   resolvePath: (subpath: string) => {
-    const base = (import.meta.env.BASE_URL || '/').replace(/\/\$/, '');
-    const clean = subpath.replace(/^\//, '');
+    const rawBase = import.meta.env.BASE_URL || '/';
+    const base = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase;
+    const clean = subpath.startsWith('/') ? subpath.slice(1) : subpath;
     return `${base}/${clean}`;
   },
 

@@ -24,10 +24,12 @@ export interface SessionRules {
   discountType: 'none' | 'percentage' | 'flat';
   discountValue: string;
   discountMode: 'pre-tax' | 'post-tax';
+  postTaxDiscountType?: 'none' | 'percentage' | 'flat';
+  postTaxDiscountValue?: string;
 }
 
-export function useSession(sessionId: string | null, isHost = true) {
-  const sync = useSessionSync(sessionId, isHost);
+export function useSession(sessionId: string | null) {
+  const sync = useSessionSync(sessionId);
   const actions = useSessionMutations({
     sessionId,
     items: sync.items,
@@ -43,17 +45,17 @@ export function useSession(sessionId: string | null, isHost = true) {
 
   return {
     isLoading: sync.isLoading,
+    isRealtimeActive: sync.isRealtimeActive,
+    enableRealtime: sync.enableRealtime,
     sessionStatus: sync.sessionStatus,
     sessionRules: sync.sessionRules,
     taxPresets: sync.taxPresets,
-    ledger: sync.ledger,
     items: sync.items,
     members: sync.members,
     claims: sync.claims,
+    ledger: sync.ledger,
     currentUserId: sync.currentUserId,
     hostId: sync.hostId,
-    isRealtimeActive: sync.isRealtimeActive,
-    enableRealtime: sync.enableRealtime,
     actions,
   };
 }

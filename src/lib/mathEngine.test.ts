@@ -87,7 +87,6 @@ describe('Universal Tax & Settlement Engine', () => {
     expect(result.globalSummary.roundOff).toBe(-0.07);
     expect(result.globalSummary.grandTotal).toBe(4138);
 
-    // Verify Paisa Conservation Invariant: sum of individual shares === Grand Total
     const sumOwed = Object.values(result.individualBreakdowns).reduce(
       (sum, b) => sum + b.totalOwed,
       0
@@ -182,5 +181,114 @@ describe('Universal Tax & Settlement Engine', () => {
     expect(result.globalSummary.taxBreakdown['Tobacco CGST']).toBeCloseTo(52, 2);
     expect(result.globalSummary.taxBreakdown['Tobacco SGST']).toBeCloseTo(52, 2);
     expect(result.globalSummary.grandTotal).toBe(3419);
+  });
+
+  it('scales item breakdown accurately when a pre-tax discount multiplier is active', () => {
+    const item: BillItem = {
+      id: 'd1',
+      name: 'Woodfired Pizza',
+      qty: 1,
+      unitPrice: 1000,
+      taxRate: 0,
+      taxPresetId: 'gst-5',
+      applySC: true,
+      totalBase: 1000,
+    };
+
+    const breakdown = mathEngine.calculateItemBreakdown(item, {
+      taxPresets,
+      isScApplicable: true,
+      serviceChargeRate: 0.1,
+      scTaxPresetId: 'inherit',
+      preTaxMultiplier: 0.8,
+    });
+
+    expect(breakdown.effectiveBase).toBe(800);
+    expect(breakdown.itemSC).toBe(80);
+    expect(breakdown.itemTaxAmount).toBe(40);
+    expect(breakdown.scTaxAmount).toBe(4);
+    expect(breakdown.finalTotal).toBe(924);
+  });
+
+  it('handles simultaneous Item-Specific + Selective Pre-Tax (Food only) + Post-Tax Coupon discounts', () => {
+    const items: BillItem[] = [
+      {
+        id: 'f1',
+        name: 'Starter Platter (Food)',
+        qty: 1,
+        unitPrice: 1000,
+        taxRate: 0,
+        taxPresetId: 'gst-5',
+        applySC: false,
+        applyDiscount: true, // Eligible for 10% restaurant pre-tax discount -> 900
+        discountType: 'none',
+        discountValue: 0,
+        totalBase: 1000,
+      },
+      {
+        id: 'f2',
+        name: 'Chocolate Brownie (50% Happy Hour + 10% Pre-Tax)',
+        qty: 1,
+        unitPrice: 400,
+        taxRate: 0,
+        taxPresetId: 'gst-5',
+        applySC: false,
+        applyDiscount: true, // 400 - 50% item disc = 200; then -10% pre-tax = 180
+        discountType: 'percentage',
+        discountValue: 50,
+        totalBase: 400,
+      },
+      {
+        id: 'b1',
+        name: 'Craft Beer Pitcher (Excluded from Pre-Tax Discount)',
+        qty: 1,
+        unitPrice: 1000,
+        taxRate: 0,
+        taxPresetId: 'vat-6',
+        applySC: false,
+        applyDiscount: false, // Excluded from food discount -> stays 1000
+        discountType: 'none',
+        discountValue: 0,
+        totalBase: 1000,
+      },
+    ];
+
+    const formattedClaims = {
+      m1: { f1: '1', f2: '1', b1: '0' }, // Alice ate only Food & Dessert
+      m2: { f1: '0', f2: '0', b1: '1' }, // Bob drank only the Beer
+    };
+
+    const result = mathEngine.generateSplit({
+      items,
+      members: [members[0], members[1]],
+      formattedClaims,
+      discountType: 'percentage',
+      discountMode: 'pre-tax',
+      discountValue: '10', // 10% Pre-Tax on eligible Food items
+      postTaxDiscountType: 'flat',
+      postTaxDiscountValue: '114', // ₹114 Flat Swiggy Dineout coupon post-tax
+      taxPresets,
+      scTaxPresetId: 'none',
+      serviceChargeRate: 0,
+    });
+
+    // Item discount = 200 (on Brownie)
+    expect(result.globalSummary.itemDiscountAmount).toBe(200);
+    // Eligible pre-tax base = 1000 + 200 = 1200 -> 10% pre-tax discount = 120
+    expect(result.globalSummary.preTaxDiscountAmount).toBe(120);
+    // Effective SubTotal = 900 (Starter) + 180 (Brownie) + 1000 (Beer) = 2080
+    expect(result.globalSummary.subTotal).toBe(2080);
+    // Food GST (5% on 1080 = 54 -> 27 CGST + 27 SGST), Alcohol VAT (6% on 1000 = 60)
+    expect(result.globalSummary.taxBreakdown['Food CGST']).toBeCloseTo(27, 2);
+    expect(result.globalSummary.taxBreakdown['Food SGST']).toBeCloseTo(27, 2);
+    expect(result.globalSummary.taxBreakdown['Alcohol VAT']).toBeCloseTo(60, 2);
+    // Gross Total = 2080 + 54 + 60 = 2194; minus ₹114 Post-Tax coupon = 2080
+    expect(result.globalSummary.postTaxDiscountAmount).toBe(114);
+    expect(result.globalSummary.grandTotal).toBe(2080);
+
+    // Sum of Alice + Bob shares must equal 2080 to the exact paisa
+    const totalShares =
+      result.individualBreakdowns['m1'].totalOwed + result.individualBreakdowns['m2'].totalOwed;
+    expect(totalShares).toBe(2080);
   });
 });

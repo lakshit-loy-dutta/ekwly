@@ -1,4 +1,5 @@
 import { showToast } from './utils';
+import { mathEngine } from './mathEngine';
 import type { CalculationResult, BillItem, TaxPreset } from './types';
 import type { DBMember } from './useSession';
 
@@ -21,6 +22,24 @@ export const exportToPDF = async (
     ]);
 
     const doc = new jsPDF();
+    const { globalSummary: gs, individualBreakdowns } = calculationResult;
+
+    const eligibleBaseAfterItemDisc = items.reduce((sum, item) => {
+      const discVal = Number(item.discountValue || 0);
+      let itemDisc = 0;
+      if (item.discountType === 'percentage' && discVal > 0) {
+        itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
+      } else if (item.discountType === 'flat' && discVal > 0) {
+        itemDisc = Math.min(item.totalBase, discVal);
+      }
+      const afterItem = Math.max(0, item.totalBase - itemDisc);
+      return item.applyDiscount !== false ? sum + afterItem : sum;
+    }, 0);
+
+    const preTaxMultiplier =
+      eligibleBaseAfterItemDisc > 0
+        ? (eligibleBaseAfterItemDisc - gs.preTaxDiscountAmount) / eligibleBaseAfterItemDisc
+        : 1;
 
     const customTitle = receiptTitle.trim();
     const dateStr = new Date().toLocaleDateString();
@@ -59,32 +78,22 @@ export const exportToPDF = async (
     startY += 6;
 
     const masterTableData = items.map((i) => {
-      const preset = taxPresets.find((t) => t.id === i.taxPresetId);
-      const dynamicTaxRate = preset ? preset.rate / 100 : 0;
+      const breakdown = mathEngine.calculateItemBreakdown(i, {
+        taxPresets,
+        serviceChargeRate,
+        scTaxPresetId,
+        preTaxMultiplier,
+      });
 
-      const itemSC = i.applySC ? i.totalBase * serviceChargeRate : 0;
-      let itemTaxAmount = 0;
-      let scTaxAmount = 0;
-
-      if (scTaxPresetId === 'inherit') {
-        itemTaxAmount = i.totalBase * dynamicTaxRate;
-        scTaxAmount = itemSC * dynamicTaxRate;
-      } else {
-        itemTaxAmount = i.totalBase * dynamicTaxRate;
-        if (scTaxPresetId !== 'none') {
-          const scPreset = taxPresets.find((t) => t.id === scTaxPresetId);
-          if (scPreset && itemSC > 0) scTaxAmount = itemSC * (scPreset.rate / 100);
-        }
-      }
-
-      const finalTotal = i.totalBase + itemSC + itemTaxAmount + scTaxAmount;
+      const discLabel =
+        breakdown.itemDiscountAmount > 0 ? ` (-Rs.${breakdown.itemDiscountAmount.toFixed(0)})` : '';
 
       return [
-        i.name,
+        `${i.name}${discLabel}`,
         i.qty.toString(),
         `Rs. ${i.unitPrice.toFixed(2)}`,
-        `${(dynamicTaxRate * 100).toFixed(1).replace(/\.0$/, '')}% ${i.applySC ? '+ SC' : ''}`,
-        `Rs. ${finalTotal.toFixed(2)}`,
+        `${(breakdown.dynamicTaxRate * 100).toFixed(1).replace(/\.0$/, '')}% ${i.applySC && serviceChargeRate > 0 ? '+ SC' : ''}`,
+        `Rs. ${breakdown.finalTotal.toFixed(2)}`,
       ];
     });
 
@@ -112,19 +121,26 @@ export const exportToPDF = async (
     });
 
     startY = (doc as any).lastAutoTable.finalY + 12;
-    const { globalSummary: gs, individualBreakdowns } = calculationResult;
 
     // --- SUMMARY SUB-TABLE ---
     const computedGrossTotal =
       gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
     const summaryData: any[] = [];
 
-    if (gs.discountAmount > 0 && gs.discountMode === 'pre-tax') {
+    if (gs.itemDiscountAmount > 0 || gs.preTaxDiscountAmount > 0) {
       summaryData.push(['Raw Subtotal:', `Rs. ${gs.rawSubTotal.toFixed(2)}`]);
-      summaryData.push(['Discount (Pre-Tax):', `- Rs. ${gs.discountAmount.toFixed(2)}`]);
+    }
+    if (gs.itemDiscountAmount > 0) {
+      summaryData.push(['Item / Section Discounts:', `- Rs. ${gs.itemDiscountAmount.toFixed(2)}`]);
+    }
+    if (gs.preTaxDiscountAmount > 0) {
+      summaryData.push([
+        'Restaurant Discount (Pre-Tax):',
+        `- Rs. ${gs.preTaxDiscountAmount.toFixed(2)}`,
+      ]);
     }
 
-    summaryData.push(['Base Subtotal:', `Rs. ${gs.subTotal.toFixed(2)}`]);
+    summaryData.push(['Taxable Base Subtotal:', `Rs. ${gs.subTotal.toFixed(2)}`]);
 
     for (const [taxName, amount] of Object.entries(gs.taxBreakdown)) {
       if (amount > 0) summaryData.push([`${taxName}:`, `Rs. ${amount.toFixed(2)}`]);
@@ -134,9 +150,12 @@ export const exportToPDF = async (
       summaryData.push(['Service Charge:', `Rs. ${gs.serviceCharge.toFixed(2)}`]);
     }
 
-    if (gs.discountAmount > 0 && gs.discountMode === 'post-tax') {
+    if (gs.postTaxDiscountAmount > 0) {
       summaryData.push(['Gross Total:', `Rs. ${computedGrossTotal.toFixed(2)}`]);
-      summaryData.push(['Discount (Post-Tax):', `- Rs. ${gs.discountAmount.toFixed(2)}`]);
+      summaryData.push([
+        'Coupon / App Discount (Post-Tax):',
+        `- Rs. ${gs.postTaxDiscountAmount.toFixed(2)}`,
+      ]);
     }
 
     if (gs.roundOff !== 0) {

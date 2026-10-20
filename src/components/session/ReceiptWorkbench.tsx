@@ -19,11 +19,12 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
+import { mathEngine } from '../../lib/mathEngine';
 import { utils, showToast } from '../../lib/utils';
 import type { DatabaseVenue, DatabaseItem, BillItem, SavedSquad } from '../../lib/types';
 import MagicScanner from './MagicScanner';
+import WorkbenchRuleDrawers from './WorkbenchRuleDrawers';
 import BottomSheet from '../ui/BottomSheet';
-import ToggleSwitch from '../ui/ToggleSwitch';
 
 const FRACTION_PILLS = [
   { label: 'Clear', value: '' },
@@ -78,6 +79,8 @@ export default function ReceiptWorkbench() {
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemTaxId, setNewItemTaxId] = useState<string>(taxPresets[0]?.id || 'tx-1');
   const [newItemApplySC, setNewItemApplySC] = useState<boolean>(true);
+  const [newItemDiscType, setNewItemDiscType] = useState<'none' | 'percentage' | 'flat'>('none');
+  const [newItemDiscVal, setNewItemDiscVal] = useState<string>('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemResults, setItemResults] = useState<DatabaseItem[]>([]);
   const [showItemDropdown, setShowItemDropdown] = useState(false);
@@ -87,18 +90,10 @@ export default function ReceiptWorkbench() {
 
   // --- CONTEXTUAL RULE DRAWERS (DISCOUNT, SERVICE CHARGE, TAX BRACKETS) ---
   const [activeRuleSheet, setActiveRuleSheet] = useState<'sc' | 'discount' | 'taxes' | null>(null);
-  const [localDiscount, setLocalDiscount] = useState<string>(sessionRules.discountValue);
-  const [newTaxName, setNewTaxName] = useState('');
-  const [newTaxRate, setNewTaxRate] = useState('');
-  const [newTaxSplit, setNewTaxSplit] = useState(true);
 
   useEffect(() => {
     setLocalVenue(sessionRules.venueName);
   }, [sessionRules.venueName]);
-
-  useEffect(() => {
-    setLocalDiscount(sessionRules.discountValue);
-  }, [sessionRules.discountValue]);
 
   useEffect(() => {
     if (taxPresets.length > 0 && !taxPresets.some((t) => t.id === newItemTaxId)) {
@@ -115,16 +110,6 @@ export default function ReceiptWorkbench() {
     }, 500);
     return () => clearTimeout(timer);
   }, [localVenue, sessionRules.venueName, actions]);
-
-  // Debounce discount value updates
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localDiscount !== sessionRules.discountValue) {
-        actions.updateSessionRulesInDB({ discountValue: localDiscount });
-      }
-    }, 450);
-    return () => clearTimeout(timer);
-  }, [localDiscount, sessionRules.discountValue, actions]);
 
   // Search known venues
   useEffect(() => {
@@ -219,9 +204,11 @@ export default function ReceiptWorkbench() {
 
   const handleApplySquad = async (squad: SavedSquad) => {
     utils.haptic('medium');
-    const added = await actions.addMembersBatchToDB(squad.members);
-    if (added.length > 0) {
-      showToast(`Added ${added.length} from "${squad.name}"!`, 'success');
+    const addedCount = await actions.addMembersBatchToDB(squad.members);
+    if (addedCount > 0) {
+      showToast(`Added ${addedCount} from "${squad.name}"!`, 'success');
+    } else {
+      showToast(`Everyone from "${squad.name}" is already at the table.`, 'default');
     }
   };
 
@@ -285,8 +272,11 @@ export default function ReceiptWorkbench() {
     const preset = taxPresets.find((t) => t.id === newItemTaxId);
     const taxRate = preset ? preset.rate / 100 : 0;
     const totalBase = qtyParsed * priceParsed;
+    const parsedDiscVal = parseFloat(newItemDiscVal) || 0;
+    const finalDiscType = parsedDiscVal > 0 ? newItemDiscType : 'none';
 
     if (editingItemId) {
+      const existing = items.find((i) => i.id === editingItemId);
       actions.updateItemInDB({
         id: editingItemId,
         name: newItemName.trim(),
@@ -295,6 +285,9 @@ export default function ReceiptWorkbench() {
         taxRate,
         taxPresetId: newItemTaxId,
         applySC: newItemApplySC,
+        applyDiscount: existing?.applyDiscount !== false,
+        discountType: finalDiscType,
+        discountValue: finalDiscType === 'none' ? 0 : parsedDiscVal,
         totalBase,
       });
       setEditingItemId(null);
@@ -307,12 +300,17 @@ export default function ReceiptWorkbench() {
         taxRate,
         taxPresetId: newItemTaxId,
         applySC: newItemApplySC,
+        applyDiscount: true,
+        discountType: finalDiscType,
+        discountValue: finalDiscType === 'none' ? 0 : parsedDiscVal,
         totalBase,
       });
     }
     setNewItemName('');
     setNewItemQty('1');
     setNewItemPrice('');
+    setNewItemDiscType('none');
+    setNewItemDiscVal('');
     setShowItemDropdown(false);
   };
 
@@ -323,6 +321,8 @@ export default function ReceiptWorkbench() {
     setNewItemPrice(item.unitPrice.toString());
     setNewItemTaxId(item.taxPresetId);
     setNewItemApplySC(item.applySC);
+    setNewItemDiscType(item.discountType || 'none');
+    setNewItemDiscVal(item.discountValue ? item.discountValue.toString() : '');
     setEditingItemId(item.id);
     window.scrollTo({ top: 180, behavior: 'smooth' });
   };
@@ -367,27 +367,29 @@ export default function ReceiptWorkbench() {
     actions.batchUpdateClaimsInDB(updates);
   };
 
-  const handleAddTaxPreset = () => {
-    const rate = parseFloat(newTaxRate);
-    if (!newTaxName.trim() || isNaN(rate) || rate < 0) {
-      return showToast('Enter a valid tax name and rate.', 'error');
-    }
-    utils.haptic('light');
-    actions.addTaxPresetToDB({
-      id: utils.generateId(),
-      name: newTaxName.trim(),
-      rate,
-      split: newTaxSplit,
-    });
-    setNewTaxName('');
-    setNewTaxRate('');
-    setNewTaxSplit(true);
-    showToast('Tax bracket added.', 'success');
-  };
-
   const gs = liveCalculation.globalSummary;
   const computedGrossTotal =
     gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
+
+  // Compute preTaxMultiplier for individual Dish Card display parity
+  const eligibleBaseAfterItemDisc = items.reduce((sum, item) => {
+    const discVal = Number(item.discountValue || 0);
+    let itemDisc = 0;
+    if (item.discountType === 'percentage' && discVal > 0) {
+      itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
+    } else if (item.discountType === 'flat' && discVal > 0) {
+      itemDisc = Math.min(item.totalBase, discVal);
+    }
+    const afterItem = Math.max(0, item.totalBase - itemDisc);
+    return item.applyDiscount !== false ? sum + afterItem : sum;
+  }, 0);
+
+  const preTaxMultiplier =
+    eligibleBaseAfterItemDisc > 0
+      ? (eligibleBaseAfterItemDisc - gs.preTaxDiscountAmount) / eligibleBaseAfterItemDisc
+      : 1;
+
+  const hasActivePreTaxBillDiscount = gs.preTaxDiscountAmount > 0;
 
   return (
     <div className="w-full flex flex-col gap-4 px-4 pt-3 pb-36">
@@ -560,6 +562,8 @@ export default function ReceiptWorkbench() {
                   setNewItemName('');
                   setNewItemQty('1');
                   setNewItemPrice('');
+                  setNewItemDiscType('none');
+                  setNewItemDiscVal('');
                 }}
                 className="text-xs font-bold text-danger"
               >
@@ -645,36 +649,53 @@ export default function ReceiptWorkbench() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-1">
-            {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 ? (
+          {/* Optional Item-Specific Discount Row when Editing or Adding */}
+          <div className="flex items-center gap-2 pt-0.5">
+            <select
+              value={newItemDiscType}
+              onChange={(e) => setNewItemDiscType(e.target.value as 'none' | 'percentage' | 'flat')}
+              className="h-9 w-36 bg-page border border-border rounded-xl px-2.5 text-xs font-bold text-muted"
+            >
+              <option value="none">No Item Offer</option>
+              <option value="percentage">Item % Off</option>
+              <option value="flat">Item ₹ Off</option>
+            </select>
+            {newItemDiscType !== 'none' && (
+              <input
+                type="number"
+                inputMode="decimal"
+                value={newItemDiscVal}
+                onChange={(e) => setNewItemDiscVal(e.target.value)}
+                placeholder={newItemDiscType === 'percentage' ? '% off item' : '₹ off item'}
+                className="h-9 w-28 bg-page border border-border rounded-xl px-2.5 text-xs font-bold tabular-nums"
+              />
+            )}
+
+            {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && (
               <button
                 type="button"
                 onClick={() => setNewItemApplySC(!newItemApplySC)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                className={`h-9 px-2.5 rounded-xl text-xs font-bold border transition-colors ${
                   newItemApplySC
                     ? 'bg-primary/10 border-primary/30 text-primary'
                     : 'bg-page border-border text-muted'
                 }`}
               >
-                {newItemApplySC ? '✓ Service Charge Applied' : 'No Service Charge on Item'}
+                {newItemApplySC ? '+S.C. ✓' : 'No S.C.'}
               </button>
-            ) : (
-              <span className="text-[0.7rem] text-muted font-medium">
-                Tap avatars on each dish below to assign shares
-              </span>
             )}
 
             <button
               type="submit"
-              className="h-10 px-5 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-transform ml-auto"
+              className="h-9 px-4 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm transition-transform ml-auto shrink-0"
             >
-              <Plus size={15} /> {editingItemId ? 'Update Dish' : 'Add Dish'}
+              <Plus size={14} /> {editingItemId ? 'Update' : 'Add Dish'}
             </button>
           </div>
         </form>
       )}
 
-      {/* ZONE 4: INTERACTIVE DISH CARDS (1-TAP AVATAR CLAIMING + INLINE TAX/SC + FRACTIONS) */}
+      {/* ZONE 4: INTERACTIVE DISH CARDS (1-TAP AVATAR CLAIMING + INLINE TAX/SC/DISCOUNT + FRACTIONS) */}
       <div className="flex flex-col gap-3">
         {items.length === 0 ? (
           <div className="bg-surface border border-dashed border-border rounded-2xl p-8 text-center flex flex-col items-center gap-2">
@@ -688,24 +709,13 @@ export default function ReceiptWorkbench() {
         ) : (
           <AnimatePresence initial={false}>
             {items.map((item) => {
-              const taxPreset = taxPresets.find((t) => t.id === item.taxPresetId);
-              const dynamicTaxRate = taxPreset ? taxPreset.rate / 100 : 0;
-              const itemSC =
-                sessionRules.isScApplicable && item.applySC
-                  ? item.totalBase * sessionRules.serviceChargeRate
-                  : 0;
-
-              let itemTaxAmount = item.totalBase * dynamicTaxRate;
-              let scTaxAmount = 0;
-
-              if (sessionRules.scTaxPresetId === 'inherit') {
-                scTaxAmount = itemSC * dynamicTaxRate;
-              } else if (sessionRules.scTaxPresetId !== 'none') {
-                const scPreset = taxPresets.find((t) => t.id === sessionRules.scTaxPresetId);
-                if (scPreset && itemSC > 0) scTaxAmount = itemSC * (scPreset.rate / 100);
-              }
-
-              const finalItemTotal = item.totalBase + itemSC + itemTaxAmount + scTaxAmount;
+              const breakdown = mathEngine.calculateItemBreakdown(item, {
+                taxPresets,
+                isScApplicable: sessionRules.isScApplicable,
+                serviceChargeRate: sessionRules.serviceChargeRate,
+                scTaxPresetId: sessionRules.scTaxPresetId,
+                preTaxMultiplier,
+              });
 
               let claimedQty = 0;
               members.forEach((m) => {
@@ -715,6 +725,7 @@ export default function ReceiptWorkbench() {
               const isFullyClaimed = Math.abs(remainingQty) < 0.01;
               const isOverClaimed = remainingQty < -0.01;
               const isCustomOpen = expandedCustomSplitItemId === item.id;
+              const hasItemDisc = breakdown.itemDiscountAmount > 0;
 
               return (
                 <motion.div
@@ -732,7 +743,7 @@ export default function ReceiptWorkbench() {
                         : 'border-border'
                   }`}
                 >
-                  {/* Top Row: Dish Name, Inline Tax/SC Badges & Total */}
+                  {/* Top Row: Dish Name, Inline Tax/SC/Discount Badges & Total */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-col min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -742,6 +753,15 @@ export default function ReceiptWorkbench() {
                         <span className="text-[0.7rem] font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border tabular-nums">
                           x{item.qty}
                         </span>
+                        {hasItemDisc && (
+                          <span className="text-[0.65rem] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 tabular-nums">
+                            -
+                            {item.discountType === 'percentage'
+                              ? `${item.discountValue}%`
+                              : utils.formatMoney(breakdown.itemDiscountAmount)}{' '}
+                            off
+                          </span>
+                        )}
                         <span
                           className={`text-[0.65rem] font-bold px-2 py-0.5 rounded-full tabular-nums ${
                             isFullyClaimed
@@ -759,7 +779,7 @@ export default function ReceiptWorkbench() {
                         </span>
                       </div>
 
-                      {/* Inline Tax Bracket Selector & Item-Wise Service Charge Pill */}
+                      {/* Inline Tax Bracket Selector, Service Charge Pill & Pre-Tax Discount Eligibility Pill */}
                       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                         <span className="text-xs text-muted tabular-nums">
                           {utils.formatMoney(item.unitPrice)}/ea
@@ -786,7 +806,9 @@ export default function ReceiptWorkbench() {
                           </select>
                         ) : (
                           <span className="text-[0.7rem] font-semibold text-muted">
-                            {taxPreset ? `${taxPreset.name} (${taxPreset.rate}%)` : 'Tax'}
+                            {breakdown.preset
+                              ? `${breakdown.preset.name} (${breakdown.preset.rate}%)`
+                              : 'Tax'}
                           </span>
                         )}
 
@@ -807,12 +829,33 @@ export default function ReceiptWorkbench() {
                             +S.C.
                           </button>
                         )}
+
+                        {hasActivePreTaxBillDiscount && (
+                          <button
+                            type="button"
+                            disabled={!isHost}
+                            onClick={() =>
+                              actions.updateItemInDB({
+                                ...item,
+                                applyDiscount: item.applyDiscount === false,
+                              })
+                            }
+                            className={`px-1.5 py-0.5 rounded text-[0.65rem] font-bold border transition-colors ${
+                              item.applyDiscount !== false
+                                ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-500'
+                                : 'bg-page border-border text-muted line-through'
+                            }`}
+                            title="Toggle whether the restaurant Pre-Tax discount applies to this dish"
+                          >
+                            Pre-Tax Disc
+                          </button>
+                        )}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="font-extrabold text-main tabular-nums text-base">
-                        {utils.formatMoney(finalItemTotal)}
+                        {utils.formatMoney(breakdown.finalTotal)}
                       </span>
                       {isHost && (
                         <div className="flex items-center gap-1">
@@ -976,7 +1019,7 @@ export default function ReceiptWorkbench() {
         )}
       </div>
 
-      {/* ZONE 5: LIVE INTERACTIVE BILL FOOTER (DISCOUNTS, SERVICE CHARGE, TAXES & GRAND TOTAL) */}
+      {/* ZONE 5: LIVE INTERACTIVE BILL FOOTER (3-LAYER DISCOUNTS, SERVICE CHARGE, TAXES & GRAND TOTAL) */}
       <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col divide-y divide-border/60 mt-2">
         <div className="flex items-center justify-between pb-3">
           <span className="text-xs font-bold uppercase tracking-widest text-muted">
@@ -988,7 +1031,7 @@ export default function ReceiptWorkbench() {
               onClick={() => setActiveRuleSheet('discount')}
               className="px-2.5 py-1 rounded-lg bg-page border border-border text-[0.7rem] font-bold text-primary hover:border-primary/40 flex items-center gap-1"
             >
-              <Percent size={11} /> Discount
+              <Percent size={11} /> Discounts
             </button>
             <button
               type="button"
@@ -1007,31 +1050,47 @@ export default function ReceiptWorkbench() {
           </div>
         </div>
 
-        {gs.discountAmount > 0 && gs.discountMode === 'pre-tax' && (
-          <>
-            <div className="flex justify-between py-2 text-sm">
-              <span className="text-muted">Raw Subtotal</span>
-              <span className="font-semibold text-main tabular-nums">
-                {utils.formatMoney(gs.rawSubTotal)}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveRuleSheet('discount')}
-              className="flex justify-between py-2 text-sm text-success w-full text-left hover:opacity-80"
-            >
-              <span className="font-medium underline decoration-dotted">
-                Pre-Tax Discount ({sessionRules.discountType})
-              </span>
-              <span className="font-bold tabular-nums">
-                - {utils.formatMoney(gs.discountAmount)}
-              </span>
-            </button>
-          </>
+        {(gs.itemDiscountAmount > 0 || gs.preTaxDiscountAmount > 0) && (
+          <div className="flex justify-between py-2 text-sm">
+            <span className="text-muted">Raw Subtotal</span>
+            <span className="font-semibold text-main tabular-nums">
+              {utils.formatMoney(gs.rawSubTotal)}
+            </span>
+          </div>
+        )}
+
+        {gs.itemDiscountAmount > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveRuleSheet('discount')}
+            className="flex justify-between py-2 text-sm text-success w-full text-left hover:opacity-80"
+          >
+            <span className="font-medium underline decoration-dotted">
+              Item / Section Discounts
+            </span>
+            <span className="font-bold tabular-nums">
+              - {utils.formatMoney(gs.itemDiscountAmount)}
+            </span>
+          </button>
+        )}
+
+        {gs.preTaxDiscountAmount > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveRuleSheet('discount')}
+            className="flex justify-between py-2 text-sm text-success w-full text-left hover:opacity-80"
+          >
+            <span className="font-medium underline decoration-dotted">
+              Pre-Tax Restaurant Discount
+            </span>
+            <span className="font-bold tabular-nums">
+              - {utils.formatMoney(gs.preTaxDiscountAmount)}
+            </span>
+          </button>
         )}
 
         <div className="flex justify-between py-2 text-sm">
-          <span className="text-muted">Base Subtotal</span>
+          <span className="text-muted">Taxable Base Subtotal</span>
           <span className="font-semibold text-main tabular-nums">
             {utils.formatMoney(gs.subTotal)}
           </span>
@@ -1073,7 +1132,7 @@ export default function ReceiptWorkbench() {
           </span>
         </button>
 
-        {gs.discountAmount > 0 && gs.discountMode === 'post-tax' && (
+        {gs.postTaxDiscountAmount > 0 && (
           <>
             <div className="flex justify-between py-2 text-sm">
               <span className="text-muted">Gross Total</span>
@@ -1087,10 +1146,10 @@ export default function ReceiptWorkbench() {
               className="flex justify-between py-2 text-sm text-success w-full text-left hover:opacity-80"
             >
               <span className="font-medium underline decoration-dotted">
-                Post-Tax Discount ({sessionRules.discountType})
+                Post-Tax Coupon / App Discount
               </span>
               <span className="font-bold tabular-nums">
-                - {utils.formatMoney(gs.discountAmount)}
+                - {utils.formatMoney(gs.postTaxDiscountAmount)}
               </span>
             </button>
           </>
@@ -1157,7 +1216,6 @@ export default function ReceiptWorkbench() {
             </button>
           </div>
 
-          {/* Live Profile Search Results */}
           {profileSearchResults.length > 0 && (
             <div className="bg-page border border-border rounded-xl divide-y divide-border overflow-hidden">
               {profileSearchResults.map((p) => {
@@ -1184,7 +1242,6 @@ export default function ReceiptWorkbench() {
             </div>
           )}
 
-          {/* 1-Tap Saved Squads */}
           {savedSquads.length > 0 && (
             <div className="flex flex-col gap-2">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1">
@@ -1205,7 +1262,6 @@ export default function ReceiptWorkbench() {
             </div>
           )}
 
-          {/* 1-Tap Friends Quick Chips */}
           {myFriends.length > 0 && (
             <div className="flex flex-col gap-2">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
@@ -1239,7 +1295,6 @@ export default function ReceiptWorkbench() {
             </div>
           )}
 
-          {/* Current Table Members List */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
@@ -1321,255 +1376,11 @@ export default function ReceiptWorkbench() {
         </div>
       </BottomSheet>
 
-      {/* DRAWER 3: SERVICE CHARGE CONFIG */}
-      <BottomSheet
-        isOpen={activeRuleSheet === 'sc'}
+      {/* EXTRACTED RULE DRAWERS (SERVICE CHARGE, 3-LAYER DISCOUNTS & TAX BRACKETS) */}
+      <WorkbenchRuleDrawers
+        activeSheet={activeRuleSheet}
         onClose={() => setActiveRuleSheet(null)}
-        title="Service Charge Rules"
-      >
-        <div className="flex flex-col gap-4 pb-4">
-          <label className="flex items-center justify-between p-3.5 bg-page border border-border rounded-xl cursor-pointer">
-            <span className="font-bold text-sm text-main">Enable Service Charge</span>
-            <ToggleSwitch
-              checked={sessionRules.isScApplicable}
-              onChange={(val) =>
-                actions.updateSessionRulesInDB({
-                  isScApplicable: val,
-                  ...(!val ? { serviceChargeRate: 0, scTaxPresetId: 'none' } : {}),
-                })
-              }
-            />
-          </label>
-
-          {sessionRules.isScApplicable && (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold uppercase tracking-widest text-muted">
-                  Service Charge Rate (%)
-                </label>
-                <input
-                  type="number"
-                  disabled={!isHost}
-                  value={
-                    sessionRules.serviceChargeRate > 0
-                      ? Number((sessionRules.serviceChargeRate * 100).toFixed(2))
-                      : ''
-                  }
-                  onChange={(e) =>
-                    actions.updateSessionRulesInDB({
-                      serviceChargeRate: (parseFloat(e.target.value) || 0) / 100,
-                    })
-                  }
-                  placeholder="e.g. 5 or 10"
-                  className="w-full h-11 bg-page border border-border rounded-xl px-3.5 font-bold tabular-nums"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold uppercase tracking-widest text-muted">
-                  How Does the Restaurant Tax Service Charge?
-                </label>
-                <select
-                  disabled={!isHost}
-                  value={
-                    sessionRules.scTaxPresetId === 'inherit' ||
-                    sessionRules.scTaxPresetId === 'none'
-                      ? sessionRules.scTaxPresetId
-                      : 'global'
-                  }
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'inherit' || val === 'none') {
-                      actions.updateSessionRulesInDB({ scTaxPresetId: val });
-                    } else {
-                      actions.updateSessionRulesInDB({
-                        scTaxPresetId: taxPresets[0]?.id || 'none',
-                      });
-                    }
-                  }}
-                  className="w-full h-11 bg-page border border-border rounded-xl px-3 font-semibold text-sm"
-                >
-                  <option value="inherit">Cascading: Inherit Each Item&apos;s Tax</option>
-                  <option value="global">Independent: Tax S.C. by a Global Bracket</option>
-                  <option value="none">Untaxed: No Tax on Service Charge</option>
-                </select>
-
-                {sessionRules.scTaxPresetId !== 'inherit' &&
-                  sessionRules.scTaxPresetId !== 'none' && (
-                    <select
-                      disabled={!isHost}
-                      value={sessionRules.scTaxPresetId}
-                      onChange={(e) =>
-                        actions.updateSessionRulesInDB({ scTaxPresetId: e.target.value })
-                      }
-                      className="w-full h-11 mt-2 bg-subtle border border-primary/30 rounded-xl px-3 font-bold text-primary text-sm"
-                    >
-                      {taxPresets.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.rate}%)
-                        </option>
-                      ))}
-                    </select>
-                  )}
-              </div>
-            </>
-          )}
-        </div>
-      </BottomSheet>
-
-      {/* DRAWER 4: DISCOUNT CONFIG (PRE-TAX / POST-TAX / % / FLAT) */}
-      <BottomSheet
-        isOpen={activeRuleSheet === 'discount'}
-        onClose={() => setActiveRuleSheet(null)}
-        title="Restaurant & Platform Discounts"
-      >
-        <div className="flex flex-col gap-4 pb-4">
-          <div className="flex items-center gap-1 bg-page p-1 rounded-xl border border-border">
-            {(['none', 'percentage', 'flat'] as const).map((type) => (
-              <button
-                key={type}
-                type="button"
-                disabled={!isHost}
-                onClick={() => actions.updateSessionRulesInDB({ discountType: type })}
-                className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors ${
-                  sessionRules.discountType === type
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'text-muted hover:text-main'
-                }`}
-              >
-                {type === 'flat' ? 'Flat (₹)' : type === 'percentage' ? 'Percent (%)' : 'None'}
-              </button>
-            ))}
-          </div>
-
-          {sessionRules.discountType !== 'none' && (
-            <>
-              <div className="flex items-center gap-1 bg-page p-1 rounded-xl border border-border">
-                <button
-                  type="button"
-                  disabled={!isHost}
-                  onClick={() => actions.updateSessionRulesInDB({ discountMode: 'pre-tax' })}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${
-                    sessionRules.discountMode === 'pre-tax'
-                      ? 'bg-surface text-main border border-border shadow-sm'
-                      : 'text-muted'
-                  }`}
-                >
-                  Pre-Tax (Before GST/VAT)
-                </button>
-                <button
-                  type="button"
-                  disabled={!isHost}
-                  onClick={() => actions.updateSessionRulesInDB({ discountMode: 'post-tax' })}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${
-                    sessionRules.discountMode === 'post-tax'
-                      ? 'bg-surface text-main border border-border shadow-sm'
-                      : 'text-muted'
-                  }`}
-                >
-                  Post-Tax (On Final Bill)
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold uppercase tracking-widest text-muted">
-                  Discount {sessionRules.discountType === 'flat' ? 'Amount (₹)' : 'Percentage (%)'}
-                </label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  disabled={!isHost}
-                  value={localDiscount}
-                  onChange={(e) => setLocalDiscount(e.target.value)}
-                  placeholder="0"
-                  className="w-full h-11 bg-page border border-border rounded-xl px-3.5 font-bold tabular-nums"
-                />
-              </div>
-            </>
-          )}
-        </div>
-      </BottomSheet>
-
-      {/* DRAWER 5: TAX BRACKETS & CGST/SGST SPLIT */}
-      <BottomSheet
-        isOpen={activeRuleSheet === 'taxes'}
-        onClose={() => setActiveRuleSheet(null)}
-        title="Tax Brackets (GST / VAT)"
-      >
-        <div className="flex flex-col gap-5 pb-4">
-          {isHost && (
-            <div className="bg-page border border-border rounded-2xl p-3.5 flex flex-col gap-3">
-              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                Create New Tax Bracket
-              </span>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newTaxName}
-                  onChange={(e) => setNewTaxName(e.target.value)}
-                  placeholder="Name (e.g. Liquor VAT)"
-                  className="flex-1 h-10 bg-surface border border-border rounded-xl px-3 text-sm font-semibold"
-                />
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={newTaxRate}
-                  onChange={(e) => setNewTaxRate(e.target.value)}
-                  placeholder="%"
-                  className="w-20 h-10 bg-surface border border-border rounded-xl px-2 text-center text-sm font-bold tabular-nums"
-                />
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <ToggleSwitch checked={newTaxSplit} onChange={setNewTaxSplit} />
-                  <span className="text-xs font-semibold text-main">
-                    Split 50/50 into CGST & SGST
-                  </span>
-                </label>
-                <button
-                  type="button"
-                  onClick={handleAddTaxPreset}
-                  className="h-9 px-4 bg-primary text-white rounded-xl font-bold text-xs"
-                >
-                  Add Tax
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2">
-            <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-              Active Brackets ({taxPresets.length})
-            </span>
-            <div className="bg-page border border-border rounded-2xl divide-y divide-border">
-              {taxPresets.map((t) => (
-                <div key={t.id} className="flex items-center justify-between px-3.5 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-main">{t.name}</span>
-                    <span className="text-xs font-bold text-muted bg-surface px-1.5 py-0.5 rounded border border-border tabular-nums">
-                      {t.rate}%
-                    </span>
-                    {t.split && (
-                      <span className="text-[0.6rem] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded uppercase">
-                        CGST/SGST
-                      </span>
-                    )}
-                  </div>
-                  {isHost && taxPresets.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => actions.removeTaxPresetFromDB(t.id)}
-                      className="p-1 text-muted hover:text-danger"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </BottomSheet>
+      />
     </div>
   );
 }

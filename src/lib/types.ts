@@ -13,6 +13,9 @@ export interface BillItem {
   taxRate: number;
   taxPresetId: string;
   applySC: boolean;
+  applyDiscount?: boolean;
+  discountType?: 'none' | 'percentage' | 'flat';
+  discountValue?: number;
   totalBase: number;
 }
 
@@ -28,6 +31,9 @@ export interface IndividualBreakdown {
 export interface GlobalSummary {
   totalQty: number;
   rawSubTotal: number;
+  itemDiscountAmount: number;
+  preTaxDiscountAmount: number;
+  postTaxDiscountAmount: number;
   discountAmount: number;
   discountMode: 'pre-tax' | 'post-tax';
   subTotal: number;
@@ -70,16 +76,18 @@ export interface NettedBalanceRow {
   hasOpposing: boolean;
 }
 
-export interface SquadMember {
+export interface SavedSquadMember {
   name: string;
   user_id: string | null;
 }
 
+export type SquadMember = SavedSquadMember;
+
 export interface SavedSquad {
   id: string;
   name: string;
-  members: SquadMember[];
-  createdAt: string;
+  members: SavedSquadMember[];
+  createdAt?: string;
 }
 
 export interface FriendDossierStats {

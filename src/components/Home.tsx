@@ -3,20 +3,40 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import type { DatabaseSession } from '../lib/types';
+import type { DatabaseSession, GlobalLedgerRow } from '../lib/types';
 import QrScannerModal from './ui/QrScannerModal';
 import ConfirmSheet from './ui/ConfirmSheet';
 import BrandLoader from './ui/BrandLoader';
-import { Plus, QrCode, Clock, ChevronRight, KeyRound, Trash2, Edit2, Check } from 'lucide-react';
+import {
+  Plus,
+  QrCode,
+  Clock,
+  ChevronRight,
+  KeyRound,
+  Trash2,
+  Edit2,
+  Check,
+  X,
+  Lock,
+  FileEdit,
+  Sparkles,
+} from 'lucide-react';
 
 interface Props {
   onOpenLobby: (mode: 'create' | 'join') => void;
   onJoinSession: (sessionId: string, pin: string) => void;
   onViewLedger: () => void;
+  onRequireSignIn?: () => void;
   user: SupabaseUser | null;
 }
 
-export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }: Props) {
+export default function Home({
+  onOpenLobby,
+  onJoinSession,
+  onViewLedger,
+  onRequireSignIn,
+  user,
+}: Props) {
   const [recentSessions, setRecentSessions] = useState<DatabaseSession[]>([]);
   const [owedToMe, setOwedToMe] = useState(0);
   const [iOwe, setIOwe] = useState(0);
@@ -44,29 +64,13 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
 
       if (sessionRes.data) setRecentSessions(sessionRes.data as DatabaseSession[]);
 
-      // Bilaterally net per counterparty so Dashboard totals match Global Ledger
-      const pairMap = new Map<string, number>();
-      const getKey = (id: string | null, name: string) =>
-        id ? `id:${id}` : `name:${(name || 'guest').trim().toLowerCase()}`;
+      const netted = utils.netBilateralBalances(
+        (creditorRes.data || []) as GlobalLedgerRow[],
+        (debtorRes.data || []) as GlobalLedgerRow[]
+      );
 
-      for (const r of creditorRes.data || []) {
-        const k = getKey(r.debtor_id, r.debtor_name);
-        pairMap.set(k, utils.round2((pairMap.get(k) || 0) + Number(r.total_owed || 0)));
-      }
-      for (const r of debtorRes.data || []) {
-        const k = getKey(r.creditor_id, r.creditor_name);
-        pairMap.set(k, utils.round2((pairMap.get(k) || 0) - Number(r.total_owed || 0)));
-      }
-
-      let netOwed = 0;
-      let netOwe = 0;
-      for (const bal of pairMap.values()) {
-        if (bal > 0.01) netOwed = utils.round2(netOwed + bal);
-        else if (bal < -0.01) netOwe = utils.round2(netOwe + Math.abs(bal));
-      }
-
-      setOwedToMe(netOwed);
-      setIOwe(netOwe);
+      setOwedToMe(netted.totalOwedToMe);
+      setIOwe(netted.totalIOwe);
       setIsLoading(false);
     };
 
@@ -119,7 +123,11 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
   const getSessionTitle = (session: DatabaseSession) =>
     session.name ||
     session.venue_name ||
-    `${new Date(session.created_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} Session`;
+    `${new Date(session.created_at).toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })} Session`;
 
   const getAvatarColor = (name: string) => {
     const colors = [
@@ -133,8 +141,12 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
     return colors[charCode % colors.length];
   };
 
+  const firstName = user?.user_metadata?.full_name
+    ? user.user_metadata.full_name.split(' ')[0]
+    : '';
+
   return (
-    <div className="w-full flex flex-col flex-1 relative bg-page pb-24">
+    <div className="w-full flex flex-col flex-1 relative bg-page pb-28">
       <QrScannerModal
         isOpen={isScanningRoom}
         title="Scan Room QR"
@@ -147,150 +159,197 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
         onClose={() => setSessionToDelete(null)}
         onConfirm={confirmDeleteSession}
         title="Delete Session?"
-        description={`Are you sure you want to permanently delete "${sessionToDelete ? getSessionTitle(sessionToDelete) : ''}" and all of its split records?`}
+        description={`Are you sure you want to permanently delete "${
+          sessionToDelete ? getSessionTitle(sessionToDelete) : ''
+        }" and all of its split records?`}
         confirmLabel="Delete Room"
         variant="danger"
       />
 
       <div className="absolute inset-0 bg-grid-pattern z-0" />
 
-      <div className="w-full flex flex-col px-4 py-6 md:px-8 relative z-10">
-        <div className="mb-6 flex justify-between items-end">
+      <div className="w-full flex flex-col px-4 py-5 md:px-8 relative z-10">
+        {/* GREETING HEADER */}
+        <div className="mb-4 flex justify-between items-center">
           <div>
-            <h2 className="text-3xl font-extrabold text-main tracking-tight">
-              {user?.user_metadata?.full_name
-                ? `Hi, ${user.user_metadata.full_name.split(' ')[0]}`
-                : 'Dashboard'}
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-main tracking-tight">
+              {firstName ? `Hi, ${firstName}` : 'Dashboard'}
             </h2>
-            <p className="text-muted text-sm mt-1 font-medium">Ready to settle up?</p>
+            <p className="text-muted text-xs sm:text-sm font-medium">
+              Split a receipt or settle up with your crew
+            </p>
           </div>
         </div>
 
+        {/* HERO LEDGER CARD OR INTERACTIVE GUEST BANNER */}
         {user?.is_anonymous ? (
-          <div className="bg-warning/10 border border-warning/20 rounded-2xl p-4 mb-6 flex flex-col gap-1">
-            <h4 className="text-warning-700 font-bold text-sm">Guest Mode Active</h4>
-            <p className="text-warning-700/80 text-xs font-medium leading-relaxed">
-              Sign in from the profile menu to permanently save your session history and ledger.
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              utils.haptic('light');
+              if (onRequireSignIn) {
+                onRequireSignIn();
+              } else {
+                supabase.auth.signOut().then(() => window.location.reload());
+              }
+            }}
+            className="w-full text-left bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 rounded-2xl p-4 mb-5 flex items-center justify-between gap-3 transition-colors active:scale-[0.99]"
+          >
+            <div className="flex flex-col gap-0.5">
+              <span className="text-amber-500 font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles size={13} /> Guest Mode Active
+              </span>
+              <span className="text-main text-xs font-medium leading-relaxed">
+                Tap here to link Google or Email so your rooms, friends &amp; ledger never get lost.
+              </span>
+            </div>
+            <ChevronRight size={18} className="text-amber-500 shrink-0" />
+          </button>
         ) : (
           <motion.button
+            type="button"
             whileTap={{ scale: 0.98 }}
             onClick={() => {
               utils.haptic('light');
               onViewLedger();
             }}
-            className="w-full text-left premium-gradient-card text-white rounded-3xl p-6 mb-6 flex flex-col gap-5 gpu-layer"
+            className="w-full text-left premium-gradient-card text-white rounded-3xl p-5 sm:p-6 mb-4 flex flex-col gap-4 gpu-layer"
           >
             <div className="flex justify-between items-end">
               <div className="flex flex-col">
-                <span className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1.5">
+                <span className="text-white/80 text-[0.65rem] font-bold uppercase tracking-widest mb-1">
                   Net Owed to You
                 </span>
-                <span className="text-4xl font-extrabold tracking-tight tabular-nums">
+                <span className="text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums">
                   {utils.formatMoney(owedToMe)}
                 </span>
               </div>
-              <div className="flex items-center gap-1 text-white text-sm font-bold bg-white/20 hover:bg-white/30 px-4 py-2 rounded-full transition-colors shadow-sm">
-                Ledger <ChevronRight size={16} />
+              <div className="flex items-center gap-1 text-white text-xs font-bold bg-white/20 hover:bg-white/30 px-3.5 py-2 rounded-full transition-colors shadow-sm">
+                Open Ledger <ChevronRight size={15} />
               </div>
             </div>
             <div className="h-px w-full bg-white/20" />
-            <div className="flex justify-between items-center">
-              <span className="text-white/80 text-sm font-medium">Net You Owe Others</span>
-              <span className="font-bold tracking-wide tabular-nums">
+            <div className="flex justify-between items-center text-xs sm:text-sm">
+              <span className="text-white/80 font-medium">Net You Owe Others</span>
+              <span className="font-extrabold tracking-wide tabular-nums">
                 {utils.formatMoney(iOwe)}
               </span>
             </div>
           </motion.button>
         )}
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        {/* COMPACT THUMB-FRIENDLY QUICK ACTION BAR */}
+        <div className="grid grid-cols-2 gap-2.5 mb-2.5">
           <motion.button
+            type="button"
             whileTap={{ scale: 0.97 }}
             onClick={() => {
-              utils.haptic('light');
+              utils.haptic('medium');
               onOpenLobby('create');
             }}
-            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-colors h-28"
+            className="bg-surface hover:border-primary/50 text-main border border-border rounded-2xl p-3.5 flex items-center gap-3 shadow-sm transition-colors text-left"
           >
-            <div className="bg-primary/10 p-2.5 rounded-full text-primary">
-              <Plus size={24} strokeWidth={2.5} />
+            <div className="w-10 h-10 rounded-xl bg-primary/12 text-primary flex items-center justify-center shrink-0">
+              <Plus size={20} strokeWidth={2.5} />
             </div>
-            <span className="font-bold text-[0.95rem]">New Session</span>
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-sm text-main truncate">New Split</span>
+              <span className="text-[0.68rem] text-muted font-medium truncate">
+                Scan or add bill
+              </span>
+            </div>
           </motion.button>
+
           <motion.button
+            type="button"
             whileTap={{ scale: 0.97 }}
             onClick={() => {
               utils.haptic('light');
               setIsScanningRoom(true);
             }}
-            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 shadow-sm transition-colors h-28"
+            className="bg-surface hover:border-primary/50 text-main border border-border rounded-2xl p-3.5 flex items-center gap-3 shadow-sm transition-colors text-left"
           >
-            <div className="bg-primary/10 p-2.5 rounded-full text-primary">
-              <QrCode size={24} strokeWidth={2.5} />
+            <div className="w-10 h-10 rounded-xl bg-primary/12 text-primary flex items-center justify-center shrink-0">
+              <QrCode size={20} strokeWidth={2.5} />
             </div>
-            <span className="font-bold text-[0.95rem]">Scan Room</span>
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-sm text-main truncate">Scan QR</span>
+              <span className="text-[0.68rem] text-muted font-medium truncate">
+                Join live table
+              </span>
+            </div>
           </motion.button>
         </div>
 
         <motion.button
+          type="button"
           whileTap={{ scale: 0.98 }}
           onClick={() => {
             utils.haptic('light');
             onOpenLobby('join');
           }}
-          className="w-full h-12 bg-surface active:bg-subtle text-main border border-border rounded-xl flex items-center justify-center gap-2 font-semibold transition-colors mb-8 shadow-sm hover:border-primary/30"
+          className="w-full h-10 bg-surface/80 hover:bg-surface text-muted hover:text-main border border-border rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-colors mb-6 shadow-2xs"
         >
-          <KeyRound className="text-muted" size={18} /> Join with ID & PIN
+          <KeyRound size={14} className="text-primary" /> Have a Room ID &amp; 4-Digit PIN? Join
+          here
         </motion.button>
 
-        <div className="flex flex-col flex-1 pb-6">
-          <div className="flex items-center gap-2 mb-4 px-1">
-            <Clock className="text-muted" size={16} />
-            <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
-              Recent Activity
-            </h3>
+        {/* RECENT ACTIVITY LIST */}
+        <div className="flex flex-col flex-1 pb-4">
+          <div className="flex items-center justify-between mb-3 px-1">
+            <div className="flex items-center gap-1.5">
+              <Clock className="text-muted" size={14} />
+              <h3 className="text-[0.7rem] font-bold text-muted uppercase tracking-widest">
+                Recent Sessions ({recentSessions.length})
+              </h3>
+            </div>
           </div>
 
           {isLoading ? (
             <BrandLoader label="Loading Sessions..." />
           ) : recentSessions.length > 0 ? (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2.5">
               <AnimatePresence initial={false}>
                 {recentSessions.map((session) => {
                   const title = getSessionTitle(session);
                   const isEditing = editingSessionId === session.id;
+                  const isLocked = session.status === 'locked';
+                  const hasDistinctVenue =
+                    session.name &&
+                    session.venue_name &&
+                    session.name.toLowerCase() !== session.venue_name.toLowerCase();
 
                   return (
                     <motion.div
                       key={session.id}
                       layout="position"
-                      initial={{ opacity: 0, y: 12 }}
+                      initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.96 }}
                       transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      className="bg-surface border border-border hover:border-primary/40 rounded-2xl p-4 flex items-center justify-between text-left shadow-sm group gpu-layer"
+                      className="bg-surface border border-border hover:border-primary/40 rounded-2xl p-3.5 flex items-center justify-between text-left shadow-sm gpu-layer"
                     >
                       <div
-                        className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer"
+                        className="flex items-center gap-3.5 flex-1 min-w-0 cursor-pointer"
                         onClick={() =>
                           !isEditing &&
                           onJoinSession(
                             session.id,
-                            session.pin || localStorage.getItem(`ekwly_pin_${session.id}`) || ''
+                            session.pin || localStorage.getItem('ekwly_pin_' + session.id) || ''
                           )
                         }
                       >
                         <div
-                          className={`w-11 h-11 rounded-full text-white flex items-center justify-center shrink-0 font-bold text-lg shadow-inner ${getAvatarColor(title)}`}
+                          className={`w-10 h-10 rounded-xl text-white flex items-center justify-center shrink-0 font-extrabold text-base shadow-inner ${getAvatarColor(
+                            title
+                          )}`}
                         >
                           {title.charAt(0).toUpperCase()}
                         </div>
                         <div className="flex flex-col min-w-0 flex-1 pr-2">
                           {isEditing ? (
                             <div
-                              className="flex items-center gap-2"
+                              className="flex items-center gap-1.5"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <input
@@ -298,69 +357,102 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
                                 type="text"
                                 value={editSessionName}
                                 onChange={(e) => setEditSessionName(e.target.value)}
-                                onKeyDown={(e) =>
-                                  e.key === 'Enter' && handleRenameSession(e, session.id)
-                                }
-                                className="h-8 w-full bg-page border border-primary/50 rounded-md px-2 text-sm font-bold text-main"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRenameSession(e, session.id);
+                                  if (e.key === 'Escape') setEditingSessionId(null);
+                                }}
+                                className="h-8 flex-1 bg-page border border-primary/50 rounded-lg px-2.5 text-sm font-bold text-main"
                               />
                               <button
+                                type="button"
                                 onClick={(e) => handleRenameSession(e, session.id)}
-                                className="p-1.5 bg-primary text-white rounded-md"
+                                className="p-1.5 bg-primary text-white rounded-lg"
+                                aria-label="Save name"
                               >
                                 <Check size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingSessionId(null);
+                                }}
+                                className="p-1.5 bg-page text-muted rounded-lg border border-border"
+                                aria-label="Cancel rename"
+                              >
+                                <X size={14} />
                               </button>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-main text-[1rem] truncate">
+                              <span className="font-bold text-main text-[0.95rem] truncate">
                                 {title}
                               </span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingSessionId(session.id);
-                                  setEditSessionName(title);
-                                }}
-                                className="opacity-60 hover:opacity-100 p-1 text-muted hover:text-primary transition-opacity"
-                                aria-label="Rename session"
+                              <span
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.6rem] font-extrabold uppercase tracking-wider shrink-0 ${
+                                  isLocked
+                                    ? 'bg-emerald-500/15 text-emerald-500'
+                                    : 'bg-amber-500/15 text-amber-500'
+                                }`}
                               >
-                                <Edit2 size={14} />
-                              </button>
+                                {isLocked ? <Lock size={9} /> : <FileEdit size={9} />}
+                                {isLocked ? 'Locked' : 'Draft'}
+                              </span>
                             </div>
                           )}
-                          <span className="text-[0.75rem] text-muted font-medium tabular-nums mt-0.5">
-                            {new Date(session.created_at).toLocaleDateString()} • ID:{' '}
-                            {session.id.toUpperCase()}
+
+                          <span className="text-[0.72rem] text-muted font-medium tabular-nums truncate mt-0.5">
+                            {hasDistinctVenue ? `${session.venue_name} • ` : ''}
+                            {new Date(session.created_at).toLocaleDateString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                            })}{' '}
+                            • #{session.id.toUpperCase()}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 pl-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSessionToDelete(session);
-                          }}
-                          className="p-2 text-muted hover:text-danger hover:bg-danger/10 rounded-full transition-colors active:scale-90"
-                          aria-label="Delete session"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                        <ChevronRight className="text-muted/40" size={20} />
-                      </div>
+                      {!isEditing && (
+                        <div className="flex items-center gap-1 pl-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingSessionId(session.id);
+                              setEditSessionName(title);
+                            }}
+                            className="p-2 text-muted hover:text-primary hover:bg-subtle rounded-xl transition-colors"
+                            aria-label="Rename session"
+                          >
+                            <Edit2 size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSessionToDelete(session);
+                            }}
+                            className="p-2 text-muted hover:text-danger hover:bg-danger/10 rounded-xl transition-colors"
+                            aria-label="Delete session"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      )}
                     </motion.div>
                   );
                 })}
               </AnimatePresence>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 px-6 bg-surface border border-dashed border-border rounded-2xl text-center">
-              <div className="w-16 h-16 bg-page rounded-full flex items-center justify-center mb-4">
-                <Plus className="text-muted/50" size={32} />
+            <div className="flex flex-col items-center justify-center py-10 px-6 bg-surface border border-dashed border-border rounded-2xl text-center">
+              <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-3">
+                <Plus size={24} />
               </div>
-              <h3 className="font-bold text-main mb-1">No sessions yet</h3>
-              <p className="text-sm font-medium text-muted">
-                Tap 'New Session' to start splitting a bill with your friends.
+              <h3 className="font-bold text-main text-sm mb-1">No bills split yet</h3>
+              <p className="text-xs font-medium text-muted max-w-xs">
+                Tap <strong>New Split</strong> above or the <strong>+</strong> button in the dock to
+                scan your first receipt.
               </p>
             </div>
           )}

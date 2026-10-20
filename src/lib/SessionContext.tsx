@@ -21,7 +21,7 @@ export function SessionProvider({
   isHost: boolean;
   children: ReactNode;
 }) {
-  const session = useSession(sessionId, isHost);
+  const session = useSession(sessionId);
 
   const verifiedIsHost =
     session.hostId && session.currentUserId ? session.hostId === session.currentUserId : isHost;
@@ -46,6 +46,8 @@ export function SessionProvider({
       discountType: session.sessionRules.discountType,
       discountMode: session.sessionRules.discountMode,
       discountValue: session.sessionRules.discountValue,
+      postTaxDiscountType: session.sessionRules.postTaxDiscountType,
+      postTaxDiscountValue: session.sessionRules.postTaxDiscountValue,
       taxPresets: session.taxPresets,
       scTaxPresetId: session.sessionRules.scTaxPresetId,
       serviceChargeRate: session.sessionRules.serviceChargeRate,

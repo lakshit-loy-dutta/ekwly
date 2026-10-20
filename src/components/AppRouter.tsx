@@ -1,20 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+// src/components/AppRouter.tsx
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import QRCode from 'react-qr-code';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import Home from './Home';
-import ActiveSession from './ActiveSession';
 import Auth from './Auth';
-import Lobby from './Lobby';
-import Profile from './Profile';
-import Friends from './Friends';
-import Ledger from './Ledger';
-import Analytics from './Analytics';
 import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import BottomDock, { type DockTab } from './ui/BottomDock';
-import { BrandLogo } from './ui/BrandLoader';
+import BrandLoader, { BrandLogo } from './ui/BrandLoader';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import {
@@ -27,7 +22,6 @@ import {
   Moon,
   Sun,
   QrCode,
-  Home as HomeIcon,
   Edit2,
   Wallet,
   Shield,
@@ -35,6 +29,13 @@ import {
   RefreshCcw,
   ExternalLink,
 } from 'lucide-react';
+
+const ActiveSession = lazy(() => import('./ActiveSession'));
+const Lobby = lazy(() => import('./Lobby'));
+const Profile = lazy(() => import('./Profile'));
+const Friends = lazy(() => import('./Friends'));
+const Ledger = lazy(() => import('./Ledger'));
+const Analytics = lazy(() => import('./Analytics'));
 
 type AppView =
   | 'auth'
@@ -58,9 +59,6 @@ export default function AppRouter() {
   const [isHost, setIsHost] = useState<boolean>(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-
-  const [currentStep, setCurrentStep] = useState<number>(1);
-  const [direction, setDirection] = useState<number>(1);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const hasRoutedRef = useRef(false);
@@ -93,7 +91,6 @@ export default function AppRouter() {
       : true
   );
 
-  // Unified Hardware Back Button (Capacitor) & Browser History (popstate) Handler
   useEffect(() => {
     const handleBackAction = () => {
       if (isShareModalOpen) {
@@ -197,7 +194,6 @@ export default function AppRouter() {
         setActiveSessionId(sId);
         setActiveSessionPin(savedPin || '');
         setIsHost(true);
-        setCurrentStep(1);
         setCurrentView('session');
       } else if (savedPin) {
         const { data: isValid } = await supabase.rpc('verify_session_pin', {
@@ -210,7 +206,6 @@ export default function AppRouter() {
           setActiveSessionId(sId);
           setActiveSessionPin(savedPin);
           setIsHost(false);
-          setCurrentStep(1);
           setCurrentView('session');
         } else {
           showToast('Invalid or expired PIN.', 'error');
@@ -235,11 +230,9 @@ export default function AppRouter() {
     setActiveSessionPin(pin);
     setActiveSessionName(name || null);
     setIsHost(true);
-    setCurrentStep(1);
     setCurrentView('session');
   };
 
-  // Zero-Friction Room Entry: Auto-generates 4-digit PIN silently and opens Workbench immediately
   const handleQuickLaunchRoom = () => {
     const autoPin = Math.floor(1000 + Math.random() * 9000).toString();
     handleLaunchRoom('', autoPin);
@@ -267,15 +260,7 @@ export default function AppRouter() {
     setActiveSessionPin(pin);
     setActiveSessionName(null);
     setIsHost(host);
-    setCurrentStep(1);
     setCurrentView('session');
-  };
-
-  const navigateStep = (newStep: number) => {
-    utils.haptic('light');
-    setDirection(newStep > currentStep ? 1 : -1);
-    setCurrentStep(newStep);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleLeaveSession = () => {
@@ -334,12 +319,13 @@ export default function AppRouter() {
                   }
                 }}
                 className="p-2 -ml-2 hover:bg-subtle rounded-full transition-colors shrink-0 text-primary"
+                aria-label="Go back"
               >
                 <ChevronLeft size={24} />
               </button>
               <h1 className="text-[1.05rem] sm:text-[1.1rem] font-bold text-main tracking-tight truncate">
                 {currentView === 'profile' && 'Your Profile'}
-                {currentView === 'friends' && 'Friends Network'}
+                {currentView === 'friends' && 'Dining Network'}
                 {currentView === 'ledger' && 'Global Ledger'}
                 {currentView === 'analytics' && 'Personal Analytics'}
                 {currentView === 'session' && (activeSessionName || 'Split Workbench')}
@@ -354,23 +340,14 @@ export default function AppRouter() {
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {currentView === 'session' && (
-              <>
-                <button
-                  onClick={handleOpenInviteQr}
-                  className="px-2.5 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1.5 text-xs font-bold"
-                  aria-label="Share Room QR"
-                >
-                  <QrCode size={16} />
-                  <span className="hidden sm:inline">Invite QR</span>
-                </button>
-                <button
-                  onClick={handleLeaveSession}
-                  className="p-2 rounded-full text-danger hover:bg-danger/10 transition-colors"
-                  aria-label="Exit Room"
-                >
-                  <HomeIcon size={20} />
-                </button>
-              </>
+              <button
+                onClick={handleOpenInviteQr}
+                className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1.5 text-xs font-bold"
+                aria-label="Share Room QR"
+              >
+                <QrCode size={16} />
+                <span>Invite QR</span>
+              </button>
             )}
             <button
               onClick={toggleNativeTheme}
@@ -472,7 +449,7 @@ export default function AppRouter() {
                     >
                       <div className="flex items-center gap-3">
                         <Users className="text-muted" size={20} />
-                        <span className="font-semibold text-main">Friends Network</span>
+                        <span className="font-semibold text-main">Dining Network</span>
                       </div>
                       <ChevronRight className="text-muted/50" size={18} />
                     </button>
@@ -515,7 +492,8 @@ export default function AppRouter() {
                     onClick={handleSignOut}
                     className="h-14 w-full mt-2 bg-danger/10 text-danger border border-danger/20 rounded-2xl font-bold text-[0.95rem] flex items-center justify-center gap-2 active:bg-danger/20 transition-colors shadow-sm"
                   >
-                    <LogOut size={18} /> Sign Out
+                    <LogOut size={18} />{' '}
+                    {user?.is_anonymous ? 'Link Account / Sign In' : 'Sign Out'}
                   </button>
                 </div>
               </BottomSheet>
@@ -538,46 +516,50 @@ export default function AppRouter() {
             }}
             onJoinSession={handleJoinSession}
             onViewLedger={() => handleSelectDockTab('ledger')}
+            onRequireSignIn={handleSignOut}
             user={user}
           />
         )}
-        {currentView === 'lobby' && (
-          <Lobby
-            initialMode={lobbyMode}
-            onClose={() => setCurrentView('home')}
-            onLaunch={handleLaunchRoom}
-            onJoin={handleJoinSession}
-          />
-        )}
-        {currentView === 'onboarding' && (
-          <Profile
-            user={user}
-            onBack={() => {}}
-            isOnboarding={true}
-            onComplete={() => resolveInitialRoute()}
-          />
-        )}
-        {currentView === 'profile' && <Profile user={user} onBack={() => setCurrentView('home')} />}
-        {currentView === 'friends' && <Friends user={user} onBack={() => setCurrentView('home')} />}
-        {currentView === 'ledger' && <Ledger user={user} onBack={() => setCurrentView('home')} />}
-        {currentView === 'analytics' && (
-          <Analytics user={user} onBack={() => setCurrentView('home')} />
-        )}
-        {currentView === 'session' && (
-          <ActiveSession
-            sessionId={activeSessionId}
-            pin={activeSessionPin}
-            initialName={activeSessionName}
-            isHost={isHost}
-            currentStep={currentStep}
-            direction={direction}
-            navigate={navigateStep}
-            onExit={handleLeaveSession}
-          />
-        )}
+
+        <Suspense fallback={<BrandLoader fullScreen label="Loading..." />}>
+          {currentView === 'lobby' && (
+            <Lobby
+              initialMode={lobbyMode}
+              onClose={() => setCurrentView('home')}
+              onLaunch={handleLaunchRoom}
+              onJoin={handleJoinSession}
+            />
+          )}
+          {currentView === 'onboarding' && (
+            <Profile
+              user={user}
+              onBack={() => {}}
+              isOnboarding={true}
+              onComplete={() => resolveInitialRoute()}
+            />
+          )}
+          {currentView === 'profile' && (
+            <Profile user={user} onBack={() => setCurrentView('home')} />
+          )}
+          {currentView === 'friends' && (
+            <Friends user={user} onBack={() => setCurrentView('home')} />
+          )}
+          {currentView === 'ledger' && <Ledger user={user} onBack={() => setCurrentView('home')} />}
+          {currentView === 'analytics' && (
+            <Analytics user={user} onBack={() => setCurrentView('home')} />
+          )}
+          {currentView === 'session' && (
+            <ActiveSession
+              sessionId={activeSessionId}
+              pin={activeSessionPin}
+              initialName={activeSessionName}
+              isHost={isHost}
+              onExit={handleLeaveSession}
+            />
+          )}
+        </Suspense>
       </div>
 
-      {/* FLOATING THUMB-ZONE BOTTOM DOCK */}
       {DOCK_VIEWS.includes(currentView) && (
         <BottomDock
           activeTab={currentView as DockTab}

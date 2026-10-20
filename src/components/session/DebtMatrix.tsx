@@ -416,25 +416,35 @@ export default function DebtMatrix(props: Props) {
           </span>
         </div>
 
-        {gs.discountAmount > 0 && gs.discountMode === 'pre-tax' && (
-          <>
-            <div className="flex justify-between py-2.5 text-sm">
-              <span className="text-muted">Raw Subtotal</span>
-              <span className="font-semibold text-main tabular-nums">
-                {utils.formatMoney(gs.rawSubTotal)}
-              </span>
-            </div>
-            <div className="flex justify-between py-2.5 text-sm text-success">
-              <span className="font-medium">Restaurant Discount (Pre-Tax)</span>
-              <span className="font-bold tabular-nums">
-                - {utils.formatMoney(gs.discountAmount)}
-              </span>
-            </div>
-          </>
+        {(gs.itemDiscountAmount > 0 || gs.preTaxDiscountAmount > 0) && (
+          <div className="flex justify-between py-2.5 text-sm">
+            <span className="text-muted">Raw Subtotal</span>
+            <span className="font-semibold text-main tabular-nums">
+              {utils.formatMoney(gs.rawSubTotal)}
+            </span>
+          </div>
+        )}
+
+        {gs.itemDiscountAmount > 0 && (
+          <div className="flex justify-between py-2.5 text-sm text-success">
+            <span className="font-medium">Item / Section Discounts</span>
+            <span className="font-bold tabular-nums">
+              - {utils.formatMoney(gs.itemDiscountAmount)}
+            </span>
+          </div>
+        )}
+
+        {gs.preTaxDiscountAmount > 0 && (
+          <div className="flex justify-between py-2.5 text-sm text-success">
+            <span className="font-medium">Restaurant Discount (Pre-Tax)</span>
+            <span className="font-bold tabular-nums">
+              - {utils.formatMoney(gs.preTaxDiscountAmount)}
+            </span>
+          </div>
         )}
 
         <div className="flex justify-between py-2.5 text-sm">
-          <span className="text-muted">Base Subtotal</span>
+          <span className="text-muted">Taxable Base Subtotal</span>
           <span className="font-semibold text-main tabular-nums">
             {utils.formatMoney(gs.subTotal)}
           </span>
@@ -461,7 +471,7 @@ export default function DebtMatrix(props: Props) {
           </div>
         )}
 
-        {gs.discountAmount > 0 && gs.discountMode === 'post-tax' && (
+        {gs.postTaxDiscountAmount > 0 && (
           <>
             <div className="flex justify-between py-2.5 text-sm">
               <span className="text-muted">Gross Total</span>
@@ -470,9 +480,9 @@ export default function DebtMatrix(props: Props) {
               </span>
             </div>
             <div className="flex justify-between py-2.5 text-sm text-success">
-              <span className="font-medium">Platform Discount (Post-Tax)</span>
+              <span className="font-medium">Coupon / App Discount (Post-Tax)</span>
               <span className="font-bold tabular-nums">
-                - {utils.formatMoney(gs.discountAmount)}
+                - {utils.formatMoney(gs.postTaxDiscountAmount)}
               </span>
             </div>
           </>

@@ -2,7 +2,17 @@ import { useState } from 'react';
 import { motion, type Variants } from 'framer-motion';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import { Mail, ChevronRight, Loader2 } from 'lucide-react';
+import { BrandLogo } from './ui/BrandLoader';
+import {
+  Mail,
+  Loader2,
+  Sparkles,
+  Receipt,
+  QrCode,
+  CheckCircle2,
+  ArrowRight,
+  RotateCcw,
+} from 'lucide-react';
 
 interface Props {
   onContinueAsGuest: () => void;
@@ -11,9 +21,11 @@ interface Props {
 export default function Auth({ onContinueAsGuest }: Props) {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState<string | null>(null);
+  const [magicLinkSentTo, setMagicLinkSentTo] = useState<string | null>(null);
 
   const handleOAuth = async (provider: 'google') => {
     try {
+      utils.haptic('light');
       setIsLoading(provider);
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
@@ -33,12 +45,14 @@ export default function Auth({ onContinueAsGuest }: Props) {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !email.includes('@')) return showToast('Enter a valid email', 'error');
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) return showToast('Enter a valid email', 'error');
 
     try {
+      utils.haptic('light');
       setIsLoading('email');
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: cleanEmail,
         options: {
           emailRedirectTo:
             typeof window !== 'undefined'
@@ -47,6 +61,7 @@ export default function Auth({ onContinueAsGuest }: Props) {
         },
       });
       if (error) throw error;
+      setMagicLinkSentTo(cleanEmail);
       showToast('Magic link sent! Check your email.', 'success');
     } catch (error: any) {
       showToast(error.message || 'Failed to send magic link', 'error');
@@ -57,31 +72,30 @@ export default function Auth({ onContinueAsGuest }: Props) {
 
   const handleAnonymous = async () => {
     try {
+      utils.haptic('medium');
       setIsLoading('anon');
       const { error } = await supabase.auth.signInAnonymously();
       if (error) throw error;
       onContinueAsGuest();
-    } catch (error: any) {
+    } catch {
       showToast('Could not start guest session', 'error');
       setIsLoading(null);
     }
   };
 
-  // Framer Motion Animation Variants
   const container: Variants = {
     hidden: { opacity: 0 },
-    show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+    show: { opacity: 1, transition: { staggerChildren: 0.08 } },
   };
 
   const item: Variants = {
-    hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } },
+    hidden: { opacity: 0, y: 16 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 360, damping: 28 } },
   };
 
   return (
     <div className="flex flex-col flex-1 relative bg-page min-h-dvh">
-      {/* GLOBAL TEXTURE */}
-      <div className="absolute inset-0 bg-grid-pattern z-0"></div>
+      <div className="absolute inset-0 bg-grid-pattern z-0" />
 
       <motion.div
         variants={container}
@@ -89,33 +103,41 @@ export default function Auth({ onContinueAsGuest }: Props) {
         animate="show"
         className="flex flex-col flex-1 px-6 justify-center items-center py-8 w-full max-w-sm mx-auto relative z-10"
       >
-        {/* LOGO & HERO */}
+        {/* BRAND HERO & VALUE PROP PILLS */}
         <motion.div
           variants={item}
-          className="flex flex-col items-center justify-center mb-10 mt-auto w-full"
+          className="flex flex-col items-center justify-center mb-8 mt-auto w-full text-center"
         >
-          <div className="w-20 h-20 bg-surface border border-border shadow-xl rounded-3xl flex items-center justify-center mb-6 relative overflow-hidden">
-            <div className="absolute inset-0 premium-gradient-card opacity-20"></div>
-            <img
-              src={utils.resolvePath('icon.svg')}
-              width="48"
-              height="48"
-              alt="Ekwly Logo"
-              className="relative z-10 rounded-xl"
-            />
+          <div className="p-3 bg-surface border border-border shadow-xl rounded-3xl flex items-center justify-center mb-5 relative overflow-hidden">
+            <div className="absolute inset-0 bg-primary/10" />
+            <BrandLogo size={52} className="relative z-10 rounded-2xl" />
           </div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-main mb-2">Ekwly</h2>
-          <p className="text-muted text-center text-[0.95rem] font-medium">
-            Split fairer, together.
+          <h1 className="text-3xl font-extrabold tracking-tight text-main mb-1.5">Ekwly</h1>
+          <p className="text-muted text-sm font-medium max-w-xs leading-relaxed mb-4">
+            Split restaurant bills, route GST & liquor taxes, and settle via UPI in under 20
+            seconds.
           </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-1.5">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border text-[0.7rem] font-bold text-main shadow-2xs">
+              <Sparkles size={11} className="text-primary" /> AI Bill Scan
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border text-[0.7rem] font-bold text-main shadow-2xs">
+              <Receipt size={11} className="text-emerald-500" /> GST & VAT Routing
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border text-[0.7rem] font-bold text-main shadow-2xs">
+              <QrCode size={11} className="text-amber-500" /> Instant UPI QR
+            </span>
+          </div>
         </motion.div>
 
-        <motion.div variants={item} className="flex flex-col gap-4 w-full mb-auto">
+        <motion.div variants={item} className="flex flex-col gap-3.5 w-full mb-auto">
           {/* Google Auth Button */}
           <button
+            type="button"
             onClick={() => handleOAuth('google')}
             disabled={!!isLoading}
-            className="w-full h-14 bg-surface/80 backdrop-blur-md text-main border border-border hover:border-primary/50 rounded-2xl shadow-sm flex items-center justify-center gap-3 font-bold transition-all disabled:opacity-50 active:scale-[0.98]"
+            className="w-full h-13 bg-surface text-main border border-border hover:border-primary/50 rounded-2xl shadow-sm flex items-center justify-center gap-3 font-bold text-sm transition-transform disabled:opacity-50 active:scale-[0.98]"
           >
             {isLoading === 'google' ? (
               <Loader2 className="animate-spin text-primary" size={20} />
@@ -142,50 +164,81 @@ export default function Auth({ onContinueAsGuest }: Props) {
             Continue with Google
           </button>
 
-          <div className="flex items-center gap-4 my-1 opacity-60">
-            <div className="flex-1 h-px bg-border"></div>
-            <span className="text-xs font-bold uppercase tracking-widest text-muted">Or</span>
-            <div className="flex-1 h-px bg-border"></div>
+          <div className="flex items-center gap-3 my-0.5 opacity-60">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+              Or Email Link
+            </span>
+            <div className="flex-1 h-px bg-border" />
           </div>
 
-          {/* Email Auth Form */}
-          <form onSubmit={handleEmailAuth} className="flex flex-col gap-3">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com"
-              required
-              className="w-full h-14 bg-surface/80 backdrop-blur-md border border-border rounded-2xl px-4 font-medium text-main focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
-            />
-            <button
-              type="submit"
-              disabled={!!isLoading}
-              className="w-full h-14 bg-main text-surface active:bg-main/90 rounded-2xl shadow-md flex items-center justify-center gap-2 font-bold transition-all disabled:opacity-50 active:scale-[0.98]"
-            >
-              {isLoading === 'email' ? (
-                <Loader2 className="animate-spin text-surface" size={20} />
-              ) : (
-                <Mail size={18} />
-              )}
-              Send Magic Link
-            </button>
-          </form>
+          {/* Email Auth Form OR Confirmation State */}
+          {magicLinkSentTo ? (
+            <div className="bg-surface border border-emerald-500/35 rounded-2xl p-4 flex flex-col items-center text-center gap-2 shadow-sm">
+              <div className="w-10 h-10 rounded-full bg-emerald-500/15 text-emerald-500 flex items-center justify-center">
+                <CheckCircle2 size={20} />
+              </div>
+              <p className="text-sm font-bold text-main">Check your inbox</p>
+              <p className="text-xs text-muted leading-relaxed">
+                We sent a 1-tap sign-in link to{' '}
+                <strong className="text-main">{magicLinkSentTo}</strong>.
+              </p>
+              <button
+                type="button"
+                onClick={() => setMagicLinkSentTo(null)}
+                className="mt-1 text-xs font-bold text-primary hover:underline inline-flex items-center gap-1"
+              >
+                <RotateCcw size={12} /> Use a different email
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleEmailAuth} className="flex flex-col gap-2.5">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
+                required
+                className="w-full h-12 bg-surface border border-border rounded-2xl px-4 text-sm font-semibold text-main shadow-2xs"
+              />
+              <button
+                type="submit"
+                disabled={!!isLoading}
+                className="w-full h-12 bg-primary hover:bg-primary-hover text-white rounded-2xl shadow-sm flex items-center justify-center gap-2 font-bold text-sm transition-transform disabled:opacity-50 active:scale-[0.98]"
+              >
+                {isLoading === 'email' ? (
+                  <Loader2 className="animate-spin text-white" size={18} />
+                ) : (
+                  <Mail size={17} />
+                )}
+                Send Magic Link
+              </button>
+            </form>
+          )}
 
+          {/* Elevated Guest Quick-Start CTA */}
           <button
+            type="button"
             onClick={handleAnonymous}
             disabled={!!isLoading}
-            className="mt-4 text-sm font-bold text-muted hover:text-main flex items-center justify-center gap-1 transition-colors"
+            className="mt-2 w-full h-11 bg-surface/70 hover:bg-surface text-muted hover:text-main border border-border rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
           >
-            {isLoading === 'anon' ? 'Creating Session...' : 'Sign in later as Guest'}{' '}
-            <ChevronRight size={16} />
+            {isLoading === 'anon' ? (
+              <>
+                <Loader2 size={14} className="animate-spin text-primary" /> Starting Workspace...
+              </>
+            ) : (
+              <>
+                Split a Bill Now as Guest <ArrowRight size={14} className="text-primary" />
+              </>
+            )}
           </button>
         </motion.div>
 
         {/* LEGAL FOOTER */}
-        <motion.div variants={item} className="mt-8 text-center px-4">
+        <motion.div variants={item} className="mt-6 text-center px-4">
           <p className="text-[0.7rem] text-muted/80 font-medium leading-relaxed">
-            By continuing, you agree to Ekwly's <br />
+            By continuing, you agree to Ekwly&apos;s <br />
             <a href={utils.resolvePath('terms')} className="text-primary hover:underline">
               Terms of Service
             </a>{' '}

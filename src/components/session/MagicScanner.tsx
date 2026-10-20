@@ -7,7 +7,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { Camera } from '@capacitor/camera'; // Removed deprecated enums
+import { Camera } from '@capacitor/camera';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
 import { showToast, utils } from '../../lib/utils';
@@ -73,7 +73,7 @@ export default function MagicScanner({ onScanComplete }: Props) {
 
     try {
       let base64Image = '';
-      let imageMimeType = 'image/jpeg'; // Default fallback
+      let imageMimeType = 'image/jpeg';
 
       if (Capacitor.isNativePlatform()) {
         let imageWebPath = '';
@@ -100,22 +100,17 @@ export default function MagicScanner({ onScanComplete }: Props) {
 
         const response = await fetch(imageWebPath);
         const blob = await response.blob();
-
-        // 2. Use the new returned object
         const extracted = await fileToBase64(blob);
         base64Image = extracted.base64;
         imageMimeType = extracted.mimeType;
       } else {
         const file = e?.target.files?.[0];
         if (!file) throw new Error('No file selected');
-
-        // 3. Use the new returned object
         const extracted = await fileToBase64(file);
         base64Image = extracted.base64;
         imageMimeType = extracted.mimeType;
       }
 
-      // 4. Pass the extracted MIME type to the Edge Function
       const { data, error } = await supabase.functions.invoke('scan-receipt', {
         body: {
           imageBase64: base64Image,
@@ -137,7 +132,7 @@ export default function MagicScanner({ onScanComplete }: Props) {
       if (!data?.items || data.items.length === 0)
         throw new Error('AI could not find any items on this receipt.');
 
-      // 1. PROCESS NEW TAX PRESETS FIRST (So we have the real UUIDs)
+      // 1. PROCESS NEW TAX PRESETS FIRST
       const tempIdMap: Record<string, string> = {};
       if (data.newTaxPresets && Array.isArray(data.newTaxPresets)) {
         for (const pt of data.newTaxPresets) {
@@ -152,26 +147,41 @@ export default function MagicScanner({ onScanComplete }: Props) {
         }
       }
 
-      // 2. UPDATE SESSION RULES (Now we can map the AI's scTaxPresetId safely)
+      // 2. UPDATE SESSION RULES (Supports Simultaneous Pre-Tax & Post-Tax Discounts)
       if (data.sessionRules) {
         let scRate = data.sessionRules.serviceChargeRate || 0;
         if (scRate > 1) scRate = scRate / 100;
 
         let parsedScTaxId = data.sessionRules.scTaxPresetId || 'inherit';
-        // If the AI assigned a tempId to the Service Charge Tax, convert it to the real UUID
         if (tempIdMap[parsedScTaxId]) parsedScTaxId = tempIdMap[parsedScTaxId];
 
+        const rawDiscType =
+          data.sessionRules.discountType === 'percentage' ||
+          data.sessionRules.discountType === 'flat'
+            ? data.sessionRules.discountType
+            : 'none';
+        const rawPostType =
+          data.sessionRules.postTaxDiscountType === 'percentage' ||
+          data.sessionRules.postTaxDiscountType === 'flat'
+            ? data.sessionRules.postTaxDiscountType
+            : 'none';
+
         await actions.updateSessionRulesInDB({
-          isScApplicable: data.sessionRules.isScApplicable,
+          isScApplicable: Boolean(data.sessionRules.isScApplicable),
           serviceChargeRate: scRate,
           scTaxPresetId: parsedScTaxId,
-          discountType: data.sessionRules.discountType,
-          discountValue: data.sessionRules.discountValue,
-          discountMode: data.sessionRules.discountMode,
+          discountType: rawDiscType,
+          discountValue: data.sessionRules.discountValue || '',
+          discountMode:
+            data.sessionRules.discountMode === 'post-tax' && rawPostType === 'none'
+              ? 'post-tax'
+              : 'pre-tax',
+          postTaxDiscountType: rawPostType,
+          postTaxDiscountValue: data.sessionRules.postTaxDiscountValue || '',
         });
       }
 
-      // 3. BATCH INSERT ITEMS IN ONE NETWORK REQUEST
+      // 3. BATCH INSERT ITEMS WITH ITEM/SECTION DISCOUNTS & ELIGIBILITY FLAGS
       const itemsToInsert = data.items
         .filter((extractedItem: any) => extractedItem.name && extractedItem.price)
         .map((extractedItem: any) => {
@@ -179,16 +189,26 @@ export default function MagicScanner({ onScanComplete }: Props) {
             tempIdMap[extractedItem.taxPresetId] ||
             extractedItem.taxPresetId ||
             (taxPresets.length > 0 ? taxPresets[0].id : 'tx-1');
-          const qty = extractedItem.qty || 1;
+          const qty = Number(extractedItem.qty || 1);
+          const unitPrice = Number(extractedItem.price || 0);
+          const itemDiscType =
+            extractedItem.discountType === 'percentage' || extractedItem.discountType === 'flat'
+              ? extractedItem.discountType
+              : 'none';
+          const itemDiscVal = Number(extractedItem.discountValue || 0);
+
           return {
             id: utils.generateId(),
             name: extractedItem.name,
             qty,
-            unitPrice: extractedItem.price,
+            unitPrice,
             taxRate: 0,
             taxPresetId: finalTaxId,
             applySC: extractedItem.applySC !== false,
-            totalBase: qty * extractedItem.price,
+            applyDiscount: extractedItem.applyDiscount !== false,
+            discountType: itemDiscType,
+            discountValue: itemDiscVal,
+            totalBase: qty * unitPrice,
           };
         });
 
@@ -207,14 +227,15 @@ export default function MagicScanner({ onScanComplete }: Props) {
 
   return (
     <>
-      <div className="bg-surface border-y border-border px-4 py-6 flex flex-col gap-5 shadow-sm">
+      <div className="bg-surface border border-border rounded-2xl px-4 py-6 flex flex-col gap-5 shadow-sm">
         <div className="flex flex-col items-center text-center px-4">
           <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
             <CameraIcon size={24} />
           </div>
           <h3 className="font-bold text-main text-lg tracking-tight mb-1">Magic Scan</h3>
           <p className="text-sm text-muted">
-            Upload a receipt and let AI extract the items, taxes, and service charges instantly.
+            Upload a receipt and let AI extract items, item/section discounts, GST/VAT, and service
+            charges automatically.
           </p>
         </div>
 
@@ -275,14 +296,6 @@ export default function MagicScanner({ onScanComplete }: Props) {
             )}
           </button>
         </div>
-
-        <div className="flex items-center gap-4 mt-2 opacity-60">
-          <div className="flex-1 h-px bg-border"></div>
-          <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted">
-            Or Configure Manually
-          </span>
-          <div className="flex-1 h-px bg-border"></div>
-        </div>
       </div>
 
       <BottomSheet
@@ -294,10 +307,10 @@ export default function MagicScanner({ onScanComplete }: Props) {
           <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-4">
             <Sparkles size={32} />
           </div>
-          <h2 className="text-xl font-bold text-main mb-2">You're out of free scans!</h2>
+          <h2 className="text-xl font-bold text-main mb-2">You&apos;re out of free scans!</h2>
           <p className="text-[0.95rem] text-muted mb-6 leading-relaxed">
-            You've used your 3 free Magic Scans for this month. Upgrade to Ekwly Pro to never type a
-            receipt manually again.
+            You&apos;ve used your 3 free Magic Scans for this month. Upgrade to Ekwly Pro to never
+            type a receipt manually again.
           </p>
 
           <div className="w-full bg-surface border border-primary/20 rounded-2xl p-5 mb-6 text-left shadow-sm">

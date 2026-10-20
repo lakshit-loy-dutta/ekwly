@@ -43,7 +43,6 @@ Deno.serve(async (req) => {
     const lastReset = new Date(profile.last_scan_reset || 0);
     let scansUsed = profile.ai_scans_used;
 
-    // Check if the month has changed to grant 3 new free scans
     if (
       now.getUTCFullYear() > lastReset.getUTCFullYear() ||
       now.getUTCMonth() > lastReset.getUTCMonth()
@@ -55,7 +54,6 @@ Deno.serve(async (req) => {
         .eq('id', user.id);
     }
 
-    // Check if user has an active Pro subscription
     const isPro = profile.pro_expires_at && new Date(profile.pro_expires_at) > now;
 
     if (!isPro && scansUsed >= 3) {
@@ -72,19 +70,21 @@ KNOWN VENUE CONTEXT:
 - Existing Tax Presets: ${JSON.stringify(currentTaxes)}
 
 EXTRACTION RULES:
-1. Extract all food/drink items. Ignore subtotal, tax, and round-off rows.
-2. For each item, assign the correct 'taxPresetId' from the Existing Tax Presets context. 
-3. If an item requires a tax that is NOT in the Existing Tax Presets, define it in the 'newTaxPresets' array with a unique 'tempId', and use that tempId for the item.
+1. Extract all food/drink/tobacco items with their unit 'price' (before discount) and 'qty'. Ignore subtotal, tax, and round-off rows.
+2. For each item, assign the correct 'taxPresetId' from the Existing Tax Presets context.
+3. If an item requires a tax that is NOT in the Existing Tax Presets, define it in 'newTaxPresets' with a unique 'tempId', and use that tempId for the item.
 4. If a Service Charge is applied, set 'isScApplicable' to true, and set 'serviceChargeRate' to the whole number percentage (e.g. 5 for 5%, 10 for 10%). Set 'applySC' to true for all items that attract this charge.
-5. Mathematically normalize any discounts into a single 'discountValue'.
+5. MULTI-LAYER DISCOUNTS (CRITICAL):
+   - ITEM OR SECTION DISCOUNTS: If specific items or a specific category (e.g., Desserts, Beer, Happy Hour starters) have their own discount, set 'discountType' ("percentage" or "flat") and 'discountValue' directly on those items. Otherwise set item 'discountType' to "none" and 'discountValue' to 0.
+   - PRE-TAX BILL DISCOUNT: If a restaurant discount is subtracted BEFORE taxes are calculated, set sessionRules 'discountType' ("percentage" or "flat"), 'discountValue', and 'discountMode' to "pre-tax". If that pre-tax discount applies only to Food/Soft Beverages and excludes Alcohol/Tobacco, set 'applyDiscount' to true on eligible items and false on excluded items!
+   - POST-TAX BILL / COUPON DISCOUNT: If a coupon, platform, or bank discount is subtracted AFTER taxes on the gross bill, set sessionRules 'postTaxDiscountType' ("percentage" or "flat") and 'postTaxDiscountValue'. Both Pre-Tax and Post-Tax discounts can be active simultaneously.
 6. Determine how the Service Charge is taxed by analyzing the receipt's math:
    - If taxes are calculated on (Item Base + Item SC), set 'scTaxPresetId' to "inherit".
    - If Service Charge is aggregated and taxed separately, set 'scTaxPresetId' to the specific tax preset ID (or tempId) applied to it.
    - If Service Charge is not taxed at all, set 'scTaxPresetId' to "none".
-7. MATH VERIFICATION: Use the 'reasoning' field to show your math. Sum the taxes based on your item assignments. The total MUST perfectly match the printed tax amounts on the receipt. If a tax bracket doesn't match, correct your item assignments (e.g., Alcohol might be 0% Tax).
+7. MATH VERIFICATION: Use the 'reasoning' field to show your step-by-step math. Verify that item discounts, selective pre-tax discounts, taxes, service charge, and post-tax discounts match the printed receipt totals exactly.
 `;
 
-    // Point to the low-latency 3.5-flash-lite endpoint
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
       {
@@ -99,7 +99,6 @@ EXTRACTION RULES:
               ],
             },
           ],
-          // FIX 2: Add 'reasoning' to the top of the schema for Chain of Thought validation
           generationConfig: {
             temperature: 0.0,
             response_mime_type: 'application/json',
@@ -109,7 +108,7 @@ EXTRACTION RULES:
                 reasoning: {
                   type: 'STRING',
                   description:
-                    'Step-by-step math proving your assigned item taxes match the receipt exactly.',
+                    'Step-by-step math proving your assigned item discounts, pre/post-tax discounts, and taxes match the receipt exactly.',
                 },
                 sessionRules: {
                   type: 'OBJECT',
@@ -120,6 +119,8 @@ EXTRACTION RULES:
                     discountType: { type: 'STRING' },
                     discountValue: { type: 'STRING' },
                     discountMode: { type: 'STRING' },
+                    postTaxDiscountType: { type: 'STRING' },
+                    postTaxDiscountValue: { type: 'STRING' },
                   },
                 },
                 newTaxPresets: {
@@ -144,6 +145,9 @@ EXTRACTION RULES:
                       price: { type: 'NUMBER' },
                       taxPresetId: { type: 'STRING' },
                       applySC: { type: 'BOOLEAN' },
+                      applyDiscount: { type: 'BOOLEAN' },
+                      discountType: { type: 'STRING' },
+                      discountValue: { type: 'NUMBER' },
                     },
                     required: ['name', 'qty', 'price'],
                   },
@@ -181,7 +185,7 @@ EXTRACTION RULES:
     // 3. CHARGE QUOTA ONLY UPON SUCCESS
     await supabaseClient
       .from('profiles')
-      .update({ ai_scans_used: scansUsed + 1 }) // <-- FIX: Use reset-aware scansUsed variable
+      .update({ ai_scans_used: scansUsed + 1 })
       .eq('id', user.id);
 
     return new Response(JSON.stringify(parsedJson), {

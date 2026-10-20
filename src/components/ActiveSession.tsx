@@ -25,9 +25,6 @@ interface Props {
   pin: string | null;
   initialName?: string | null;
   isHost: boolean;
-  currentStep?: number;
-  direction?: number;
-  navigate?: (step: number) => void;
   onExit: () => void;
 }
 
@@ -194,7 +191,7 @@ function ActiveSessionContent({
       />
 
       {/* 2-TAB SEGMENTED WORKBENCH HEADER */}
-      <div className="sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b border-border px-4 py-2.5 gpu-layer">
+      <div className="sticky top-16 z-30 bg-surface/90 backdrop-blur-xl border-b border-border px-4 py-2.5 gpu-layer">
         <div className="bg-page border border-border rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
           <button
             type="button"
