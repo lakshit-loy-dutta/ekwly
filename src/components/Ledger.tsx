@@ -368,66 +368,67 @@ export default function Ledger({ user }: Props) {
               key={entry.counterpartyKey}
               className="flex flex-col p-4 bg-surface hover:bg-subtle/40 transition-colors gap-3"
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-3 min-w-0 pr-2">
+              {/* Row 1: Full Counterparty Name + Clear Net Amount */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold overflow-hidden shrink-0 border border-primary/20">
                     <User size={18} />
                   </div>
                   <div className="flex flex-col min-w-0">
-                    <span className="font-semibold text-main text-[0.95rem] truncate">
+                    <span className="font-bold text-main text-base truncate">
                       {entry.counterpartyName}
                     </span>
-                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                      <span className="text-sm font-extrabold text-success tabular-nums">
-                        +{utils.formatMoney(entry.netAmount)}
+                    {entry.hasOpposing ? (
+                      <span className="text-[0.65rem] font-bold text-muted inline-flex items-center gap-1 tabular-nums">
+                        <ArrowLeftRight size={10} className="text-primary" /> Net of +
+                        {utils.formatMoney(entry.grossOwedToMe)} / -
+                        {utils.formatMoney(entry.grossIOwe)}
                       </span>
-                      {entry.hasOpposing && (
-                        <span className="text-[0.65rem] font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border inline-flex items-center gap-1 tabular-nums">
-                          <ArrowLeftRight size={10} className="text-primary" /> Netted (+
-                          {utils.formatMoney(entry.grossOwedToMe)} / -
-                          {utils.formatMoney(entry.grossIOwe)})
-                        </span>
-                      )}
-                    </div>
+                    ) : (
+                      <span className="text-[0.7rem] text-muted font-medium">Owes you</span>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {myUpiId && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        utils.haptic('light');
-                        setActiveQrRow(entry);
-                      }}
-                      className="h-9 px-2.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-lg font-bold text-xs flex items-center gap-1 transition-all"
-                      title="Show Your UPI QR Code"
-                    >
-                      <QrCode size={14} /> QR
-                    </button>
-                  )}
-                  <a
-                    href={utils.buildWhatsAppReminderUrl({
-                      debtorName: entry.counterpartyName,
-                      creditorName: entry.selfName || 'me',
-                      amount: entry.netAmount,
-                      upiId: myUpiId,
-                    })}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="h-9 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/25 rounded-lg font-bold text-xs flex items-center gap-1 transition-all"
-                    title="Send WhatsApp Reminder"
-                  >
-                    <MessageCircle size={15} /> Nudge
-                  </a>
+                <span className="text-base font-extrabold text-success tabular-nums shrink-0">
+                  +{utils.formatMoney(entry.netAmount)}
+                </span>
+              </div>
+
+              {/* Row 2: Uncramped Action Pills */}
+              <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                {myUpiId && (
                   <button
                     type="button"
-                    onClick={() => setPendingSettle(entry)}
-                    className="h-9 px-3.5 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
+                    onClick={() => {
+                      utils.haptic('light');
+                      setActiveQrRow(entry);
+                    }}
+                    className="flex-1 h-9 px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
                   >
-                    <CheckCircle2 size={15} /> Settle
+                    <QrCode size={14} /> Show QR
                   </button>
-                </div>
+                )}
+                <a
+                  href={utils.buildWhatsAppReminderUrl({
+                    debtorName: entry.counterpartyName,
+                    creditorName: entry.selfName || 'me',
+                    amount: entry.netAmount,
+                    upiId: myUpiId,
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 h-9 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <MessageCircle size={14} /> Nudge
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPendingSettle(entry)}
+                  className="flex-1 h-9 px-3.5 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <CheckCircle2 size={14} /> Settle
+                </button>
               </div>
             </div>
           ))
@@ -464,61 +465,62 @@ export default function Ledger({ user }: Props) {
                 key={entry.counterpartyKey}
                 className="flex flex-col p-4 bg-surface hover:bg-subtle/40 transition-colors gap-3"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-3 min-w-0 pr-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-full bg-danger/10 text-danger flex items-center justify-center font-bold overflow-hidden shrink-0 border border-danger/20">
                       <User size={18} />
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <span className="font-semibold text-main text-[0.95rem] truncate">
+                      <span className="font-bold text-main text-base truncate">
                         {entry.counterpartyName}
                       </span>
-                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                        <span className="text-sm font-extrabold text-danger tabular-nums">
-                          -{utils.formatMoney(entry.netAmount)}
+                      {entry.hasOpposing ? (
+                        <span className="text-[0.65rem] font-bold text-muted inline-flex items-center gap-1 tabular-nums">
+                          <ArrowLeftRight size={10} className="text-primary" /> Net of -
+                          {utils.formatMoney(entry.grossIOwe)} / +
+                          {utils.formatMoney(entry.grossOwedToMe)}
                         </span>
-                        {entry.hasOpposing && (
-                          <span className="text-[0.65rem] font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border inline-flex items-center gap-1 tabular-nums">
-                            <ArrowLeftRight size={10} className="text-primary" /> Netted (-
-                            {utils.formatMoney(entry.grossIOwe)} / +
-                            {utils.formatMoney(entry.grossOwedToMe)})
-                          </span>
-                        )}
-                      </div>
+                      ) : (
+                        <span className="text-[0.7rem] text-muted font-medium">You owe</span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {upiLink && (
-                      <>
-                        <a
-                          href={upiLink}
-                          onClick={() => utils.haptic('light')}
-                          className="h-9 px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-lg font-bold text-xs flex items-center gap-1 transition-all"
-                        >
-                          <Smartphone size={14} /> Pay UPI
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            utils.haptic('light');
-                            setActiveQrRow(entry);
-                          }}
-                          className="h-9 px-2.5 bg-page hover:bg-subtle text-main border border-border rounded-lg font-bold text-xs flex items-center gap-1 transition-all"
-                          title="Scan Creditor UPI QR"
-                        >
-                          <QrCode size={14} />
-                        </button>
-                      </>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setPendingSettle(entry)}
-                      className="h-9 px-3.5 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-lg font-bold text-xs transition-all shrink-0 flex items-center gap-1.5 shadow-sm"
-                    >
-                      <CheckCircle2 size={15} /> Mark Paid
-                    </button>
-                  </div>
+                  <span className="text-base font-extrabold text-danger tabular-nums shrink-0">
+                    -{utils.formatMoney(entry.netAmount)}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                  {upiLink && (
+                    <>
+                      <a
+                        href={upiLink}
+                        onClick={() => utils.haptic('light')}
+                        className="flex-1 h-9 px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        <Smartphone size={14} /> Pay UPI
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          utils.haptic('light');
+                          setActiveQrRow(entry);
+                        }}
+                        className="h-9 px-3 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                        title="Scan Creditor UPI QR"
+                      >
+                        <QrCode size={14} /> QR
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPendingSettle(entry)}
+                    className="flex-1 h-9 px-3.5 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <CheckCircle2 size={14} /> Mark Paid
+                  </button>
                 </div>
               </div>
             );

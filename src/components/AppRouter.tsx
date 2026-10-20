@@ -507,7 +507,7 @@ export default function AppRouter() {
         </div>
       )}
 
-      <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-hidden no-scrollbar">
+      <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-x-clip no-scrollbar">
         {currentView === 'auth' && <Auth onContinueAsGuest={resolveInitialRoute} />}
         {currentView === 'home' && (
           <Home

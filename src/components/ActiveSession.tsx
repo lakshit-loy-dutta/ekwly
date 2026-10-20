@@ -59,14 +59,12 @@ function ActiveSessionContent({
   const [showPayerSheet, setShowPayerSheet] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Initialize room in DB if Host just launched it
   useEffect(() => {
     if (sessionId && pin && isHost) {
       actions.createSessionInDB(sessionId, pin, initialName);
     }
-  }, [sessionId, pin, isHost, initialName]);
+  }, [sessionId, pin, isHost, initialName, actions]);
 
-  // Automatically switch to Settle & Collect tab when room is locked
   useEffect(() => {
     if (sessionStatus === 'locked') {
       setActiveTab('settle');
@@ -82,7 +80,6 @@ function ActiveSessionContent({
   const paymentDiff = utils.round2(grandTotal - totalPaid);
   const isPaymentBalanced = Math.abs(paymentDiff) <= 0.05;
 
-  // Smart Cashier Default: Auto-assign 100% of restaurant bill to Host if no payments recorded yet
   const applySmartCashierDefault = async () => {
     if (!isHost || members.length === 0 || grandTotal <= 0) return;
     if (totalPaid === 0) {
@@ -115,7 +112,6 @@ function ActiveSessionContent({
       return showToast('Add at least one dish before locking the bill.', 'error');
     }
 
-    // Ensure cashier payment covers the Grand Total before generating transactions
     let updatedMembers = [...members];
     const currentTotalPaid = updatedMembers.reduce((s, m) => s + (m.paid_amount || 0), 0);
 
@@ -190,8 +186,8 @@ function ActiveSessionContent({
         variant="danger"
       />
 
-      {/* 2-TAB SEGMENTED WORKBENCH HEADER */}
-      <div className="sticky top-16 z-30 bg-surface/90 backdrop-blur-xl border-b border-border px-4 py-2.5 gpu-layer">
+      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Docks cleanly below the 64px top navbar) */}
+      <div className="sticky top-16 z-30 bg-surface/95 backdrop-blur-xl border-b border-border px-4 py-2.5 shadow-2xs gpu-layer">
         <div className="bg-page border border-border rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
           <button
             type="button"
@@ -208,7 +204,7 @@ function ActiveSessionContent({
               />
             )}
             <Receipt size={15} />
-            <span>1. Receipt & Split</span>
+            <span>1. Receipt &amp; Split</span>
           </button>
 
           <button
@@ -226,7 +222,7 @@ function ActiveSessionContent({
               />
             )}
             <CreditCard size={15} />
-            <span>2. Settle & Collect</span>
+            <span>2. Settle &amp; Collect</span>
           </button>
         </div>
       </div>
@@ -236,9 +232,9 @@ function ActiveSessionContent({
         {activeTab === 'workbench' ? (
           <motion.div
             key="workbench"
-            initial={{ opacity: 0, x: -14 }}
+            initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -14 }}
+            exit={{ opacity: 0, x: -12 }}
             transition={{ type: 'spring', stiffness: 420, damping: 34 }}
             className="flex flex-col flex-1"
           >
@@ -259,11 +255,11 @@ function ActiveSessionContent({
         ) : (
           <motion.div
             key="settle"
-            initial={{ opacity: 0, x: 14 }}
+            initial={{ opacity: 0, x: 12 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 14 }}
+            exit={{ opacity: 0, x: 12 }}
             transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-            className="flex flex-col flex-1 pt-3"
+            className="flex flex-col flex-1 pt-4"
           >
             {/* SMART CASHIER PAYER BAR (DRAFT STATE ONLY) */}
             {sessionStatus !== 'locked' && (
@@ -323,7 +319,7 @@ function ActiveSessionContent({
       {/* FLOATING BOTTOM SUMMARY & CTA BAR (ON TAB 1) */}
       {activeTab === 'workbench' && (
         <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none flex justify-center px-4 pb-4 pb-safe">
-          <div className="pointer-events-auto w-full max-w-xl bg-surface/90 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-[0_8px_30px_rgba(0,0,0,0.2)] flex items-center justify-between gap-3 gpu-layer">
+          <div className="pointer-events-auto w-full max-w-xl bg-surface/92 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] flex items-center justify-between gap-3 gpu-layer">
             <div className="flex flex-col pl-1">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
                 Grand Total ({items.length} {items.length === 1 ? 'dish' : 'dishes'})
@@ -338,7 +334,7 @@ function ActiveSessionContent({
               onClick={() => handleSwitchTab('settle')}
               className="h-11 px-5 premium-gradient-card text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm active:scale-95 transition-transform"
             >
-              Review & Settle <ArrowRight size={17} />
+              Review &amp; Settle <ArrowRight size={17} />
             </button>
           </div>
         </div>

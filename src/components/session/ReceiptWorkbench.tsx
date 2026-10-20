@@ -11,11 +11,13 @@ import {
   Percent,
   Receipt,
   SlidersHorizontal,
-  ChevronDown,
   Sparkles,
   Minus,
   Radio,
   BookmarkPlus,
+  Tag,
+  Layers,
+  X,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
@@ -79,7 +81,8 @@ export default function ReceiptWorkbench() {
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemTaxId, setNewItemTaxId] = useState<string>(taxPresets[0]?.id || 'tx-1');
   const [newItemApplySC, setNewItemApplySC] = useState<boolean>(true);
-  const [newItemDiscType, setNewItemDiscType] = useState<'none' | 'percentage' | 'flat'>('none');
+  const [hasNewItemOffer, setHasNewItemOffer] = useState<boolean>(false);
+  const [newItemDiscType, setNewItemDiscType] = useState<'percentage' | 'flat'>('percentage');
   const [newItemDiscVal, setNewItemDiscVal] = useState<string>('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemResults, setItemResults] = useState<DatabaseItem[]>([]);
@@ -272,8 +275,8 @@ export default function ReceiptWorkbench() {
     const preset = taxPresets.find((t) => t.id === newItemTaxId);
     const taxRate = preset ? preset.rate / 100 : 0;
     const totalBase = qtyParsed * priceParsed;
-    const parsedDiscVal = parseFloat(newItemDiscVal) || 0;
-    const finalDiscType = parsedDiscVal > 0 ? newItemDiscType : 'none';
+    const parsedDiscVal = hasNewItemOffer ? parseFloat(newItemDiscVal) || 0 : 0;
+    const finalDiscType = hasNewItemOffer && parsedDiscVal > 0 ? newItemDiscType : 'none';
 
     if (editingItemId) {
       const existing = items.find((i) => i.id === editingItemId);
@@ -309,7 +312,7 @@ export default function ReceiptWorkbench() {
     setNewItemName('');
     setNewItemQty('1');
     setNewItemPrice('');
-    setNewItemDiscType('none');
+    setHasNewItemOffer(false);
     setNewItemDiscVal('');
     setShowItemDropdown(false);
   };
@@ -321,10 +324,13 @@ export default function ReceiptWorkbench() {
     setNewItemPrice(item.unitPrice.toString());
     setNewItemTaxId(item.taxPresetId);
     setNewItemApplySC(item.applySC);
-    setNewItemDiscType(item.discountType || 'none');
+    const itemHasOffer =
+      Boolean(item.discountType && item.discountType !== 'none') && Number(item.discountValue) > 0;
+    setHasNewItemOffer(itemHasOffer);
+    setNewItemDiscType(item.discountType === 'flat' ? 'flat' : 'percentage');
     setNewItemDiscVal(item.discountValue ? item.discountValue.toString() : '');
     setEditingItemId(item.id);
-    window.scrollTo({ top: 180, behavior: 'smooth' });
+    window.scrollTo({ top: 220, behavior: 'smooth' });
   };
 
   // --- 1-TAP ITEM-CENTRIC AVATAR CLAIMING ---
@@ -390,18 +396,19 @@ export default function ReceiptWorkbench() {
       : 1;
 
   const hasActivePreTaxBillDiscount = gs.preTaxDiscountAmount > 0;
+  const scPercent = Math.round(sessionRules.serviceChargeRate * 100);
 
   return (
-    <div className="w-full flex flex-col gap-4 px-4 pt-3 pb-36">
+    <div className="w-full flex flex-col gap-3.5 px-4 pt-3 pb-36">
       {/* ZONE 1: VENUE & AI MAGIC SCAN HEADER CARD */}
-      <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3 relative z-30">
+      <div className="bg-surface border border-border rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5 relative z-30">
         <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted">
+          <div className="relative flex-1 min-w-0">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
               {isSearchingVenue ? (
-                <Loader2 size={16} className="animate-spin text-primary" />
+                <Loader2 size={15} className="animate-spin text-primary" />
               ) : (
-                <Search size={16} />
+                <Search size={15} />
               )}
             </div>
             <input
@@ -409,8 +416,8 @@ export default function ReceiptWorkbench() {
               disabled={!isHost}
               value={localVenue}
               onChange={(e) => setLocalVenue(e.target.value)}
-              placeholder="Restaurant / Venue (e.g. Toit, Chin Lung)"
-              className="w-full h-11 bg-page border border-border rounded-xl pl-9 pr-3 text-sm font-semibold text-main"
+              placeholder="Venue (e.g. Toit, Chin Lung)"
+              className="w-full h-11 bg-page border border-border rounded-xl pl-10 pr-3 text-sm font-semibold text-main"
             />
 
             {showVenueDropdown && venueResults.length > 0 && (
@@ -510,7 +517,7 @@ export default function ReceiptWorkbench() {
                     : 'bg-page border-border text-main'
                 }`}
               >
-                <span className="font-bold truncate max-w-24">{m.name}</span>
+                <span className="font-bold truncate max-w-28">{m.name}</span>
                 <span className="font-extrabold text-primary tabular-nums">
                   {utils.formatMoney(owed)}
                 </span>
@@ -526,7 +533,6 @@ export default function ReceiptWorkbench() {
           </button>
         </div>
 
-        {/* Inline 1-Tap Saved Squad Quick Pills when starting a room */}
         {isHost && members.length <= 1 && savedSquads.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-border/50">
             <span className="text-[0.65rem] font-bold text-muted shrink-0 pr-1">Squads:</span>
@@ -544,7 +550,103 @@ export default function ReceiptWorkbench() {
         )}
       </div>
 
-      {/* ZONE 3: ADD / EDIT DISH BAR (HOST ONLY) */}
+      {/* ZONE 2.5: PROMINENT BILL RULES, DISCOUNTS, S.C. & TAX BRACKETS BAR */}
+      <div className="bg-surface border border-border rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
+            <Layers size={13} className="text-primary" /> Bill Rules, Taxes &amp; Offers
+          </span>
+          <span className="text-[0.65rem] text-muted font-medium">Tap to configure</span>
+        </div>
+
+        {/* Row 1: Global Discounts, Service Charge, and Custom Tax Trigger */}
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              utils.haptic('light');
+              setActiveRuleSheet('discount');
+            }}
+            className={`p-2.5 rounded-xl border text-left flex flex-col gap-0.5 transition-all active:scale-95 ${
+              gs.discountAmount > 0
+                ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-500'
+                : 'bg-page border-border text-main hover:border-primary/40'
+            }`}
+          >
+            <span className="text-[0.62rem] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
+              <Percent size={10} className="text-emerald-500" /> Discounts
+            </span>
+            <span className="text-xs font-extrabold tabular-nums truncate">
+              {gs.discountAmount > 0 ? `-${utils.formatMoney(gs.discountAmount)}` : 'Add Offer'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              utils.haptic('light');
+              setActiveRuleSheet('sc');
+            }}
+            className={`p-2.5 rounded-xl border text-left flex flex-col gap-0.5 transition-all active:scale-95 ${
+              sessionRules.isScApplicable && scPercent > 0
+                ? 'bg-primary/10 border-primary/35 text-primary'
+                : 'bg-page border-border text-main hover:border-primary/40'
+            }`}
+          >
+            <span className="text-[0.62rem] font-bold uppercase tracking-wider text-muted">
+              Service Chg
+            </span>
+            <span className="text-xs font-extrabold tabular-nums truncate">
+              {sessionRules.isScApplicable && scPercent > 0 ? `${scPercent}% Active` : 'None (0%)'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              utils.haptic('light');
+              setActiveRuleSheet('taxes');
+            }}
+            className="p-2.5 rounded-xl border bg-page border-border hover:border-primary/40 text-main text-left flex flex-col gap-0.5 transition-all active:scale-95"
+          >
+            <span className="text-[0.62rem] font-bold uppercase tracking-wider text-muted">
+              Tax Brackets
+            </span>
+            <span className="text-xs font-extrabold text-primary truncate">
+              {taxPresets.length} Active • +Add
+            </span>
+          </button>
+        </div>
+
+        {/* Row 2: Visible Tax Preset Pills + 1-Tap "+ Custom Tax" */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+          {taxPresets.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActiveRuleSheet('taxes')}
+              className="shrink-0 px-2.5 py-1 rounded-lg bg-page border border-border text-[0.68rem] font-bold text-muted hover:text-main hover:border-primary/40 tabular-nums flex items-center gap-1"
+            >
+              <span className="text-main">{t.name}</span>
+              <span className="text-primary">{t.rate}%</span>
+            </button>
+          ))}
+          {isHost && (
+            <button
+              type="button"
+              onClick={() => {
+                utils.haptic('light');
+                setActiveRuleSheet('taxes');
+              }}
+              className="shrink-0 px-2.5 py-1 rounded-lg border border-dashed border-primary/40 text-primary text-[0.68rem] font-bold flex items-center gap-1 hover:bg-primary/5"
+            >
+              <Plus size={11} /> Custom Tax
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ZONE 3: ADD / EDIT DISH BAR (HOST ONLY — WITH VISIBLE TAX PILLS & COMPACT OFFER TOGGLE) */}
       {isHost && (
         <form
           onSubmit={handleSaveItem}
@@ -552,7 +654,7 @@ export default function ReceiptWorkbench() {
         >
           <div className="flex items-center justify-between">
             <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted">
-              {editingItemId ? 'Editing Dish' : 'Add Dish to Receipt'}
+              {editingItemId ? 'Editing Dish on Receipt' : 'Add Dish to Receipt'}
             </span>
             {editingItemId && (
               <button
@@ -562,7 +664,7 @@ export default function ReceiptWorkbench() {
                   setNewItemName('');
                   setNewItemQty('1');
                   setNewItemPrice('');
-                  setNewItemDiscType('none');
+                  setHasNewItemOffer(false);
                   setNewItemDiscVal('');
                 }}
                 className="text-xs font-bold text-danger"
@@ -572,41 +674,42 @@ export default function ReceiptWorkbench() {
             )}
           </div>
 
-          <div className="relative">
-            <input
-              type="text"
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              placeholder="Dish or Drink Name (e.g. Crispy Corn)"
-              className="w-full h-11 bg-page border border-border rounded-xl px-3.5 text-sm font-semibold text-main"
-            />
-            {showItemDropdown && itemResults.length > 0 && (
-              <div className="absolute top-12 left-0 right-0 bg-surface border border-border rounded-xl shadow-xl z-30 flex flex-col overflow-hidden max-h-48 overflow-y-auto">
-                {itemResults.map((item, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => {
-                      setNewItemName(item.name);
-                      setNewItemPrice(item.price.toString());
-                      setShowItemDropdown(false);
-                    }}
-                    className="flex items-center justify-between px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
-                  >
-                    <span className="font-semibold text-main text-sm truncate pr-3">
-                      {item.name}
-                    </span>
-                    <span className="text-xs font-bold text-primary tabular-nums shrink-0">
-                      {utils.formatMoney(item.price)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Dish Name + Qty + Unit Price Row */}
+          <div className="grid grid-cols-12 gap-2">
+            <div className="col-span-12 sm:col-span-6 relative">
+              <input
+                type="text"
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                placeholder="Dish or Drink Name (e.g. Crispy Corn)"
+                className="w-full h-11 bg-page border border-border rounded-xl px-3.5 text-sm font-semibold text-main"
+              />
+              {showItemDropdown && itemResults.length > 0 && (
+                <div className="absolute top-12 left-0 right-0 bg-surface border border-border rounded-xl shadow-xl z-30 flex flex-col overflow-hidden max-h-48 overflow-y-auto">
+                  {itemResults.map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setNewItemName(item.name);
+                        setNewItemPrice(item.price.toString());
+                        setShowItemDropdown(false);
+                      }}
+                      className="flex items-center justify-between px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
+                    >
+                      <span className="font-semibold text-main text-sm truncate pr-3">
+                        {item.name}
+                      </span>
+                      <span className="text-xs font-bold text-primary tabular-nums shrink-0">
+                        {utils.formatMoney(item.price)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          <div className="grid grid-cols-12 gap-2.5">
-            <div className="col-span-3">
+            <div className="col-span-4 sm:col-span-2">
               <input
                 type="number"
                 inputMode="decimal"
@@ -615,562 +718,661 @@ export default function ReceiptWorkbench() {
                 placeholder="Qty"
                 min="0.01"
                 step="any"
-                className="w-full h-10 bg-page border border-border rounded-xl px-2.5 text-center text-sm font-bold tabular-nums"
+                className="w-full h-11 bg-page border border-border rounded-xl px-2 text-center text-sm font-bold tabular-nums"
               />
             </div>
-            <div className="col-span-4">
+
+            <div className="col-span-8 sm:col-span-4 relative">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted font-bold text-sm">
+                ₹
+              </div>
               <input
                 type="number"
                 inputMode="decimal"
                 value={newItemPrice}
                 onChange={(e) => setNewItemPrice(e.target.value)}
-                placeholder="₹ Unit Price"
+                placeholder="Unit Price"
                 min="0"
                 step="any"
-                className="w-full h-10 bg-page border border-border rounded-xl px-3 text-sm font-bold tabular-nums"
-              />
-            </div>
-            <div className="col-span-5 relative">
-              <select
-                value={newItemTaxId}
-                onChange={(e) => setNewItemTaxId(e.target.value)}
-                className="w-full h-10 bg-page border border-border rounded-xl pl-2.5 pr-7 text-xs font-bold text-main appearance-none truncate"
-              >
-                {taxPresets.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.rate}%)
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="absolute right-2.5 top-3 pointer-events-none text-muted"
+                className="w-full h-11 bg-page border border-border rounded-xl pl-7 pr-3 text-sm font-bold tabular-nums"
               />
             </div>
           </div>
 
-          {/* Optional Item-Specific Discount Row when Editing or Adding */}
-          <div className="flex items-center gap-2 pt-0.5">
-            <select
-              value={newItemDiscType}
-              onChange={(e) => setNewItemDiscType(e.target.value as 'none' | 'percentage' | 'flat')}
-              className="h-9 w-36 bg-page border border-border rounded-xl px-2.5 text-xs font-bold text-muted"
-            >
-              <option value="none">No Item Offer</option>
-              <option value="percentage">Item % Off</option>
-              <option value="flat">Item ₹ Off</option>
-            </select>
-            {newItemDiscType !== 'none' && (
-              <input
-                type="number"
-                inputMode="decimal"
-                value={newItemDiscVal}
-                onChange={(e) => setNewItemDiscVal(e.target.value)}
-                placeholder={newItemDiscType === 'percentage' ? '% off item' : '₹ off item'}
-                className="h-9 w-28 bg-page border border-border rounded-xl px-2.5 text-xs font-bold tabular-nums"
-              />
-            )}
-
-            {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && (
+          {/* Clear, Un-Truncated 1-Tap Tax Bracket Selector Pills */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                Select Item Tax Bracket
+              </span>
               <button
                 type="button"
-                onClick={() => setNewItemApplySC(!newItemApplySC)}
-                className={`h-9 px-2.5 rounded-xl text-xs font-bold border transition-colors ${
-                  newItemApplySC
-                    ? 'bg-primary/10 border-primary/30 text-primary'
-                    : 'bg-page border-border text-muted'
+                onClick={() => setActiveRuleSheet('taxes')}
+                className="text-[0.68rem] font-bold text-primary hover:underline"
+              >
+                + Add Custom Tax
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+              {taxPresets.map((t) => {
+                const isSelected = newItemTaxId === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      utils.haptic('light');
+                      setNewItemTaxId(t.id);
+                    }}
+                    className={`shrink-0 h-8 px-3 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 tabular-nums ${
+                      isSelected
+                        ? 'bg-primary text-white border-primary shadow-2xs'
+                        : 'bg-page text-muted border-border hover:text-main'
+                    }`}
+                  >
+                    <span>{t.name}</span>
+                    <span className={isSelected ? 'text-white/90' : 'text-primary'}>{t.rate}%</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Bottom Action Row: Compact Toggle Chips (+S.C., % Item Discount) + Submit Button */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/50">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setNewItemApplySC(!newItemApplySC)}
+                  className={`h-8 px-2.5 rounded-xl text-xs font-bold border transition-colors ${
+                    newItemApplySC
+                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      : 'bg-page border-border text-muted line-through'
+                  }`}
+                >
+                  +S.C.
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  utils.haptic('light');
+                  setHasNewItemOffer(!hasNewItemOffer);
+                }}
+                className={`h-8 px-2.5 rounded-xl text-xs font-bold border flex items-center gap-1 transition-colors ${
+                  hasNewItemOffer
+                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
+                    : 'bg-page border-border text-muted hover:text-main'
                 }`}
               >
-                {newItemApplySC ? '+S.C. ✓' : 'No S.C.'}
+                <Tag size={12} />
+                <span>{hasNewItemOffer ? 'Item Discounted' : '+ Item Discount'}</span>
+                {hasNewItemOffer && <X size={12} className="ml-0.5" />}
               </button>
-            )}
+            </div>
 
             <button
               type="submit"
-              className="h-9 px-4 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm transition-transform ml-auto shrink-0"
+              className="h-9 px-4 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-transform ml-auto shrink-0"
             >
-              <Plus size={14} /> {editingItemId ? 'Update' : 'Add Dish'}
+              <Plus size={14} /> {editingItemId ? 'Update Dish' : 'Add Dish'}
             </button>
           </div>
+
+          {/* Conditional Inline Item Discount Input (Only shown when '+ Item Discount' chip is active) */}
+          {hasNewItemOffer && (
+            <div className="flex items-center gap-2 bg-page border border-emerald-500/30 p-2.5 rounded-xl">
+              <div className="flex bg-surface p-0.5 rounded-lg border border-border shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setNewItemDiscType('percentage')}
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    newItemDiscType === 'percentage' ? 'bg-emerald-500 text-white' : 'text-muted'
+                  }`}
+                >
+                  % Off
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewItemDiscType('flat')}
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    newItemDiscType === 'flat' ? 'bg-emerald-500 text-white' : 'text-muted'
+                  }`}
+                >
+                  ₹ Off
+                </button>
+              </div>
+              <input
+                type="number"
+                inputMode="decimal"
+                autoFocus
+                value={newItemDiscVal}
+                onChange={(e) => setNewItemDiscVal(e.target.value)}
+                placeholder={
+                  newItemDiscType === 'percentage'
+                    ? 'Enter % off this item (e.g. 20)'
+                    : 'Enter ₹ off this item (e.g. 100)'
+                }
+                className="flex-1 h-8 bg-surface border border-border rounded-lg px-2.5 text-xs font-bold tabular-nums"
+              />
+            </div>
+          )}
         </form>
       )}
 
-      {/* ZONE 4: INTERACTIVE DISH CARDS (1-TAP AVATAR CLAIMING + INLINE TAX/SC/DISCOUNT + FRACTIONS) */}
-      <div className="flex flex-col gap-3">
-        {items.length === 0 ? (
-          <div className="bg-surface border border-dashed border-border rounded-2xl p-8 text-center flex flex-col items-center gap-2">
-            <Receipt size={28} className="text-muted/40" />
-            <p className="text-sm font-bold text-main">No dishes on the receipt yet</p>
-            <p className="text-xs text-muted max-w-xs">
-              Tap <strong>Magic Scan</strong> above to extract a photo of your bill with AI, or add
-              dishes manually.
-            </p>
+      {/* ZONE 4: SKEUOMORPHIC LIVE THERMAL POS RECEIPT (UNIFIED DISH LIST + ACCOUNTING LEDGER) */}
+      <div className="mt-1">
+        <div className="pos-receipt-edge-top" />
+        <div className="pos-receipt px-4 py-5 flex flex-col gap-3">
+          {/* RECEIPT PAPER HEADER */}
+          <div className="flex flex-col items-center text-center pb-3 pos-double-line pt-3">
+            <span className="text-[0.62rem] font-mono font-bold uppercase tracking-[0.22em] text-muted">
+              ★ LIVE POS SPLIT RECEIPT ★
+            </span>
+            <h3 className="text-base font-extrabold text-main tracking-tight mt-0.5">
+              {sessionRules.venueName || 'Dining Table Receipt'}
+            </h3>
+            <span className="text-[0.68rem] font-mono text-muted tabular-nums mt-0.5">
+              {new Date().toLocaleDateString(undefined, {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+              })}{' '}
+              • {members.length} {members.length === 1 ? 'Guest' : 'Guests'} • {items.length}{' '}
+              {items.length === 1 ? 'Item' : 'Items'}
+            </span>
           </div>
-        ) : (
-          <AnimatePresence initial={false}>
-            {items.map((item) => {
-              const breakdown = mathEngine.calculateItemBreakdown(item, {
-                taxPresets,
-                isScApplicable: sessionRules.isScApplicable,
-                serviceChargeRate: sessionRules.serviceChargeRate,
-                scTaxPresetId: sessionRules.scTaxPresetId,
-                preTaxMultiplier,
-              });
 
-              let claimedQty = 0;
-              members.forEach((m) => {
-                claimedQty += utils.parseQty(formattedClaims[m.id]?.[item.id]);
-              });
-              const remainingQty = utils.round2(item.qty - claimedQty);
-              const isFullyClaimed = Math.abs(remainingQty) < 0.01;
-              const isOverClaimed = remainingQty < -0.01;
-              const isCustomOpen = expandedCustomSplitItemId === item.id;
-              const hasItemDisc = breakdown.itemDiscountAmount > 0;
+          {/* RECEIPT LINE ITEMS */}
+          {items.length === 0 ? (
+            <div className="py-8 text-center flex flex-col items-center gap-2">
+              <Receipt size={26} className="text-muted/40" />
+              <p className="text-sm font-bold text-main">Receipt is currently blank</p>
+              <p className="text-xs text-muted max-w-xs">
+                Tap <strong>Magic Scan</strong> at the top to extract your paper bill with AI, or
+                add dishes above.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col divide-y divide-dashed divide-border/80">
+              <AnimatePresence initial={false}>
+                {items.map((item, idx) => {
+                  const breakdown = mathEngine.calculateItemBreakdown(item, {
+                    taxPresets,
+                    isScApplicable: sessionRules.isScApplicable,
+                    serviceChargeRate: sessionRules.serviceChargeRate,
+                    scTaxPresetId: sessionRules.scTaxPresetId,
+                    preTaxMultiplier,
+                  });
 
-              return (
-                <motion.div
-                  key={item.id}
-                  layout="position"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96 }}
-                  transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                  className={`bg-surface border rounded-2xl p-4 shadow-sm flex flex-col gap-3 gpu-layer ${
-                    isFullyClaimed
-                      ? 'border-emerald-500/35'
-                      : isOverClaimed
-                        ? 'border-rose-500/50'
-                        : 'border-border'
-                  }`}
-                >
-                  {/* Top Row: Dish Name, Inline Tax/SC/Discount Badges & Total */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-main text-[0.95rem] leading-snug">
-                          {item.name}
-                        </span>
-                        <span className="text-[0.7rem] font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border tabular-nums">
-                          x{item.qty}
-                        </span>
-                        {hasItemDisc && (
-                          <span className="text-[0.65rem] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 tabular-nums">
-                            -
-                            {item.discountType === 'percentage'
-                              ? `${item.discountValue}%`
-                              : utils.formatMoney(breakdown.itemDiscountAmount)}{' '}
-                            off
-                          </span>
-                        )}
-                        <span
-                          className={`text-[0.65rem] font-bold px-2 py-0.5 rounded-full tabular-nums ${
-                            isFullyClaimed
-                              ? 'bg-emerald-500/15 text-emerald-500'
-                              : isOverClaimed
-                                ? 'bg-rose-500/15 text-rose-500'
-                                : 'bg-amber-500/15 text-amber-500'
-                          }`}
-                        >
-                          {isFullyClaimed
-                            ? '✓ Split'
-                            : isOverClaimed
-                              ? `Over by ${Math.abs(remainingQty)}`
-                              : `${remainingQty} left`}
-                        </span>
-                      </div>
+                  let claimedQty = 0;
+                  members.forEach((m) => {
+                    claimedQty += utils.parseQty(formattedClaims[m.id]?.[item.id]);
+                  });
+                  const remainingQty = utils.round2(item.qty - claimedQty);
+                  const isFullyClaimed = Math.abs(remainingQty) < 0.01;
+                  const isOverClaimed = remainingQty < -0.01;
+                  const isCustomOpen = expandedCustomSplitItemId === item.id;
+                  const hasItemDisc = breakdown.itemDiscountAmount > 0;
 
-                      {/* Inline Tax Bracket Selector, Service Charge Pill & Pre-Tax Discount Eligibility Pill */}
-                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        <span className="text-xs text-muted tabular-nums">
-                          {utils.formatMoney(item.unitPrice)}/ea
-                        </span>
-                        <span className="text-muted text-xs">•</span>
-                        {isHost ? (
-                          <select
-                            value={item.taxPresetId}
-                            onChange={(e) => {
-                              const nextPreset = taxPresets.find((t) => t.id === e.target.value);
-                              actions.updateItemInDB({
-                                ...item,
-                                taxPresetId: e.target.value,
-                                taxRate: nextPreset ? nextPreset.rate / 100 : 0,
-                              });
-                            }}
-                            className="h-6 w-auto py-0 pl-2 pr-5 text-[0.7rem] font-bold bg-page border border-border rounded-md text-muted"
-                          >
-                            {taxPresets.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.name} ({t.rate}%)
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-[0.7rem] font-semibold text-muted">
-                            {breakdown.preset
-                              ? `${breakdown.preset.name} (${breakdown.preset.rate}%)`
-                              : 'Tax'}
-                          </span>
-                        )}
+                  return (
+                    <motion.div
+                      key={item.id}
+                      layout="position"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.96 }}
+                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                      className="py-3.5 first:pt-1 flex flex-col gap-2.5 gpu-layer"
+                    >
+                      {/* Receipt Line 1: Item Number, Dish Name, Qty, Status & Line Total */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[0.7rem] font-mono font-bold text-muted tabular-nums">
+                              {String(idx + 1).padStart(2, '0')}.
+                            </span>
+                            <span className="font-bold text-main text-[0.95rem] leading-snug">
+                              {item.name}
+                            </span>
+                            <span className="text-[0.68rem] font-mono font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border tabular-nums">
+                              x{item.qty}
+                            </span>
+                            {hasItemDisc && (
+                              <span className="text-[0.62rem] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 tabular-nums">
+                                -
+                                {item.discountType === 'percentage'
+                                  ? `${item.discountValue}%`
+                                  : utils.formatMoney(breakdown.itemDiscountAmount)}
+                              </span>
+                            )}
+                            <span
+                              className={`text-[0.62rem] font-bold px-2 py-0.5 rounded-full tabular-nums ${
+                                isFullyClaimed
+                                  ? 'bg-emerald-500/15 text-emerald-500'
+                                  : isOverClaimed
+                                    ? 'bg-rose-500/15 text-rose-500'
+                                    : 'bg-amber-500/15 text-amber-500'
+                              }`}
+                            >
+                              {isFullyClaimed
+                                ? '✓ Split'
+                                : isOverClaimed
+                                  ? `Over ${Math.abs(remainingQty)}`
+                                  : `${remainingQty} left`}
+                            </span>
+                          </div>
 
-                        {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && (
-                          <button
-                            type="button"
-                            disabled={!isHost}
-                            onClick={() =>
-                              actions.updateItemInDB({ ...item, applySC: !item.applySC })
-                            }
-                            className={`px-1.5 py-0.5 rounded text-[0.65rem] font-bold border transition-colors ${
-                              item.applySC
-                                ? 'bg-primary/10 border-primary/30 text-primary'
-                                : 'bg-page border-border text-muted line-through'
-                            }`}
-                            title="Toggle Service Charge for this item"
-                          >
-                            +S.C.
-                          </button>
-                        )}
+                          {/* Receipt Sub-Line: Unit Price + Compact Tax Pill + S.C. Pill */}
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap pl-5">
+                            <span className="text-[0.72rem] font-mono text-muted tabular-nums">
+                              {utils.formatMoney(item.unitPrice)}/ea
+                            </span>
+                            <span className="text-muted text-xs">•</span>
+                            {isHost ? (
+                              <select
+                                value={item.taxPresetId}
+                                onChange={(e) => {
+                                  const nextPreset = taxPresets.find(
+                                    (t) => t.id === e.target.value
+                                  );
+                                  actions.updateItemInDB({
+                                    ...item,
+                                    taxPresetId: e.target.value,
+                                    taxRate: nextPreset ? nextPreset.rate / 100 : 0,
+                                  });
+                                }}
+                                className="h-6 w-auto py-0 px-2 text-[0.68rem] font-bold bg-page border border-border rounded-md text-primary cursor-pointer"
+                              >
+                                {taxPresets.map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name} ({t.rate}%)
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="text-[0.68rem] font-semibold text-muted">
+                                {breakdown.preset
+                                  ? `${breakdown.preset.name} (${breakdown.preset.rate}%)`
+                                  : 'Tax'}
+                              </span>
+                            )}
 
-                        {hasActivePreTaxBillDiscount && (
-                          <button
-                            type="button"
-                            disabled={!isHost}
-                            onClick={() =>
-                              actions.updateItemInDB({
-                                ...item,
-                                applyDiscount: item.applyDiscount === false,
-                              })
-                            }
-                            className={`px-1.5 py-0.5 rounded text-[0.65rem] font-bold border transition-colors ${
-                              item.applyDiscount !== false
-                                ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-500'
-                                : 'bg-page border-border text-muted line-through'
-                            }`}
-                            title="Toggle whether the restaurant Pre-Tax discount applies to this dish"
-                          >
-                            Pre-Tax Disc
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                            {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && (
+                              <button
+                                type="button"
+                                disabled={!isHost}
+                                onClick={() =>
+                                  actions.updateItemInDB({ ...item, applySC: !item.applySC })
+                                }
+                                className={`px-1.5 py-0.5 rounded text-[0.62rem] font-bold border transition-colors ${
+                                  item.applySC
+                                    ? 'bg-primary/10 border-primary/30 text-primary'
+                                    : 'bg-page border-border text-muted line-through'
+                                }`}
+                              >
+                                +S.C.
+                              </button>
+                            )}
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="font-extrabold text-main tabular-nums text-base">
-                        {utils.formatMoney(breakdown.finalTotal)}
-                      </span>
-                      {isHost && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleEditItem(item)}
-                            className="p-1.5 text-muted hover:text-main rounded-lg hover:bg-subtle"
-                            aria-label="Edit dish"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => actions.removeItemFromDB(item.id)}
-                            className="p-1.5 text-muted hover:text-danger rounded-lg hover:bg-danger/10"
-                            aria-label="Delete dish"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                            {hasActivePreTaxBillDiscount && (
+                              <button
+                                type="button"
+                                disabled={!isHost}
+                                onClick={() =>
+                                  actions.updateItemInDB({
+                                    ...item,
+                                    applyDiscount: item.applyDiscount === false,
+                                  })
+                                }
+                                className={`px-1.5 py-0.5 rounded text-[0.62rem] font-bold border transition-colors ${
+                                  item.applyDiscount !== false
+                                    ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-500'
+                                    : 'bg-page border-border text-muted line-through'
+                                }`}
+                              >
+                                Pre-Tax Disc
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* Middle Row: 1-Tap Member Avatar Pills ([All] [Member 1] [Member 2]...) */}
-                  {members.length > 0 && (
-                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
-                      <div className="flex items-center gap-1.5 flex-wrap flex-1">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleAllOnItem(item)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-extrabold border transition-all active:scale-95 ${
-                            members.every(
-                              (m) => utils.parseQty(formattedClaims[m.id]?.[item.id]) > 0
-                            )
-                              ? 'bg-primary text-white border-primary shadow-sm'
-                              : 'bg-page text-muted border-border hover:text-main'
-                          }`}
-                        >
-                          All
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="font-mono font-extrabold text-main tabular-nums text-[0.95rem]">
+                            {utils.formatMoney(breakdown.finalTotal)}
+                          </span>
+                          {isHost && (
+                            <div className="flex items-center gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => handleEditItem(item)}
+                                className="p-1.5 text-muted hover:text-main rounded-lg hover:bg-subtle"
+                                aria-label="Edit dish"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => actions.removeItemFromDB(item.id)}
+                                className="p-1.5 text-muted hover:text-danger rounded-lg hover:bg-danger/10"
+                                aria-label="Delete dish"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
 
-                        {members.map((m) => {
-                          const rawClaim = formattedClaims[m.id]?.[item.id] || '';
-                          const parsedClaim = utils.parseQty(rawClaim);
-                          const isClaimed = parsedClaim > 0;
-                          return (
+                      {/* 1-Tap Member Avatar Split Pills */}
+                      {members.length > 0 && (
+                        <div className="flex items-center justify-between gap-2 pl-5">
+                          <div className="flex items-center gap-1.5 flex-wrap flex-1">
                             <button
-                              key={m.id}
                               type="button"
-                              onClick={() => handleToggleMemberOnItem(item, m.id)}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all active:scale-95 flex items-center gap-1 ${
-                                isClaimed
-                                  ? 'bg-primary/15 text-primary border-primary/40 font-bold'
+                              onClick={() => handleToggleAllOnItem(item)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-extrabold border transition-all active:scale-95 ${
+                                members.every(
+                                  (m) => utils.parseQty(formattedClaims[m.id]?.[item.id]) > 0
+                                )
+                                  ? 'bg-primary text-white border-primary shadow-2xs'
                                   : 'bg-page text-muted border-border hover:text-main'
                               }`}
                             >
-                              <span>{m.name}</span>
-                              {isClaimed && (
-                                <span className="text-[0.65rem] bg-primary/20 px-1 rounded tabular-nums">
-                                  {rawClaim}
-                                </span>
-                              )}
+                              All
                             </button>
-                          );
-                        })}
-                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setExpandedCustomSplitItemId(isCustomOpen ? null : item.id)}
-                        className={`p-1.5 rounded-lg border text-xs font-bold shrink-0 transition-colors ${
-                          isCustomOpen
-                            ? 'bg-primary text-white border-primary'
-                            : 'bg-page text-muted border-border hover:text-main'
-                        }`}
-                        title="Custom uneven or fractional shares"
-                      >
-                        <SlidersHorizontal size={14} />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Expandable Custom / Uneven Fractional Drawer */}
-                  {isCustomOpen && (
-                    <div className="bg-page border border-border rounded-xl p-3 flex flex-col gap-2.5 mt-1">
-                      <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                        Custom Shares (Fractions like 1/3 or exact quantities)
-                      </span>
-                      {members.map((m) => {
-                        const currentStr = formattedClaims[m.id]?.[item.id] || '';
-                        return (
-                          <div
-                            key={m.id}
-                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-1.5 border-b border-border/50 last:border-0"
-                          >
-                            <span className="text-xs font-bold text-main truncate">{m.name}</span>
-                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                              {FRACTION_PILLS.map((pill) => (
+                            {members.map((m) => {
+                              const rawClaim = formattedClaims[m.id]?.[item.id] || '';
+                              const parsedClaim = utils.parseQty(rawClaim);
+                              const isClaimed = parsedClaim > 0;
+                              return (
                                 <button
-                                  key={pill.label}
+                                  key={m.id}
                                   type="button"
-                                  onClick={() => actions.updateClaimInDB(m.id, item.id, pill.value)}
-                                  className={`px-2 py-1 text-[0.65rem] font-bold rounded border transition-colors ${
-                                    currentStr === pill.value
-                                      ? 'bg-primary text-white border-primary'
-                                      : 'bg-surface text-muted border-border'
+                                  onClick={() => handleToggleMemberOnItem(item, m.id)}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all active:scale-95 flex items-center gap-1 ${
+                                    isClaimed
+                                      ? 'bg-primary/15 text-primary border-primary/40 font-bold'
+                                      : 'bg-page text-muted border-border hover:text-main'
                                   }`}
                                 >
-                                  {pill.label}
+                                  <span>{m.name}</span>
+                                  {isClaimed && (
+                                    <span className="text-[0.62rem] font-mono bg-primary/20 px-1 rounded tabular-nums">
+                                      {rawClaim}
+                                    </span>
+                                  )}
                                 </button>
-                              ))}
-                              <div className="flex items-center gap-1 ml-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const next = Math.max(
-                                      0,
-                                      utils.round2(utils.parseQty(currentStr) - 1)
-                                    );
-                                    actions.updateClaimInDB(
-                                      m.id,
-                                      item.id,
-                                      next === 0 ? '' : next.toString()
-                                    );
-                                  }}
-                                  className="w-7 h-7 rounded bg-surface border border-border flex items-center justify-center text-muted"
-                                >
-                                  <Minus size={12} />
-                                </button>
-                                <input
-                                  type="text"
-                                  value={currentStr}
-                                  onChange={(e) =>
-                                    actions.updateClaimInDB(m.id, item.id, e.target.value)
-                                  }
-                                  placeholder="0"
-                                  className="w-14 h-7 px-1 text-center text-xs font-bold tabular-nums bg-surface border border-border rounded"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const next = utils.round2(utils.parseQty(currentStr) + 1);
-                                    actions.updateClaimInDB(m.id, item.id, next.toString());
-                                  }}
-                                  className="w-7 h-7 rounded bg-surface border border-border flex items-center justify-center text-muted"
-                                >
-                                  <Plus size={12} />
-                                </button>
-                              </div>
-                            </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        )}
-      </div>
 
-      {/* ZONE 5: LIVE INTERACTIVE BILL FOOTER (3-LAYER DISCOUNTS, SERVICE CHARGE, TAXES & GRAND TOTAL) */}
-      <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col divide-y divide-border/60 mt-2">
-        <div className="flex items-center justify-between pb-3">
-          <span className="text-xs font-bold uppercase tracking-widest text-muted">
-            Live Receipt Breakdown
-          </span>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setActiveRuleSheet('discount')}
-              className="px-2.5 py-1 rounded-lg bg-page border border-border text-[0.7rem] font-bold text-primary hover:border-primary/40 flex items-center gap-1"
-            >
-              <Percent size={11} /> Discounts
-            </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedCustomSplitItemId(isCustomOpen ? null : item.id)
+                            }
+                            className={`p-1.5 rounded-lg border text-xs font-bold shrink-0 transition-colors ${
+                              isCustomOpen
+                                ? 'bg-primary text-white border-primary'
+                                : 'bg-page text-muted border-border hover:text-main'
+                            }`}
+                            title="Custom uneven or fractional shares"
+                          >
+                            <SlidersHorizontal size={13} />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Expandable Custom Fractional Stepper */}
+                      {isCustomOpen && (
+                        <div className="bg-page border border-border rounded-xl p-3 flex flex-col gap-2.5 mt-1">
+                          <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                            Custom Shares (Fractions like 1/3 or exact quantities)
+                          </span>
+                          {members.map((m) => {
+                            const currentStr = formattedClaims[m.id]?.[item.id] || '';
+                            return (
+                              <div
+                                key={m.id}
+                                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-1.5 border-b border-border/50 last:border-0"
+                              >
+                                <span className="text-xs font-bold text-main truncate">
+                                  {m.name}
+                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                  {FRACTION_PILLS.map((pill) => (
+                                    <button
+                                      key={pill.label}
+                                      type="button"
+                                      onClick={() =>
+                                        actions.updateClaimInDB(m.id, item.id, pill.value)
+                                      }
+                                      className={`px-2 py-1 text-[0.65rem] font-bold rounded border transition-colors ${
+                                        currentStr === pill.value
+                                          ? 'bg-primary text-white border-primary'
+                                          : 'bg-surface text-muted border-border'
+                                      }`}
+                                    >
+                                      {pill.label}
+                                    </button>
+                                  ))}
+                                  <div className="flex items-center gap-1 ml-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const next = Math.max(
+                                          0,
+                                          utils.round2(utils.parseQty(currentStr) - 1)
+                                        );
+                                        actions.updateClaimInDB(
+                                          m.id,
+                                          item.id,
+                                          next === 0 ? '' : next.toString()
+                                        );
+                                      }}
+                                      className="w-7 h-7 rounded bg-surface border border-border flex items-center justify-center text-muted"
+                                    >
+                                      <Minus size={12} />
+                                    </button>
+                                    <input
+                                      type="text"
+                                      value={currentStr}
+                                      onChange={(e) =>
+                                        actions.updateClaimInDB(m.id, item.id, e.target.value)
+                                      }
+                                      placeholder="0"
+                                      className="w-14 h-7 px-1 text-center text-xs font-bold tabular-nums bg-surface border border-border rounded"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const next = utils.round2(utils.parseQty(currentStr) + 1);
+                                        actions.updateClaimInDB(m.id, item.id, next.toString());
+                                      }}
+                                      className="w-7 h-7 rounded bg-surface border border-border flex items-center justify-center text-muted"
+                                    >
+                                      <Plus size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* PERFORATED THERMAL TEAR DIVIDER */}
+          <div className="relative py-2 my-1">
+            <div className="pos-notch-left" />
+            <div className="pos-notch-right" />
+            <div className="pos-dashed-line w-full" />
+          </div>
+
+          {/* LIVE RECEIPT ACCOUNTING SUMMARY (INTEGRATED ON THE SAME RECEIPT PAPER) */}
+          <div className="flex flex-col gap-1.5 font-mono text-xs">
+            <div className="flex items-center justify-between pb-1">
+              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                Tax &amp; Charge Breakdown
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveRuleSheet('discount')}
+                  className="px-2 py-0.5 rounded bg-page border border-border text-[0.65rem] font-sans font-bold text-primary hover:border-primary/40"
+                >
+                  % Offers
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveRuleSheet('sc')}
+                  className="px-2 py-0.5 rounded bg-page border border-border text-[0.65rem] font-sans font-bold text-primary hover:border-primary/40"
+                >
+                  S.C. ({scPercent}%)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveRuleSheet('taxes')}
+                  className="px-2 py-0.5 rounded bg-page border border-border text-[0.65rem] font-sans font-bold text-primary hover:border-primary/40"
+                >
+                  Taxes ({taxPresets.length})
+                </button>
+              </div>
+            </div>
+
+            {(gs.itemDiscountAmount > 0 || gs.preTaxDiscountAmount > 0) && (
+              <div className="flex justify-between py-1">
+                <span className="text-muted">RAW SUBTOTAL</span>
+                <span className="font-bold text-main tabular-nums">
+                  {utils.formatMoney(gs.rawSubTotal)}
+                </span>
+              </div>
+            )}
+
+            {gs.itemDiscountAmount > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveRuleSheet('discount')}
+                className="flex justify-between py-1 text-emerald-500 w-full text-left hover:opacity-80"
+              >
+                <span className="underline decoration-dotted">ITEM / SECTION OFFERS</span>
+                <span className="font-bold tabular-nums">
+                  - {utils.formatMoney(gs.itemDiscountAmount)}
+                </span>
+              </button>
+            )}
+
+            {gs.preTaxDiscountAmount > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveRuleSheet('discount')}
+                className="flex justify-between py-1 text-emerald-500 w-full text-left hover:opacity-80"
+              >
+                <span className="underline decoration-dotted">PRE-TAX DISCOUNT</span>
+                <span className="font-bold tabular-nums">
+                  - {utils.formatMoney(gs.preTaxDiscountAmount)}
+                </span>
+              </button>
+            )}
+
+            <div className="flex justify-between py-1">
+              <span className="text-muted">TAXABLE BASE SUBTOTAL</span>
+              <span className="font-bold text-main tabular-nums">
+                {utils.formatMoney(gs.subTotal)}
+              </span>
+            </div>
+
+            {Object.entries(gs.taxBreakdown).map(
+              ([taxName, amount]) =>
+                amount > 0 && (
+                  <button
+                    key={taxName}
+                    type="button"
+                    onClick={() => setActiveRuleSheet('taxes')}
+                    className="flex justify-between py-1 w-full text-left hover:opacity-80"
+                  >
+                    <span className="text-muted underline decoration-dotted uppercase">
+                      {taxName}
+                    </span>
+                    <span className="font-bold text-main tabular-nums">
+                      {utils.formatMoney(amount)}
+                    </span>
+                  </button>
+                )
+            )}
+
             <button
               type="button"
               onClick={() => setActiveRuleSheet('sc')}
-              className="px-2.5 py-1 rounded-lg bg-page border border-border text-[0.7rem] font-bold text-primary hover:border-primary/40"
+              className="flex justify-between py-1 w-full text-left hover:opacity-80"
             >
-              S.C. ({Math.round(sessionRules.serviceChargeRate * 100)}%)
+              <span className="text-muted underline decoration-dotted">
+                SERVICE CHARGE ({scPercent}% •{' '}
+                {sessionRules.scTaxPresetId === 'inherit'
+                  ? 'CASCADING'
+                  : sessionRules.scTaxPresetId === 'none'
+                    ? 'UNTAXED'
+                    : 'GLOBAL'}
+                )
+              </span>
+              <span className="font-bold text-main tabular-nums">
+                {utils.formatMoney(gs.serviceCharge)}
+              </span>
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveRuleSheet('taxes')}
-              className="px-2.5 py-1 rounded-lg bg-page border border-border text-[0.7rem] font-bold text-primary hover:border-primary/40"
-            >
-              Taxes ({taxPresets.length})
-            </button>
-          </div>
-        </div>
 
-        {(gs.itemDiscountAmount > 0 || gs.preTaxDiscountAmount > 0) && (
-          <div className="flex justify-between py-2 text-sm">
-            <span className="text-muted">Raw Subtotal</span>
-            <span className="font-semibold text-main tabular-nums">
-              {utils.formatMoney(gs.rawSubTotal)}
-            </span>
-          </div>
-        )}
+            {gs.postTaxDiscountAmount > 0 && (
+              <>
+                <div className="flex justify-between py-1">
+                  <span className="text-muted">GROSS TOTAL</span>
+                  <span className="font-bold text-main tabular-nums">
+                    {utils.formatMoney(computedGrossTotal)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveRuleSheet('discount')}
+                  className="flex justify-between py-1 text-emerald-500 w-full text-left hover:opacity-80"
+                >
+                  <span className="underline decoration-dotted">POST-TAX COUPON</span>
+                  <span className="font-bold tabular-nums">
+                    - {utils.formatMoney(gs.postTaxDiscountAmount)}
+                  </span>
+                </button>
+              </>
+            )}
 
-        {gs.itemDiscountAmount > 0 && (
-          <button
-            type="button"
-            onClick={() => setActiveRuleSheet('discount')}
-            className="flex justify-between py-2 text-sm text-success w-full text-left hover:opacity-80"
-          >
-            <span className="font-medium underline decoration-dotted">
-              Item / Section Discounts
-            </span>
-            <span className="font-bold tabular-nums">
-              - {utils.formatMoney(gs.itemDiscountAmount)}
-            </span>
-          </button>
-        )}
-
-        {gs.preTaxDiscountAmount > 0 && (
-          <button
-            type="button"
-            onClick={() => setActiveRuleSheet('discount')}
-            className="flex justify-between py-2 text-sm text-success w-full text-left hover:opacity-80"
-          >
-            <span className="font-medium underline decoration-dotted">
-              Pre-Tax Restaurant Discount
-            </span>
-            <span className="font-bold tabular-nums">
-              - {utils.formatMoney(gs.preTaxDiscountAmount)}
-            </span>
-          </button>
-        )}
-
-        <div className="flex justify-between py-2 text-sm">
-          <span className="text-muted">Taxable Base Subtotal</span>
-          <span className="font-semibold text-main tabular-nums">
-            {utils.formatMoney(gs.subTotal)}
-          </span>
-        </div>
-
-        {Object.entries(gs.taxBreakdown).map(
-          ([taxName, amount]) =>
-            amount > 0 && (
-              <button
-                key={taxName}
-                type="button"
-                onClick={() => setActiveRuleSheet('taxes')}
-                className="flex justify-between py-2 text-sm w-full text-left hover:bg-subtle/40"
-              >
-                <span className="text-muted underline decoration-dotted">{taxName}</span>
-                <span className="font-semibold text-main tabular-nums">
-                  {utils.formatMoney(amount)}
+            {gs.roundOff !== 0 && (
+              <div className="flex justify-between py-1">
+                <span className="text-muted">POS ROUND OFF</span>
+                <span className="font-bold text-main tabular-nums">
+                  {gs.roundOff > 0 ? '+' : ''}
+                  {utils.formatMoney(gs.roundOff)}
                 </span>
-              </button>
-            )
-        )}
+              </div>
+            )}
 
-        <button
-          type="button"
-          onClick={() => setActiveRuleSheet('sc')}
-          className="flex justify-between py-2 text-sm w-full text-left hover:bg-subtle/40"
-        >
-          <span className="text-muted underline decoration-dotted">
-            Service Charge ({Math.round(sessionRules.serviceChargeRate * 100)}% •{' '}
-            {sessionRules.scTaxPresetId === 'inherit'
-              ? 'Cascading Tax'
-              : sessionRules.scTaxPresetId === 'none'
-                ? 'Untaxed'
-                : 'Global Tax'}
-            )
-          </span>
-          <span className="font-semibold text-main tabular-nums">
-            {utils.formatMoney(gs.serviceCharge)}
-          </span>
-        </button>
+            <div className="pos-double-line my-2" />
 
-        {gs.postTaxDiscountAmount > 0 && (
-          <>
-            <div className="flex justify-between py-2 text-sm">
-              <span className="text-muted">Gross Total</span>
-              <span className="font-semibold text-main tabular-nums">
-                {utils.formatMoney(computedGrossTotal)}
+            <div className="flex justify-between items-baseline pt-1">
+              <span className="font-sans font-extrabold text-main text-base tracking-tight">
+                GRAND TOTAL
+              </span>
+              <span className="font-mono font-extrabold text-primary text-2xl tabular-nums">
+                {utils.formatMoney(gs.grandTotal)}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setActiveRuleSheet('discount')}
-              className="flex justify-between py-2 text-sm text-success w-full text-left hover:opacity-80"
-            >
-              <span className="font-medium underline decoration-dotted">
-                Post-Tax Coupon / App Discount
-              </span>
-              <span className="font-bold tabular-nums">
-                - {utils.formatMoney(gs.postTaxDiscountAmount)}
-              </span>
-            </button>
-          </>
-        )}
-
-        {gs.roundOff !== 0 && (
-          <div className="flex justify-between py-2 text-sm">
-            <span className="text-muted">POS Round Off</span>
-            <span className="font-semibold text-main tabular-nums">
-              {gs.roundOff > 0 ? '+' : ''}
-              {utils.formatMoney(gs.roundOff)}
-            </span>
           </div>
-        )}
-
-        <div className="flex justify-between pt-3 pb-1 items-baseline">
-          <span className="font-extrabold text-main text-base">Grand Total</span>
-          <span className="font-extrabold text-primary text-2xl tabular-nums">
-            {utils.formatMoney(gs.grandTotal)}
-          </span>
         </div>
+        <div className="pos-receipt-edge-bottom" />
       </div>
 
       {/* DRAWER 1: MAGIC SCANNER */}
