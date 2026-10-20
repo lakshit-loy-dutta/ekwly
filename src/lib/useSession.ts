@@ -26,8 +26,8 @@ export interface SessionRules {
   discountMode: 'pre-tax' | 'post-tax';
 }
 
-export function useSession(sessionId: string | null) {
-  const sync = useSessionSync(sessionId);
+export function useSession(sessionId: string | null, isHost = true) {
+  const sync = useSessionSync(sessionId, isHost);
   const actions = useSessionMutations({
     sessionId,
     items: sync.items,
@@ -52,6 +52,8 @@ export function useSession(sessionId: string | null) {
     claims: sync.claims,
     currentUserId: sync.currentUserId,
     hostId: sync.hostId,
+    isRealtimeActive: sync.isRealtimeActive,
+    enableRealtime: sync.enableRealtime,
     actions,
   };
 }

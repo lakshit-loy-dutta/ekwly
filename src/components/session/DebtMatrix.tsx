@@ -35,6 +35,22 @@ interface Props {
   venueName: string;
 }
 
+function buildUpiPaymentUri(params: {
+  upiId: string;
+  payeeName: string;
+  amount: number;
+  note?: string;
+}): string {
+  const cleanUpi = params.upiId.trim();
+  const cleanAmt = utils.round2(params.amount).toFixed(2);
+  const encodedName = encodeURIComponent(params.payeeName.trim() || 'Ekwly User');
+  let url = `upi://pay?pa=${encodeURIComponent(cleanUpi)}&pn=${encodedName}&am=${cleanAmt}&cu=INR`;
+  if (params.note && params.note.trim()) {
+    url += `&tn=${encodeURIComponent(params.note.trim())}`;
+  }
+  return url;
+}
+
 export default function DebtMatrix(props: Props) {
   const [upiMap, setUpiMap] = useState<Record<string, string>>({});
   const [activeQrLedgerRow, setActiveQrLedgerRow] = useState<any | null>(null);
@@ -61,20 +77,20 @@ export default function DebtMatrix(props: Props) {
     fetchUpis();
   }, [props.sessionStatus, props.ledger]);
 
-  const handleSaveInlineUpi = async (creditorId: string) => {
+  const handleSaveInlineUpi = async (creditorKey: string, creditorId: string | null) => {
     const trimmed = inlineUpiInput.trim().toLowerCase();
     if (!trimmed || !trimmed.includes('@')) {
       return showToast('Enter a valid UPI ID (e.g. name@okaxis)', 'error');
     }
     setIsSavingUpi(true);
     try {
-      if (creditorId === props.currentUserId) {
+      if (creditorId && creditorId === props.currentUserId) {
         await supabase
           .from('profiles')
           .update({ upi_id: trimmed, updated_at: new Date().toISOString() })
           .eq('id', creditorId);
       }
-      setUpiMap((prev) => ({ ...prev, [creditorId]: trimmed }));
+      setUpiMap((prev) => ({ ...prev, [creditorKey]: trimmed }));
       setInlineUpiInput('');
       showToast('UPI ID linked for instant QR!', 'success');
     } catch {
@@ -98,7 +114,7 @@ export default function DebtMatrix(props: Props) {
     const activeQrUpi = qrCreditorKey ? upiMap[qrCreditorKey] : null;
     const activeQrUri =
       activeQrLedgerRow && activeQrUpi
-        ? utils.buildUpiUrl({
+        ? buildUpiPaymentUri({
             upiId: activeQrUpi,
             payeeName: activeQrLedgerRow.creditor_name,
             amount: Number(activeQrLedgerRow.amount),
@@ -109,7 +125,7 @@ export default function DebtMatrix(props: Props) {
     return (
       <div className="w-full flex flex-col pb-10">
         {/* COLLECTION TRAY HERO BENTO CARD */}
-        <div className="mx-4 mt-3 premium-gradient-card rounded-3xl p-6 text-white flex flex-col items-center justify-center text-center shadow-sm">
+        <div className="mx-4 mt-2 premium-gradient-card rounded-3xl p-6 text-white flex flex-col items-center justify-center text-center shadow-sm">
           <h2 className="text-xl font-extrabold tracking-tight mb-1">Collection Tray</h2>
           <p className="text-white/80 text-xs font-medium mb-5">
             Room is locked • Scan UPI QR or tap to settle
@@ -145,7 +161,7 @@ export default function DebtMatrix(props: Props) {
             const creditorUpi = upiMap[creditorKey] || null;
             const amICreditor = Boolean(l.creditor_id && l.creditor_id === props.currentUserId);
             const upiDeepLink = creditorUpi
-              ? utils.buildUpiUrl({
+              ? buildUpiPaymentUri({
                   upiId: creditorUpi,
                   payeeName: l.creditor_name,
                   amount: Number(l.amount),
@@ -362,7 +378,9 @@ export default function DebtMatrix(props: Props) {
                     <button
                       type="button"
                       disabled={isSavingUpi}
-                      onClick={() => handleSaveInlineUpi(qrCreditorKey)}
+                      onClick={() =>
+                        handleSaveInlineUpi(qrCreditorKey, activeQrLedgerRow.creditor_id || null)
+                      }
                       className="h-11 px-4 bg-primary text-white rounded-xl font-bold text-xs shrink-0"
                     >
                       Generate QR
@@ -384,7 +402,7 @@ export default function DebtMatrix(props: Props) {
 
   return (
     <div className="w-full flex flex-col pb-10">
-      <div className="px-4 py-2 mt-1">
+      <div className="px-4 py-2">
         <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
           Master Bill Summary
         </h3>

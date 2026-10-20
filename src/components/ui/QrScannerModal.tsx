@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
-import { Html5Qrcode } from 'html5-qrcode';
+import type { Html5Qrcode } from 'html5-qrcode';
 import { X } from 'lucide-react';
 import { showToast } from '../../lib/utils';
 
@@ -40,7 +40,7 @@ export default function QrScannerModal({
             onScanSuccess(barcodes[0].displayValue);
           }
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           onClose();
           showToast('Scanner closed or unavailable.', 'default');
@@ -50,7 +50,10 @@ export default function QrScannerModal({
 
     const runWebScan = async () => {
       try {
-        const scanner = new Html5Qrcode('ekwly-qr-reader');
+        const { Html5Qrcode: Html5QrcodeScanner } = await import('html5-qrcode');
+        if (!isMounted) return;
+
+        const scanner = new Html5QrcodeScanner('ekwly-qr-reader');
         qrRef.current = scanner;
         await scanner.start(
           { facingMode: 'environment' },
@@ -63,7 +66,7 @@ export default function QrScannerModal({
           },
           () => {}
         );
-      } catch (err) {
+      } catch {
         if (isMounted) {
           showToast('Camera permission denied or unavailable.', 'error');
           onClose();

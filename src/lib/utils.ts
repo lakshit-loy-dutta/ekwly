@@ -1,4 +1,6 @@
-import type { GlobalLedgerRow, NettedBalanceRow } from './types';
+import type { GlobalLedgerRow, NettedBalanceRow, SavedSquad, FriendDossierStats } from './types';
+
+const SQUADS_STORAGE_PREFIX = 'ekwly_squads_';
 
 export const utils = {
   round2: (num: number) => Math.round((num + Number.EPSILON) * 100) / 100,
@@ -10,24 +12,31 @@ export const utils = {
   parseQty: (val: string | number | undefined): number => {
     if (!val) return 0;
     if (typeof val === 'number') return val;
-    let str = String(val).trim();
+    const str = String(val).trim();
+    if (!str) return 0;
 
-    let mixedMatch = str.match(/^(\d+)\s+(\d+)\/(\d+)$/);
-    if (mixedMatch) {
-      let whole = parseFloat(mixedMatch[1]);
-      let num = parseFloat(mixedMatch[2]);
-      let den = parseFloat(mixedMatch[3]);
-      if (den !== 0) return whole + num / den;
+    // Handle simple fractions ("1/2", "1/3") and mixed fractions ("1 1/2", "2 3/4")
+    if (str.includes('/')) {
+      const spaceParts = str.split(' ').filter((part) => part.length > 0);
+      if (spaceParts.length === 2 && spaceParts[1].includes('/')) {
+        const whole = parseFloat(spaceParts[0]);
+        const [numStr, denStr] = spaceParts[1].split('/');
+        const num = parseFloat(numStr);
+        const den = parseFloat(denStr);
+        if (!isNaN(whole) && !isNaN(num) && !isNaN(den) && den !== 0) {
+          return whole + num / den;
+        }
+      } else if (spaceParts.length === 1) {
+        const [numStr, denStr] = spaceParts[0].split('/');
+        const num = parseFloat(numStr);
+        const den = parseFloat(denStr);
+        if (!isNaN(num) && !isNaN(den) && den !== 0) {
+          return num / den;
+        }
+      }
     }
 
-    let fracMatch = str.match(/^(\d*\.?\d+)\/(\d*\.?\d+)$/);
-    if (fracMatch) {
-      let num = parseFloat(fracMatch[1]);
-      let den = parseFloat(fracMatch[2]);
-      if (den !== 0) return num / den;
-    }
-
-    let parsed = parseFloat(str);
+    const parsed = parseFloat(str);
     return isNaN(parsed) ? 0 : parsed;
   },
 
@@ -48,7 +57,7 @@ export const utils = {
   },
 
   resolvePath: (subpath: string) => {
-    const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/\$/, '');
     const clean = subpath.replace(/^\//, '');
     return `${base}/${clean}`;
   },
@@ -112,10 +121,6 @@ export const utils = {
     return `https://wa.me/?text=${encodeURIComponent(message)}`;
   },
 
-  /**
-   * Consolidates and nets opposing balances between the current user and each counterparty.
-   * Groups by registered UUID when available, or case-insensitive fallback name for guests.
-   */
   netBilateralBalances: (
     owedToMeRows: GlobalLedgerRow[],
     iOweRows: GlobalLedgerRow[]
@@ -225,6 +230,84 @@ export const utils = {
       zeroedCounterparties,
       totalOwedToMe,
       totalIOwe,
+    };
+  },
+
+  getSavedSquads: (userId?: string | null): SavedSquad[] => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(`${SQUADS_STORAGE_PREFIX}${userId || 'guest'}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveSquads: (userId: string | null | undefined, squads: SavedSquad[]): void => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(`${SQUADS_STORAGE_PREFIX}${userId || 'guest'}`, JSON.stringify(squads));
+    } catch {
+      // Ignore storage quota errors
+    }
+  },
+
+  computeFriendDossierStats: (
+    sessions: {
+      id: string;
+      name: string | null;
+      venue_name: string | null;
+      created_at: string;
+    }[]
+  ): FriendDossierStats => {
+    const uniqueMap = new Map<
+      string,
+      { id: string; name: string | null; venue_name: string | null; created_at: string }
+    >();
+    for (const s of sessions) {
+      if (s && s.id && !uniqueMap.has(s.id)) {
+        uniqueMap.set(s.id, s);
+      }
+    }
+
+    const deduped = Array.from(uniqueMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    const venueCounts = new Map<string, { display: string; count: number }>();
+    for (const s of deduped) {
+      const rawVenue = (s.venue_name || s.name || '').trim();
+      if (!rawVenue || /^splitwise/i.test(rawVenue)) continue;
+      const key = rawVenue.toLowerCase();
+      const existing = venueCounts.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        venueCounts.set(key, { display: rawVenue, count: 1 });
+      }
+    }
+
+    let favoriteVenue: string | null = null;
+    let maxVisits = 0;
+    for (const v of venueCounts.values()) {
+      if (v.count > maxVisits) {
+        maxVisits = v.count;
+        favoriteVenue = v.display;
+      }
+    }
+
+    const recentSessions = deduped.slice(0, 3).map((s) => ({
+      id: s.id,
+      title: (s.venue_name || s.name || 'Dining Session').trim(),
+      created_at: s.created_at,
+    }));
+
+    return {
+      sharedSessionCount: deduped.length,
+      favoriteVenue,
+      recentSessions,
     };
   },
 };

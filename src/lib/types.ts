@@ -70,6 +70,36 @@ export interface NettedBalanceRow {
   hasOpposing: boolean;
 }
 
+export interface SquadMember {
+  name: string;
+  user_id: string | null;
+}
+
+export interface SavedSquad {
+  id: string;
+  name: string;
+  members: SquadMember[];
+  createdAt: string;
+}
+
+export interface FriendDossierStats {
+  sharedSessionCount: number;
+  favoriteVenue: string | null;
+  recentSessions: {
+    id: string;
+    title: string;
+    created_at: string;
+  }[];
+}
+
+export interface CoDinerSuggestion {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  upi_id: string | null;
+  sharedCount: number;
+}
+
 export interface DatabaseVenue {
   id: string;
   name: string;

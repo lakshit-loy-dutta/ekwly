@@ -158,7 +158,7 @@ export default function AppRouter() {
         .eq('id', activeUser.id)
         .maybeSingle();
 
-      if (!profile?.name || /^Guest\s+[0-9a-f]{5}\$/i.test(profile.name)) {
+      if (!profile?.name || /^Guest\s+[0-9a-f]{5}$/i.test(profile.name)) {
         setCurrentView('onboarding');
         return;
       }
@@ -293,6 +293,17 @@ export default function AppRouter() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleOpenInviteQr = () => {
+    utils.haptic('light');
+    if (activeSessionId && typeof window !== 'undefined') {
+      localStorage.setItem(`ekwly_multiplayer_${activeSessionId}`, 'true');
+      window.dispatchEvent(
+        new CustomEvent('ekwly:enable-realtime', { detail: { sessionId: activeSessionId } })
+      );
+    }
+    setIsShareModalOpen(true);
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     hasRoutedRef.current = false;
@@ -345,10 +356,7 @@ export default function AppRouter() {
             {currentView === 'session' && (
               <>
                 <button
-                  onClick={() => {
-                    utils.haptic('light');
-                    setIsShareModalOpen(true);
-                  }}
+                  onClick={handleOpenInviteQr}
                   className="px-2.5 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1.5 text-xs font-bold"
                   aria-label="Share Room QR"
                 >

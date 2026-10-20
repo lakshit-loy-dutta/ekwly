@@ -79,19 +79,16 @@ describe('Calculation Utilities', () => {
 
     const netted = utils.netBilateralBalances(owedToMe, iOwe);
 
-    // Rahul: 850 owed to me - 350 I owe = +500 net owed to me
     expect(netted.netOwedToMe).toHaveLength(1);
     expect(netted.netOwedToMe[0].counterpartyName).toBe('Rahul');
     expect(netted.netOwedToMe[0].netAmount).toBe(500);
     expect(netted.netOwedToMe[0].hasOpposing).toBe(true);
 
-    // Manish (guest): 400 owed to me - 650 I owe = -250 net I owe
     expect(netted.netIOwe).toHaveLength(1);
     expect(netted.netIOwe[0].counterpartyName).toBe('Manish');
     expect(netted.netIOwe[0].netAmount).toBe(250);
     expect(netted.netIOwe[0].hasOpposing).toBe(true);
 
-    // Trisha: 500 - 500 = 0 (mutually offset candidate)
     expect(netted.zeroedCounterparties).toHaveLength(1);
     expect(netted.zeroedCounterparties[0].counterpartyId).toBe('u-even');
 
@@ -109,5 +106,33 @@ describe('Calculation Utilities', () => {
     expect(uri).toBe(
       'upi://pay?pa=lakshit%40okaxis&pn=Lakshit%20Dutta&am=1379.50&cu=INR&tn=Toit%20Split'
     );
+  });
+
+  it('computes Friendship Dossier shared outing count and favorite venue accurately', () => {
+    const sharedSessions = [
+      {
+        id: 's1',
+        name: 'Friday Night',
+        venue_name: 'Toit Brewpub',
+        created_at: '2026-10-01T18:00:00Z',
+      },
+      {
+        id: 's2',
+        name: null,
+        venue_name: 'Chin Lung Resto Bar',
+        created_at: '2026-10-05T19:00:00Z',
+      },
+      {
+        id: 's3',
+        name: 'Sunday Beers',
+        venue_name: 'toit brewpub',
+        created_at: '2026-10-12T20:00:00Z',
+      },
+    ];
+
+    const stats = utils.computeFriendDossierStats(sharedSessions);
+    expect(stats.sharedSessionCount).toBe(3);
+    expect(stats.favoriteVenue?.toLowerCase()).toBe('toit brewpub');
+    expect(stats.recentSessions[0].id).toBe('s3');
   });
 });

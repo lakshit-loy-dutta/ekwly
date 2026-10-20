@@ -4,10 +4,14 @@ import { processOfflineQueue } from './offlineQueue';
 import type { BillItem, TaxPreset } from '../types';
 import type { DBMember, DBClaim, SessionRules } from '../useSession';
 
-export function useSessionSync(sessionId: string | null) {
+export function useSessionSync(sessionId: string | null, isHostProp = true) {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<'draft' | 'locked' | 'archived'>('draft');
+  const [manualRealtime, setManualRealtime] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !sessionId) return false;
+    return sessionStorage.getItem(`ekwly_realtime_${sessionId}`) === 'true';
+  });
 
   const [sessionRules, setSessionRules] = useState<SessionRules>({
     venueName: '',
@@ -28,6 +32,26 @@ export function useSessionSync(sessionId: string | null) {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id || null));
   }, []);
+
+  const enableRealtime = useCallback(() => {
+    if (!sessionId) return;
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(`ekwly_realtime_${sessionId}`, 'true');
+    }
+    setManualRealtime(true);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !sessionId) return;
+    const onActivateEvent = (e: Event) => {
+      const custom = e as CustomEvent<{ sessionId?: string }>;
+      if (!custom.detail?.sessionId || custom.detail.sessionId === sessionId) {
+        enableRealtime();
+      }
+    };
+    window.addEventListener('ekwly:activate-realtime', onActivateEvent);
+    return () => window.removeEventListener('ekwly:activate-realtime', onActivateEvent);
+  }, [sessionId, enableRealtime]);
 
   const fetchSessionData = useCallback(
     async (isBackground = false) => {
@@ -103,12 +127,45 @@ export function useSessionSync(sessionId: string | null) {
     [sessionId]
   );
 
+  // Initial Data Fetch + Wake-Up Offline Queue Sync
   useEffect(() => {
     if (!sessionId) {
       setIsLoading(false);
       return;
     }
     fetchSessionData(false);
+
+    const handleWakeUp = async () => {
+      if (navigator.onLine) {
+        await processOfflineQueue();
+      }
+      await fetchSessionData(true);
+    };
+    window.addEventListener('focus', handleWakeUp);
+    window.addEventListener('online', handleWakeUp);
+
+    return () => {
+      window.removeEventListener('focus', handleWakeUp);
+      window.removeEventListener('online', handleWakeUp);
+    };
+  }, [sessionId, fetchSessionData]);
+
+  // Determine whether Realtime WebSockets should be active:
+  // 1. Always active for non-host participants (!isHostProp)
+  // 2. Active once Host opens "Invite QR" or clicks "Live Sync" (manualRealtime)
+  // 3. Active when session is locked (so live payment status updates arrive)
+  // 4. Active when >1 distinct user_id is present at the table
+  const ownerId = hostId || currentUserId;
+  const hasMultipleLinkedUsers =
+    members.length > 1 && members.some((m) => Boolean(m.user_id && m.user_id !== ownerId));
+
+  const isRealtimeActive = Boolean(
+    sessionId &&
+    (!isHostProp || manualRealtime || sessionStatus === 'locked' || hasMultipleLinkedUsers)
+  );
+
+  useEffect(() => {
+    if (!sessionId || !isRealtimeActive) return;
 
     let isInitialSubscription = true;
 
@@ -311,21 +368,10 @@ export function useSessionSync(sessionId: string | null) {
         }
       });
 
-    const handleWakeUp = async () => {
-      if (navigator.onLine) {
-        await processOfflineQueue();
-      }
-      await fetchSessionData(true);
-    };
-    window.addEventListener('focus', handleWakeUp);
-    window.addEventListener('online', handleWakeUp);
-
     return () => {
-      window.removeEventListener('focus', handleWakeUp);
-      window.removeEventListener('online', handleWakeUp);
       supabase.removeChannel(channel);
     };
-  }, [sessionId, fetchSessionData]);
+  }, [sessionId, isRealtimeActive, fetchSessionData]);
 
   return {
     isLoading,
@@ -345,5 +391,7 @@ export function useSessionSync(sessionId: string | null) {
     setClaims,
     ledger,
     setLedger,
+    isRealtimeActive,
+    enableRealtime,
   };
 }

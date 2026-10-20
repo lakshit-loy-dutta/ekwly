@@ -3,7 +3,6 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import type { GlobalLedgerRow, NettedBalanceRow } from '../lib/types';
 import { splitwiseCsv, type SplitwiseParseResult } from '../lib/splitwiseCsv';
 import BottomSheet from './ui/BottomSheet';
 import ConfirmSheet from './ui/ConfirmSheet';
@@ -23,30 +22,156 @@ import {
   ArrowLeftRight,
 } from 'lucide-react';
 
+interface LedgerEntry {
+  debtor_id: string | null;
+  debtor_name: string;
+  creditor_id: string | null;
+  creditor_name: string;
+  total_owed: number;
+}
+
+interface NettedRow {
+  counterpartyKey: string;
+  counterpartyId: string | null;
+  counterpartyName: string;
+  selfName: string;
+  direction: 'owed_to_me' | 'i_owe';
+  netAmount: number;
+  grossOwedToMe: number;
+  grossIOwe: number;
+  hasOpposing: boolean;
+}
+
 interface Props {
   user: SupabaseUser | null;
   onBack: () => void;
 }
 
+function computeNetBilateralBalances(owedToMeRows: LedgerEntry[], iOweRows: LedgerEntry[]) {
+  const map = new Map<
+    string,
+    {
+      counterpartyKey: string;
+      counterpartyId: string | null;
+      counterpartyName: string;
+      selfName: string;
+      grossOwedToMe: number;
+      grossIOwe: number;
+    }
+  >();
+
+  const getKey = (id: string | null, name: string) =>
+    id ? `id:${id}` : `name:${(name || 'guest').trim().toLowerCase()}`;
+
+  for (const row of owedToMeRows) {
+    const amt = Number(row.total_owed || 0);
+    if (amt <= 0) continue;
+    const key = getKey(row.debtor_id, row.debtor_name);
+    const existing = map.get(key);
+    if (existing) {
+      existing.grossOwedToMe = utils.round2(existing.grossOwedToMe + amt);
+      if (!existing.counterpartyId && row.debtor_id) existing.counterpartyId = row.debtor_id;
+    } else {
+      map.set(key, {
+        counterpartyKey: key,
+        counterpartyId: row.debtor_id || null,
+        counterpartyName: (row.debtor_name || 'Guest').trim(),
+        selfName: (row.creditor_name || 'Me').trim(),
+        grossOwedToMe: utils.round2(amt),
+        grossIOwe: 0,
+      });
+    }
+  }
+
+  for (const row of iOweRows) {
+    const amt = Number(row.total_owed || 0);
+    if (amt <= 0) continue;
+    const key = getKey(row.creditor_id, row.creditor_name);
+    const existing = map.get(key);
+    if (existing) {
+      existing.grossIOwe = utils.round2(existing.grossIOwe + amt);
+      if (!existing.counterpartyId && row.creditor_id) existing.counterpartyId = row.creditor_id;
+    } else {
+      map.set(key, {
+        counterpartyKey: key,
+        counterpartyId: row.creditor_id || null,
+        counterpartyName: (row.creditor_name || 'Guest').trim(),
+        selfName: (row.debtor_name || 'Me').trim(),
+        grossOwedToMe: 0,
+        grossIOwe: utils.round2(amt),
+      });
+    }
+  }
+
+  const netOwedToMe: NettedRow[] = [];
+  const netIOwe: NettedRow[] = [];
+  const zeroedCounterparties: NettedRow[] = [];
+
+  for (const entry of map.values()) {
+    const diff = utils.round2(entry.grossOwedToMe - entry.grossIOwe);
+    const hasOpposing = entry.grossOwedToMe > 0 && entry.grossIOwe > 0;
+
+    if (diff > 0.01) {
+      netOwedToMe.push({
+        ...entry,
+        direction: 'owed_to_me',
+        netAmount: diff,
+        hasOpposing,
+      });
+    } else if (diff < -0.01) {
+      netIOwe.push({
+        ...entry,
+        direction: 'i_owe',
+        netAmount: Math.abs(diff),
+        hasOpposing,
+      });
+    } else if (hasOpposing) {
+      zeroedCounterparties.push({
+        ...entry,
+        direction: 'owed_to_me',
+        netAmount: 0,
+        hasOpposing: true,
+      });
+    }
+  }
+
+  netOwedToMe.sort((a, b) => b.netAmount - a.netAmount);
+  netIOwe.sort((a, b) => b.netAmount - a.netAmount);
+
+  const totalOwedToMe = utils.round2(netOwedToMe.reduce((sum, item) => sum + item.netAmount, 0));
+  const totalIOwe = utils.round2(netIOwe.reduce((sum, item) => sum + item.netAmount, 0));
+
+  return {
+    netOwedToMe,
+    netIOwe,
+    zeroedCounterparties,
+    totalOwedToMe,
+    totalIOwe,
+  };
+}
+
+function buildUpiUri(upiId: string, payeeName: string, amount: number): string {
+  return `upi://pay?pa=${encodeURIComponent(upiId.trim())}&pn=${encodeURIComponent(payeeName.trim() || 'Ekwly User')}&am=${utils.round2(amount).toFixed(2)}&cu=INR&tn=${encodeURIComponent('Ekwly Net Settlement')}`;
+}
+
 export default function Ledger({ user }: Props) {
-  const [rawOwedToMe, setRawOwedToMe] = useState<GlobalLedgerRow[]>([]);
-  const [rawIOwe, setRawIOwe] = useState<GlobalLedgerRow[]>([]);
+  const [rawOwedToMe, setRawOwedToMe] = useState<LedgerEntry[]>([]);
+  const [rawIOwe, setRawIOwe] = useState<LedgerEntry[]>([]);
   const [creditorUpiMap, setCreditorUpiMap] = useState<Record<string, string>>({});
   const [myUpiId, setMyUpiId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [pendingSettle, setPendingSettle] = useState<NettedBalanceRow | null>(null);
-  const [activeQrRow, setActiveQrRow] = useState<NettedBalanceRow | null>(null);
+  const [pendingSettle, setPendingSettle] = useState<NettedRow | null>(null);
+  const [activeQrRow, setActiveQrRow] = useState<NettedRow | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [parsedCsv, setParsedCsv] = useState<SplitwiseParseResult | null>(null);
   const [selectedSelfName, setSelectedSelfName] = useState<string>('');
   const [isImporting, setIsImporting] = useState(false);
 
-  const settleBothDirectionsInDB = async (row: NettedBalanceRow, currentUserId: string) => {
+  const settleBothDirectionsInDB = async (row: NettedRow, currentUserId: string) => {
     const tasks: PromiseLike<any>[] = [];
 
-    // 1. Rows where current user is Creditor and counterparty is Debtor
     let qCreditor = supabase
       .from('ledger')
       .update({ settled: true })
@@ -62,7 +187,6 @@ export default function Ledger({ user }: Props) {
     }
     tasks.push(qCreditor);
 
-    // 2. Rows where current user is Debtor and counterparty is Creditor
     let qDebtor = supabase
       .from('ledger')
       .update({ settled: true })
@@ -93,14 +217,13 @@ export default function Ledger({ user }: Props) {
       supabase.from('profiles').select('upi_id').eq('id', user.id).maybeSingle(),
     ]);
 
-    const owedRows = (creditorRes.data || []) as GlobalLedgerRow[];
-    const oweRows = (debtorRes.data || []) as GlobalLedgerRow[];
+    const owedRows = (creditorRes.data || []) as LedgerEntry[];
+    const oweRows = (debtorRes.data || []) as LedgerEntry[];
 
     setRawOwedToMe(owedRows);
     setRawIOwe(oweRows);
     setMyUpiId(myProfileRes.data?.upi_id || null);
 
-    // Fetch UPI IDs for creditors we owe money to
     const creditorIds = Array.from(
       new Set(oweRows.map((r) => r.creditor_id).filter((id): id is string => Boolean(id)))
     );
@@ -124,11 +247,11 @@ export default function Ledger({ user }: Props) {
   }, [user]);
 
   const netted = useMemo(
-    () => utils.netBilateralBalances(rawOwedToMe, rawIOwe),
+    () => computeNetBilateralBalances(rawOwedToMe, rawIOwe),
     [rawOwedToMe, rawIOwe]
   );
 
-  // Auto-clear mutually offset ₹0.00 bilateral balances in the background
+  // Automatically settle mutually offset ₹0.00 bilateral balances
   useEffect(() => {
     if (!user || netted.zeroedCounterparties.length === 0) return;
     const clearZeroed = async () => {
@@ -257,14 +380,7 @@ export default function Ledger({ user }: Props) {
       : activeQrRow?.counterpartyName || 'Creditor';
 
   const qrUri =
-    activeQrRow && qrPayeeUpi
-      ? utils.buildUpiUrl({
-          upiId: qrPayeeUpi,
-          payeeName: qrPayeeName,
-          amount: activeQrRow.netAmount,
-          note: 'Ekwly Net Balance Settlement',
-        })
-      : '';
+    activeQrRow && qrPayeeUpi ? buildUpiUri(qrPayeeUpi, qrPayeeName, activeQrRow.netAmount) : '';
 
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-28">
@@ -429,12 +545,7 @@ export default function Ledger({ user }: Props) {
               ? creditorUpiMap[entry.counterpartyId]
               : undefined;
             const upiLink = creditorUpi
-              ? utils.buildUpiUrl({
-                  upiId: creditorUpi,
-                  payeeName: entry.counterpartyName,
-                  amount: entry.netAmount,
-                  note: 'Ekwly Net Balance Settlement',
-                })
+              ? buildUpiUri(creditorUpi, entry.counterpartyName, entry.netAmount)
               : null;
 
             return (

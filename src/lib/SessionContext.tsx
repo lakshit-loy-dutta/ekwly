@@ -21,7 +21,7 @@ export function SessionProvider({
   isHost: boolean;
   children: ReactNode;
 }) {
-  const session = useSession(sessionId);
+  const session = useSession(sessionId, isHost);
 
   const verifiedIsHost =
     session.hostId && session.currentUserId ? session.hostId === session.currentUserId : isHost;

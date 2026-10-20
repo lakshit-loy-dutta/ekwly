@@ -36,9 +36,8 @@ span {
   user-select: auto;
 }
 
-/* Base defaults without forcing global width/height wars */
-input:not([type='checkbox']):not([type='radio']),
-select {
+/* Zero-specificity (:where) defaults so Tailwind utilities override without !important */
+:where(input:not([type='checkbox']):not([type='radio']), select) {
   width: 100%;
   height: var(--input-h);
   padding: 0 14px;

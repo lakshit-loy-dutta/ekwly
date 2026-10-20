@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import type { DatabaseSession, GlobalLedgerRow } from '../lib/types';
+import type { DatabaseSession } from '../lib/types';
 import QrScannerModal from './ui/QrScannerModal';
 import ConfirmSheet from './ui/ConfirmSheet';
 import BrandLoader from './ui/BrandLoader';
@@ -44,12 +44,29 @@ export default function Home({ onOpenLobby, onJoinSession, onViewLedger, user }:
 
       if (sessionRes.data) setRecentSessions(sessionRes.data as DatabaseSession[]);
 
-      const netted = utils.netBilateralBalances(
-        (creditorRes.data || []) as GlobalLedgerRow[],
-        (debtorRes.data || []) as GlobalLedgerRow[]
-      );
-      setOwedToMe(netted.totalOwedToMe);
-      setIOwe(netted.totalIOwe);
+      // Bilaterally net per counterparty so Dashboard totals match Global Ledger
+      const pairMap = new Map<string, number>();
+      const getKey = (id: string | null, name: string) =>
+        id ? `id:${id}` : `name:${(name || 'guest').trim().toLowerCase()}`;
+
+      for (const r of creditorRes.data || []) {
+        const k = getKey(r.debtor_id, r.debtor_name);
+        pairMap.set(k, utils.round2((pairMap.get(k) || 0) + Number(r.total_owed || 0)));
+      }
+      for (const r of debtorRes.data || []) {
+        const k = getKey(r.creditor_id, r.creditor_name);
+        pairMap.set(k, utils.round2((pairMap.get(k) || 0) - Number(r.total_owed || 0)));
+      }
+
+      let netOwed = 0;
+      let netOwe = 0;
+      for (const bal of pairMap.values()) {
+        if (bal > 0.01) netOwed = utils.round2(netOwed + bal);
+        else if (bal < -0.01) netOwe = utils.round2(netOwe + Math.abs(bal));
+      }
+
+      setOwedToMe(netOwed);
+      setIOwe(netOwe);
       setIsLoading(false);
     };
 

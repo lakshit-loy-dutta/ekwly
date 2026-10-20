@@ -14,6 +14,9 @@ export default defineConfig({
 
   vite: {
     plugins: [tailwindcss()],
+    build: {
+      chunkSizeWarningLimit: 650,
+    },
     ssr: {
       noExternal: ['workbox-window'],
     },

@@ -175,6 +175,57 @@ export function useSessionMutations(deps: MutationDeps) {
     return newMember;
   };
 
+  const addMembersBatchToDB = async (
+    candidates: { name: string; user_id?: string | null }[]
+  ): Promise<DBMember[]> => {
+    if (!sessionId || candidates.length === 0) return [];
+
+    const existingNames = new Set(members.map((m) => m.name.toLowerCase()));
+    const existingUserIds = new Set(members.map((m) => m.user_id).filter(Boolean));
+
+    const newMembers: DBMember[] = [];
+    for (const c of candidates) {
+      const trimmed = c.name.trim();
+      if (!trimmed) continue;
+      const lower = trimmed.toLowerCase();
+      if (existingNames.has(lower)) continue;
+      if (c.user_id && existingUserIds.has(c.user_id)) continue;
+
+      existingNames.add(lower);
+      if (c.user_id) existingUserIds.add(c.user_id);
+
+      newMembers.push({
+        id: utils.generateId(),
+        session_id: sessionId,
+        name: trimmed,
+        user_id: c.user_id || null,
+        paid_amount: 0,
+      });
+    }
+
+    if (newMembers.length === 0) {
+      showToast('All squad members are already at the table.', 'default');
+      return [];
+    }
+
+    setMembers((prev) => [...prev, ...newMembers]);
+
+    if (!navigator.onLine) {
+      enqueueMutation('members', 'UPSERT', newMembers);
+      return newMembers;
+    }
+
+    const { error } = await supabase.from('members').insert(newMembers);
+    if (error) {
+      const addedIds = new Set(newMembers.map((m) => m.id));
+      setMembers((prev) => prev.filter((m) => !addedIds.has(m.id)));
+      showToast('Network error: Failed to add squad members.', 'error');
+      return [];
+    }
+
+    return newMembers;
+  };
+
   const removeMemberFromDB = async (memberId: string) => {
     if (!sessionId) return;
     const memberBackup = members.find((m) => m.id === memberId);
@@ -501,6 +552,7 @@ export function useSessionMutations(deps: MutationDeps) {
     updateItemInDB,
     removeItemFromDB,
     addMemberToDB,
+    addMembersBatchToDB,
     removeMemberFromDB,
     claimMemberIdentity,
     updateClaimInDB,

@@ -6,7 +6,6 @@ import {
   Plus,
   Trash2,
   Edit2,
-  Check,
   Users,
   UserPlus,
   Percent,
@@ -15,11 +14,13 @@ import {
   ChevronDown,
   Sparkles,
   Minus,
+  Radio,
+  BookmarkPlus,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
 import { utils, showToast } from '../../lib/utils';
-import type { DatabaseVenue, DatabaseItem, BillItem } from '../../lib/types';
+import type { DatabaseVenue, DatabaseItem, BillItem, SavedSquad } from '../../lib/types';
 import MagicScanner from './MagicScanner';
 import BottomSheet from '../ui/BottomSheet';
 import ToggleSwitch from '../ui/ToggleSwitch';
@@ -47,13 +48,12 @@ export default function ReceiptWorkbench() {
     sessionRules,
     currentUserId,
     hostId,
+    isRealtimeActive,
+    enableRealtime,
     actions,
     formattedClaims,
     liveCalculation,
-  } = useSessionContext() as ReturnType<typeof useSessionContext> & {
-    formattedClaims: Record<string, Record<string, string>>;
-    liveCalculation: ReturnType<typeof import('../../lib/mathEngine').mathEngine.generateSplit>;
-  };
+  } = useSessionContext();
 
   // --- VENUE AUTOCOMPLETE STATE ---
   const [localVenue, setLocalVenue] = useState<string>(sessionRules.venueName);
@@ -62,12 +62,15 @@ export default function ReceiptWorkbench() {
   const [showVenueDropdown, setShowVenueDropdown] = useState(false);
   const [showScannerDrawer, setShowScannerDrawer] = useState(false);
 
-  // --- MEMBER & FRIEND QUICK-ADD STATE ---
+  // --- MEMBER, FRIEND & SAVED SQUAD QUICK-ADD STATE ---
   const [showMemberSheet, setShowMemberSheet] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
   const [myFriends, setMyFriends] = useState<FriendQuickChip[]>([]);
+  const [savedSquads, setSavedSquads] = useState<SavedSquad[]>([]);
+  const [newSquadNameInput, setNewSquadNameInput] = useState('');
+  const [showSaveSquadForm, setShowSaveSquadForm] = useState(false);
   const [profileSearchResults, setProfileSearchResults] = useState<FriendQuickChip[]>([]);
-  const [isSearchingProfiles, setIsSearchingProfiles] = useState(false);
+  const [, setIsSearchingProfiles] = useState(false);
 
   // --- ADD / EDIT DISH STATE ---
   const [newItemName, setNewItemName] = useState('');
@@ -149,8 +152,9 @@ export default function ReceiptWorkbench() {
     return () => clearTimeout(timer);
   }, [localVenue, isHost]);
 
-  // Load connected Ekwly Friends for 1-tap table population
+  // Load connected Ekwly Friends & Saved Squads for 1-tap table population
   useEffect(() => {
+    setSavedSquads(utils.getSavedSquads(currentUserId));
     if (!currentUserId) return;
     const loadFriends = async () => {
       const { data: conns } = await supabase
@@ -212,6 +216,39 @@ export default function ReceiptWorkbench() {
     }, 280);
     return () => clearTimeout(timer);
   }, [newItemName, sessionRules.venueName]);
+
+  const handleApplySquad = async (squad: SavedSquad) => {
+    utils.haptic('medium');
+    const added = await actions.addMembersBatchToDB(squad.members);
+    if (added.length > 0) {
+      showToast(`Added ${added.length} from "${squad.name}"!`, 'success');
+    }
+  };
+
+  const handleSaveCurrentTableAsSquad = () => {
+    const trimmed = newSquadNameInput.trim();
+    if (!trimmed) return showToast('Enter a name for this squad.', 'error');
+    const nonSelfMembers = members
+      .filter((m) => !currentUserId || m.user_id !== currentUserId)
+      .map((m) => ({ name: m.name, user_id: m.user_id || null }));
+
+    if (nonSelfMembers.length === 0) {
+      return showToast('Add at least 1 other person to save a squad.', 'error');
+    }
+
+    const newSquad: SavedSquad = {
+      id: utils.generateId(),
+      name: trimmed,
+      members: nonSelfMembers,
+      createdAt: new Date().toISOString(),
+    };
+    const next = [newSquad, ...savedSquads];
+    setSavedSquads(next);
+    utils.saveSquads(currentUserId, next);
+    setNewSquadNameInput('');
+    setShowSaveSquadForm(false);
+    showToast(`Saved "${trimmed}" squad!`, 'success');
+  };
 
   const handleSelectVenue = async (venue: DatabaseVenue) => {
     utils.haptic('medium');
@@ -414,12 +451,37 @@ export default function ReceiptWorkbench() {
         </div>
       </div>
 
-      {/* ZONE 2: "AT THE TABLE" MEMBER BAR + 1-TAP FRIEND CHIPS */}
+      {/* ZONE 2: "AT THE TABLE" MEMBER BAR + 1-TAP FRIEND & SAVED SQUAD CHIPS */}
       <div className="bg-surface border border-border rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5">
         <div className="flex items-center justify-between px-0.5">
-          <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
-            <Users size={13} className="text-primary" /> At the Table ({members.length})
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
+              <Users size={13} className="text-primary" /> At the Table ({members.length})
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (!isRealtimeActive) {
+                  utils.haptic('light');
+                  enableRealtime();
+                  showToast('Live Multiplayer Sync activated!', 'success');
+                }
+              }}
+              className={`px-2 py-0.5 rounded-full text-[0.6rem] font-bold uppercase tracking-wider flex items-center gap-1 border ${
+                isRealtimeActive
+                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+                  : 'bg-page text-muted border-border hover:text-main'
+              }`}
+              title={
+                isRealtimeActive
+                  ? 'Realtime WebSockets active'
+                  : 'Solo Fast Mode (Tap or open Invite QR to enable live multiplayer sync)'
+              }
+            >
+              <Radio size={10} className={isRealtimeActive ? 'animate-pulse' : ''} />
+              {isRealtimeActive ? 'Live Sync' : 'Solo Mode'}
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -428,7 +490,7 @@ export default function ReceiptWorkbench() {
             }}
             className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
           >
-            <UserPlus size={14} /> Add / Manage People
+            <UserPlus size={14} /> Add / Squads
           </button>
         </div>
 
@@ -461,6 +523,23 @@ export default function ReceiptWorkbench() {
             <Plus size={14} /> Person
           </button>
         </div>
+
+        {/* Inline 1-Tap Saved Squad Quick Pills when starting a room */}
+        {isHost && members.length <= 1 && savedSquads.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-border/50">
+            <span className="text-[0.65rem] font-bold text-muted shrink-0 pr-1">Squads:</span>
+            {savedSquads.map((squad) => (
+              <button
+                key={squad.id}
+                type="button"
+                onClick={() => handleApplySquad(squad)}
+                className="shrink-0 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-[0.7rem] font-bold flex items-center gap-1 active:scale-95 transition-transform"
+              >
+                <Sparkles size={11} /> + {squad.name} ({squad.members.length})
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ZONE 3: ADD / EDIT DISH BAR (HOST ONLY) */}
@@ -697,7 +776,7 @@ export default function ReceiptWorkbench() {
                                 taxRate: nextPreset ? nextPreset.rate / 100 : 0,
                               });
                             }}
-                            className="h-6! w-auto! py-0! pl-2! pr-5! text-[0.7rem]! font-bold bg-page border border-border rounded-md text-muted"
+                            className="h-6 w-auto py-0 pl-2 pr-5 text-[0.7rem] font-bold bg-page border border-border rounded-md text-muted"
                           >
                             {taxPresets.map((t) => (
                               <option key={t.id} value={t.id}>
@@ -871,7 +950,7 @@ export default function ReceiptWorkbench() {
                                     actions.updateClaimInDB(m.id, item.id, e.target.value)
                                   }
                                   placeholder="0"
-                                  className="w-14! h-7! px-1! text-center text-xs font-bold tabular-nums bg-surface border border-border rounded"
+                                  className="w-14 h-7 px-1 text-center text-xs font-bold tabular-nums bg-surface border border-border rounded"
                                 />
                                 <button
                                   type="button"
@@ -1044,7 +1123,7 @@ export default function ReceiptWorkbench() {
         <MagicScanner onScanComplete={() => setShowScannerDrawer(false)} />
       </BottomSheet>
 
-      {/* DRAWER 2: TABLE MEMBERS & 1-TAP FRIEND CHIPS */}
+      {/* DRAWER 2: TABLE MEMBERS, SAVED SQUADS & 1-TAP FRIEND CHIPS */}
       <BottomSheet
         isOpen={showMemberSheet}
         onClose={() => setShowMemberSheet(false)}
@@ -1105,6 +1184,27 @@ export default function ReceiptWorkbench() {
             </div>
           )}
 
+          {/* 1-Tap Saved Squads */}
+          {savedSquads.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1">
+                <Sparkles size={11} className="text-primary" /> 1-Tap Add Saved Squad
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {savedSquads.map((squad) => (
+                  <button
+                    key={squad.id}
+                    type="button"
+                    onClick={() => handleApplySquad(squad)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 transition-all active:scale-95"
+                  >
+                    + {squad.name} ({squad.members.length})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 1-Tap Friends Quick Chips */}
           {myFriends.length > 0 && (
             <div className="flex flex-col gap-2">
@@ -1141,9 +1241,40 @@ export default function ReceiptWorkbench() {
 
           {/* Current Table Members List */}
           <div className="flex flex-col gap-2">
-            <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-              Current Table ({members.length})
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                Current Table ({members.length})
+              </span>
+              {members.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSaveSquadForm(!showSaveSquadForm)}
+                  className="text-xs font-bold text-primary flex items-center gap-1 hover:underline"
+                >
+                  <BookmarkPlus size={13} /> Save Table as Squad
+                </button>
+              )}
+            </div>
+
+            {showSaveSquadForm && (
+              <div className="flex gap-2 bg-page border border-primary/30 p-2.5 rounded-xl">
+                <input
+                  type="text"
+                  value={newSquadNameInput}
+                  onChange={(e) => setNewSquadNameInput(e.target.value)}
+                  placeholder="Squad Name (e.g. Friday Crew)"
+                  className="flex-1 h-9 bg-surface border border-border rounded-lg px-2.5 text-xs font-semibold"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentTableAsSquad}
+                  className="h-9 px-3 bg-primary text-white rounded-lg font-bold text-xs shrink-0"
+                >
+                  Save
+                </button>
+              </div>
+            )}
+
             <div className="bg-page border border-border rounded-xl divide-y divide-border">
               {members.map((m) => {
                 const isMe = m.user_id === currentUserId;
@@ -1258,7 +1389,7 @@ export default function ReceiptWorkbench() {
                   }}
                   className="w-full h-11 bg-page border border-border rounded-xl px-3 font-semibold text-sm"
                 >
-                  <option value="inherit">Cascading: Inherit Each Item's Tax</option>
+                  <option value="inherit">Cascading: Inherit Each Item&apos;s Tax</option>
                   <option value="global">Independent: Tax S.C. by a Global Bracket</option>
                   <option value="none">Untaxed: No Tax on Service Charge</option>
                 </select>
@@ -1385,7 +1516,7 @@ export default function ReceiptWorkbench() {
                   value={newTaxRate}
                   onChange={(e) => setNewTaxRate(e.target.value)}
                   placeholder="%"
-                  className="w-20! h-10 bg-surface border border-border rounded-xl px-2 text-center text-sm font-bold tabular-nums"
+                  className="w-20 h-10 bg-surface border border-border rounded-xl px-2 text-center text-sm font-bold tabular-nums"
                 />
               </div>
               <div className="flex items-center justify-between pt-1">
