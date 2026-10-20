@@ -10,6 +10,7 @@ import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import BottomDock, { type DockTab } from './ui/BottomDock';
 import BrandLoader, { BrandLogo } from './ui/BrandLoader';
+import { swrCache } from '../lib/swrCache';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
 import {
@@ -264,6 +265,9 @@ export default function AppRouter() {
   };
 
   const handleLeaveSession = () => {
+    swrCache.invalidate('home_');
+    swrCache.invalidate('ledger_');
+    swrCache.invalidate('analytics_');
     window.history.pushState({ view: 'home' }, '', window.location.pathname);
     setActiveSessionId(null);
     setActiveSessionPin(null);
@@ -290,6 +294,7 @@ export default function AppRouter() {
   };
 
   const handleSignOut = async () => {
+    swrCache.clearAll();
     await supabase.auth.signOut();
     hasRoutedRef.current = false;
     setIsProfileOpen(false);

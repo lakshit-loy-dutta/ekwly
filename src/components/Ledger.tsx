@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
+import { swrCache } from '../lib/swrCache';
 import { showToast, utils } from '../lib/utils';
+import type { GlobalLedgerRow, NettedBalanceRow } from '../lib/types';
 import { splitwiseCsv, type SplitwiseParseResult } from '../lib/splitwiseCsv';
 import BottomSheet from './ui/BottomSheet';
 import ConfirmSheet from './ui/ConfirmSheet';
@@ -22,24 +24,11 @@ import {
   ArrowLeftRight,
 } from 'lucide-react';
 
-interface LedgerEntry {
-  debtor_id: string | null;
-  debtor_name: string;
-  creditor_id: string | null;
-  creditor_name: string;
-  total_owed: number;
-}
-
-interface NettedRow {
-  counterpartyKey: string;
-  counterpartyId: string | null;
-  counterpartyName: string;
-  selfName: string;
-  direction: 'owed_to_me' | 'i_owe';
-  netAmount: number;
-  grossOwedToMe: number;
-  grossIOwe: number;
-  hasOpposing: boolean;
+interface CachedLedgerData {
+  rawOwedToMe: GlobalLedgerRow[];
+  rawIOwe: GlobalLedgerRow[];
+  creditorUpiMap: Record<string, string>;
+  myUpiId: string | null;
 }
 
 interface Props {
@@ -47,129 +36,27 @@ interface Props {
   onBack: () => void;
 }
 
-function computeNetBilateralBalances(owedToMeRows: LedgerEntry[], iOweRows: LedgerEntry[]) {
-  const map = new Map<
-    string,
-    {
-      counterpartyKey: string;
-      counterpartyId: string | null;
-      counterpartyName: string;
-      selfName: string;
-      grossOwedToMe: number;
-      grossIOwe: number;
-    }
-  >();
-
-  const getKey = (id: string | null, name: string) =>
-    id ? `id:${id}` : `name:${(name || 'guest').trim().toLowerCase()}`;
-
-  for (const row of owedToMeRows) {
-    const amt = Number(row.total_owed || 0);
-    if (amt <= 0) continue;
-    const key = getKey(row.debtor_id, row.debtor_name);
-    const existing = map.get(key);
-    if (existing) {
-      existing.grossOwedToMe = utils.round2(existing.grossOwedToMe + amt);
-      if (!existing.counterpartyId && row.debtor_id) existing.counterpartyId = row.debtor_id;
-    } else {
-      map.set(key, {
-        counterpartyKey: key,
-        counterpartyId: row.debtor_id || null,
-        counterpartyName: (row.debtor_name || 'Guest').trim(),
-        selfName: (row.creditor_name || 'Me').trim(),
-        grossOwedToMe: utils.round2(amt),
-        grossIOwe: 0,
-      });
-    }
-  }
-
-  for (const row of iOweRows) {
-    const amt = Number(row.total_owed || 0);
-    if (amt <= 0) continue;
-    const key = getKey(row.creditor_id, row.creditor_name);
-    const existing = map.get(key);
-    if (existing) {
-      existing.grossIOwe = utils.round2(existing.grossIOwe + amt);
-      if (!existing.counterpartyId && row.creditor_id) existing.counterpartyId = row.creditor_id;
-    } else {
-      map.set(key, {
-        counterpartyKey: key,
-        counterpartyId: row.creditor_id || null,
-        counterpartyName: (row.creditor_name || 'Guest').trim(),
-        selfName: (row.debtor_name || 'Me').trim(),
-        grossOwedToMe: 0,
-        grossIOwe: utils.round2(amt),
-      });
-    }
-  }
-
-  const netOwedToMe: NettedRow[] = [];
-  const netIOwe: NettedRow[] = [];
-  const zeroedCounterparties: NettedRow[] = [];
-
-  for (const entry of map.values()) {
-    const diff = utils.round2(entry.grossOwedToMe - entry.grossIOwe);
-    const hasOpposing = entry.grossOwedToMe > 0 && entry.grossIOwe > 0;
-
-    if (diff > 0.01) {
-      netOwedToMe.push({
-        ...entry,
-        direction: 'owed_to_me',
-        netAmount: diff,
-        hasOpposing,
-      });
-    } else if (diff < -0.01) {
-      netIOwe.push({
-        ...entry,
-        direction: 'i_owe',
-        netAmount: Math.abs(diff),
-        hasOpposing,
-      });
-    } else if (hasOpposing) {
-      zeroedCounterparties.push({
-        ...entry,
-        direction: 'owed_to_me',
-        netAmount: 0,
-        hasOpposing: true,
-      });
-    }
-  }
-
-  netOwedToMe.sort((a, b) => b.netAmount - a.netAmount);
-  netIOwe.sort((a, b) => b.netAmount - a.netAmount);
-
-  const totalOwedToMe = utils.round2(netOwedToMe.reduce((sum, item) => sum + item.netAmount, 0));
-  const totalIOwe = utils.round2(netIOwe.reduce((sum, item) => sum + item.netAmount, 0));
-
-  return {
-    netOwedToMe,
-    netIOwe,
-    zeroedCounterparties,
-    totalOwedToMe,
-    totalIOwe,
-  };
-}
-
-function buildUpiUri(upiId: string, payeeName: string, amount: number): string {
-  return `upi://pay?pa=${encodeURIComponent(upiId.trim())}&pn=${encodeURIComponent(payeeName.trim() || 'Ekwly User')}&am=${utils.round2(amount).toFixed(2)}&cu=INR&tn=${encodeURIComponent('Ekwly Net Settlement')}`;
-}
-
 export default function Ledger({ user }: Props) {
-  const [rawOwedToMe, setRawOwedToMe] = useState<LedgerEntry[]>([]);
-  const [rawIOwe, setRawIOwe] = useState<LedgerEntry[]>([]);
-  const [creditorUpiMap, setCreditorUpiMap] = useState<Record<string, string>>({});
-  const [myUpiId, setMyUpiId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `ledger_${user?.id || 'guest'}`;
+  const cached = swrCache.get<CachedLedgerData>(cacheKey);
 
-  const [pendingSettle, setPendingSettle] = useState<NettedRow | null>(null);
-  const [activeQrRow, setActiveQrRow] = useState<NettedRow | null>(null);
+  const [rawOwedToMe, setRawOwedToMe] = useState<GlobalLedgerRow[]>(cached?.rawOwedToMe || []);
+  const [rawIOwe, setRawIOwe] = useState<GlobalLedgerRow[]>(cached?.rawIOwe || []);
+  const [creditorUpiMap, setCreditorUpiMap] = useState<Record<string, string>>(
+    cached?.creditorUpiMap || {}
+  );
+  const [myUpiId, setMyUpiId] = useState<string | null>(cached?.myUpiId || null);
+  const [isLoading, setIsLoading] = useState(!cached);
+
+  const [pendingSettle, setPendingSettle] = useState<NettedBalanceRow | null>(null);
+  const [activeQrRow, setActiveQrRow] = useState<NettedBalanceRow | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [parsedCsv, setParsedCsv] = useState<SplitwiseParseResult | null>(null);
   const [selectedSelfName, setSelectedSelfName] = useState<string>('');
   const [isImporting, setIsImporting] = useState(false);
 
-  const settleBothDirectionsInDB = async (row: NettedRow, currentUserId: string) => {
+  const settleBothDirectionsInDB = async (row: NettedBalanceRow, currentUserId: string) => {
     const tasks: PromiseLike<any>[] = [];
 
     let qCreditor = supabase
@@ -217,37 +104,45 @@ export default function Ledger({ user }: Props) {
       supabase.from('profiles').select('upi_id').eq('id', user.id).maybeSingle(),
     ]);
 
-    const owedRows = (creditorRes.data || []) as LedgerEntry[];
-    const oweRows = (debtorRes.data || []) as LedgerEntry[];
+    const owedRows = (creditorRes.data || []) as GlobalLedgerRow[];
+    const oweRows = (debtorRes.data || []) as GlobalLedgerRow[];
+    const resolvedMyUpi = myProfileRes.data?.upi_id || null;
 
     setRawOwedToMe(owedRows);
     setRawIOwe(oweRows);
-    setMyUpiId(myProfileRes.data?.upi_id || null);
+    setMyUpiId(resolvedMyUpi);
 
     const creditorIds = Array.from(
       new Set(oweRows.map((r) => r.creditor_id).filter((id): id is string => Boolean(id)))
     );
+    const upiMap: Record<string, string> = {};
     if (creditorIds.length > 0) {
       const { data: profiles } = await supabase
         .from('profiles')
         .select('id, upi_id')
         .in('id', creditorIds);
-      const map: Record<string, string> = {};
       profiles?.forEach((p) => {
-        if (p.upi_id) map[p.id] = p.upi_id;
+        if (p.upi_id) upiMap[p.id] = p.upi_id;
       });
-      setCreditorUpiMap(map);
+      setCreditorUpiMap(upiMap);
     }
+
+    swrCache.set<CachedLedgerData>(cacheKey, {
+      rawOwedToMe: owedRows,
+      rawIOwe: oweRows,
+      creditorUpiMap: upiMap,
+      myUpiId: resolvedMyUpi,
+    });
 
     setIsLoading(false);
   };
 
   useEffect(() => {
     fetchLedger();
-  }, [user]);
+  }, [user, cacheKey]);
 
   const netted = useMemo(
-    () => computeNetBilateralBalances(rawOwedToMe, rawIOwe),
+    () => utils.netBilateralBalances(rawOwedToMe, rawIOwe),
     [rawOwedToMe, rawIOwe]
   );
 
@@ -258,6 +153,7 @@ export default function Ledger({ user }: Props) {
       for (const zeroRow of netted.zeroedCounterparties) {
         await settleBothDirectionsInDB(zeroRow, user.id);
       }
+      swrCache.invalidate('home_');
       showToast('Equal opposing balances were automatically netted & settled!', 'success');
       fetchLedger();
     };
@@ -268,6 +164,8 @@ export default function Ledger({ user }: Props) {
     if (!pendingSettle || !user) return;
     try {
       await settleBothDirectionsInDB(pendingSettle, user.id);
+      swrCache.invalidate('home_');
+      swrCache.invalidate('analytics_');
       showToast(`Settled up with ${pendingSettle.counterpartyName}!`, 'success');
       setPendingSettle(null);
       fetchLedger();
@@ -348,6 +246,7 @@ export default function Ledger({ user }: Props) {
       const { error: ledgerErr } = await supabase.from('ledger').insert(ledgerPayload);
       if (ledgerErr) throw ledgerErr;
 
+      swrCache.invalidate('home_');
       showToast(`Imported ${debts.length} balances from Splitwise!`, 'success');
       setParsedCsv(null);
       fetchLedger();
@@ -380,7 +279,14 @@ export default function Ledger({ user }: Props) {
       : activeQrRow?.counterpartyName || 'Creditor';
 
   const qrUri =
-    activeQrRow && qrPayeeUpi ? buildUpiUri(qrPayeeUpi, qrPayeeName, activeQrRow.netAmount) : '';
+    activeQrRow && qrPayeeUpi
+      ? utils.buildUpiUrl({
+          upiId: qrPayeeUpi,
+          payeeName: qrPayeeName,
+          amount: activeQrRow.netAmount,
+          note: 'Ekwly Net Settlement',
+        })
+      : '';
 
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-28">
@@ -545,7 +451,12 @@ export default function Ledger({ user }: Props) {
               ? creditorUpiMap[entry.counterpartyId]
               : undefined;
             const upiLink = creditorUpi
-              ? buildUpiUri(creditorUpi, entry.counterpartyName, entry.netAmount)
+              ? utils.buildUpiUrl({
+                  upiId: creditorUpi,
+                  payeeName: entry.counterpartyName,
+                  amount: entry.netAmount,
+                  note: 'Ekwly Net Settlement',
+                })
               : null;
 
             return (

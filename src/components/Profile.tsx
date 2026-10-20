@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
-import { showToast } from '../lib/utils';
+import { swrCache } from '../lib/swrCache';
+import { showToast, utils } from '../lib/utils';
 import BottomSheet from './ui/BottomSheet';
 import ConfirmSheet from './ui/ConfirmSheet';
 import BrandLoader from './ui/BrandLoader';
-import QrScannerModal from './ui/QrScannerModal';
 import {
   User,
   ShieldCheck,
@@ -16,10 +16,16 @@ import {
   Loader2,
   Edit3,
   QrCode,
-  ScanLine,
-  Share,
-  Copy,
+  CheckCircle2,
+  Trash2,
 } from 'lucide-react';
+
+interface CachedProfileData {
+  name: string;
+  upiId: string;
+  email: string;
+  phone: string;
+}
 
 interface Props {
   user: SupabaseUser | null;
@@ -29,75 +35,59 @@ interface Props {
 }
 
 export default function Profile({ user, onBack, isOnboarding = false, onComplete }: Props) {
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `profile_${user?.id || 'guest'}`;
+  const cached = swrCache.get<CachedProfileData>(cacheKey);
+
+  const [isLoading, setIsLoading] = useState(!cached);
   const [isEditing, setIsEditing] = useState(isOnboarding);
   const [isSaving, setIsSaving] = useState(false);
-  const [showMyQR, setShowMyQR] = useState(false);
-  const [isScanningFriend, setIsScanningFriend] = useState(false);
+  const [showUpiQrPreview, setShowUpiQrPreview] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const [name, setName] = useState('');
-  const [upiId, setUpiId] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-
-  const friendLink =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}${window.location.pathname}?add_friend=${user?.id}`
-      : '';
+  const [name, setName] = useState(cached?.name || '');
+  const [upiId, setUpiId] = useState(cached?.upiId || '');
+  const [email, setEmail] = useState(cached?.email || '');
+  const [phone, setPhone] = useState(cached?.phone || '');
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!user) return;
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
 
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
 
       const rawName =
         data?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '';
-      const cleanName = /^Guest\s+[0-9a-f]{5}$/i.test(rawName) ? '' : rawName;
+      const cleanName = /^Guest\s+[0-9a-f]{5}\$/i.test(rawName) ? '' : rawName;
+      const resolvedUpi = data?.upi_id || '';
+      const resolvedEmail = data?.email || user?.email || '';
+      const resolvedPhone = data?.phone || user?.phone || '';
 
       setName(cleanName);
-      setUpiId(data?.upi_id || '');
-      setEmail(data?.email || user?.email || '');
-      setPhone(data?.phone || user?.phone || '');
+      setUpiId(resolvedUpi);
+      setEmail(resolvedEmail);
+      setPhone(resolvedPhone);
+
+      swrCache.set<CachedProfileData>(cacheKey, {
+        name: cleanName,
+        upiId: resolvedUpi,
+        email: resolvedEmail,
+        phone: resolvedPhone,
+      });
 
       setIsLoading(false);
     };
     fetchProfile();
-  }, [user]);
-
-  const handleScannedFriendUrl = async (scannedText: string) => {
-    if (!user || user.is_anonymous) {
-      return showToast('Sign in to add friends.', 'error');
-    }
-    let friendId: string | null = null;
-    try {
-      const url = new URL(scannedText);
-      friendId = url.searchParams.get('add_friend');
-    } catch {
-      const queryPart = scannedText.split('?')[1] || '';
-      friendId = new URLSearchParams(queryPart).get('add_friend');
-    }
-
-    if (!friendId) return showToast('Invalid Friend QR Code.', 'error');
-    if (friendId === user.id) return showToast("You can't add yourself as a friend.", 'default');
-
-    const { error } = await supabase
-      .from('connections')
-      .insert({ user_id: user.id, friend_id: friendId });
-
-    if (error) {
-      showToast('Could not add friend or already connected.', 'error');
-    } else {
-      showToast('Friend added to your network!', 'success');
-    }
-  };
+  }, [user, cacheKey]);
 
   const executeAccountDeletion = async () => {
     setIsLoading(true);
     try {
       const { error } = await supabase.rpc('delete_user_account');
       if (error) throw error;
+      swrCache.clearAll();
       await supabase.auth.signOut();
       showToast('Your account has been permanently deleted.', 'success');
       onBack();
@@ -110,13 +100,15 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    if (!name.trim()) return showToast('Display name is required', 'error');
+    const trimmedName = name.trim();
+    const trimmedUpi = upiId.trim().toLowerCase();
+    if (!trimmedName) return showToast('Display name is required', 'error');
 
     setIsSaving(true);
     const { error } = await supabase.from('profiles').upsert({
       id: user.id,
-      name: name.trim(),
-      upi_id: upiId.trim(),
+      name: trimmedName,
+      upi_id: trimmedUpi,
       email: user.email,
       updated_at: new Date().toISOString(),
     });
@@ -125,6 +117,15 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     if (error) {
       showToast(error.message || 'Failed to save profile', 'error');
     } else {
+      utils.haptic('medium');
+      setName(trimmedName);
+      setUpiId(trimmedUpi);
+      swrCache.set<CachedProfileData>(cacheKey, {
+        name: trimmedName,
+        upiId: trimmedUpi,
+        email,
+        phone,
+      });
       showToast('Profile updated successfully', 'success');
       if (isOnboarding && onComplete) {
         onComplete();
@@ -134,36 +135,16 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     }
   };
 
-  const handleShareLink = async () => {
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      try {
-        await navigator.share({
-          title: 'Add me on Ekwly',
-          text: `Tap this link to add ${name || 'me'} as a friend on Ekwly so we can split bills!`,
-          url: friendLink,
-        });
-      } catch (err) {
-        console.error('Error sharing:', err);
-      }
-    } else {
-      navigator.clipboard.writeText(friendLink);
-      showToast('Invite link copied to clipboard!', 'success');
-    }
-  };
-
   if (isLoading) {
     return <BrandLoader label="Loading Profile..." fullScreen />;
   }
 
+  const personalUpiUri = upiId.trim()
+    ? `upi://pay?pa=${encodeURIComponent(upiId.trim())}&pn=${encodeURIComponent(name.trim() || 'Ekwly User')}&cu=INR`
+    : '';
+
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-28">
-      <QrScannerModal
-        isOpen={isScanningFriend}
-        title="Scan Friend QR"
-        onClose={() => setIsScanningFriend(false)}
-        onScanSuccess={handleScannedFriendUrl}
-      />
-
       <ConfirmSheet
         isOpen={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
@@ -175,8 +156,9 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
         requireMatchText="DELETE"
       />
 
-      <div className="flex flex-col items-center mb-6 mt-2">
-        <div className="w-24 h-24 rounded-full bg-primary-light border-4 border-surface shadow-sm text-primary flex items-center justify-center font-bold overflow-hidden mb-4 relative">
+      {/* PROFILE IDENTITY HERO */}
+      <div className="flex flex-col items-center mb-6 mt-1 text-center">
+        <div className="w-20 h-20 rounded-3xl bg-primary-light border-2 border-primary/25 shadow-sm text-primary flex items-center justify-center font-bold overflow-hidden mb-3 relative">
           {user?.user_metadata?.avatar_url ? (
             <img
               src={user.user_metadata.avatar_url}
@@ -184,144 +166,110 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
               className="w-full h-full object-cover"
             />
           ) : (
-            <User size={40} />
+            <User size={36} />
           )}
         </div>
-        <h2 className="text-2xl font-bold text-main tracking-tight">{name || 'Guest User'}</h2>
-        <p className="text-muted text-sm font-medium">Manage your identity and connections</p>
+        <h2 className="text-2xl font-extrabold text-main tracking-tight">
+          {name || (isOnboarding ? 'Welcome to Ekwly' : 'Guest User')}
+        </h2>
+        <p className="text-muted text-xs sm:text-sm font-medium mt-0.5">
+          {isOnboarding
+            ? 'Set your name and optional UPI ID to get started'
+            : 'Manage your display identity and instant UPI settlement ID'}
+        </p>
       </div>
 
-      {/* Hide Share/QR actions during onboarding */}
-      {!isOnboarding && (
-        <div className="grid grid-cols-2 gap-3 mb-8">
-          <button
-            type="button"
-            onClick={() => setShowMyQR(true)}
-            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
-          >
-            <QrCode size={24} className="text-primary" strokeWidth={2.5} />
-            <span className="font-semibold text-[0.95rem]">My QR Code</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsScanningFriend(true)}
-            className="bg-surface active:bg-subtle text-main border border-border hover:border-primary/50 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 shadow-sm transition-colors h-24"
-          >
-            <ScanLine size={24} className="text-primary" strokeWidth={2.5} />
-            <span className="font-semibold text-[0.95rem]">Scan Friend</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleShareLink}
-            className="col-span-2 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl p-3.5 flex items-center justify-center gap-2 shadow-sm transition-colors font-bold text-[0.95rem]"
-          >
-            {typeof navigator !== 'undefined' && typeof navigator.share === 'function' ? (
-              <Share size={18} />
-            ) : (
-              <Copy size={18} />
-            )}
-            Send Invite Link
-          </button>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-main">Personal Details</h3>
+      <div className="flex items-center justify-between mb-3 px-1">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
+          Identity &amp; UPI Settings
+        </h3>
         {!isEditing && !isOnboarding && (
           <button
             type="button"
-            onClick={() => setIsEditing(true)}
-            className="text-sm font-bold text-primary flex items-center gap-1.5 active:opacity-70"
+            onClick={() => {
+              utils.haptic('light');
+              setIsEditing(true);
+            }}
+            className="text-xs font-bold text-primary flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors"
           >
-            <Edit3 size={16} /> Edit
+            <Edit3 size={13} /> Edit Details
           </button>
         )}
       </div>
 
-      <form onSubmit={handleSave} className="flex flex-col gap-6 w-full">
-        {/* Public Identity */}
+      <form onSubmit={handleSave} className="flex flex-col gap-4 w-full">
+        {/* Public Identity Card */}
         <div
-          className={`bg-surface border rounded-2xl p-5 flex flex-col gap-4 shadow-sm transition-colors ${isEditing ? 'border-primary/50' : 'border-border'}`}
+          className={`bg-surface border rounded-2xl p-4 flex flex-col gap-2 shadow-sm transition-colors ${
+            isEditing ? 'border-primary/50' : 'border-border'
+          }`}
         >
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-muted uppercase tracking-widest flex items-center gap-2">
-              <User size={14} className={isEditing ? 'text-primary' : 'text-muted'} /> Display Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={!isEditing}
-              placeholder="e.g. Rahul Sharma"
-              className="w-full h-12 bg-transparent border-0 border-b border-border rounded-none px-0 font-medium focus:ring-0 focus:border-primary disabled:opacity-100 disabled:text-main"
-              required
-            />
-          </div>
+          <label className="text-[0.7rem] font-bold text-muted uppercase tracking-widest flex items-center gap-1.5">
+            <User size={13} className={isEditing ? 'text-primary' : 'text-muted'} /> Display Name
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={!isEditing}
+            placeholder="e.g. Rahul Sharma"
+            className="w-full h-11 bg-page border border-border rounded-xl px-3.5 font-semibold text-main disabled:opacity-90"
+            required
+          />
         </div>
 
-        {/* Payment Configuration */}
+        {/* UPI Payment Configuration Card */}
         <div
-          className={`bg-surface border rounded-2xl p-5 flex flex-col gap-4 shadow-sm transition-colors ${isEditing ? 'border-primary/50' : 'border-border'}`}
+          className={`bg-surface border rounded-2xl p-4 flex flex-col gap-3 shadow-sm transition-colors ${
+            isEditing ? 'border-primary/50' : 'border-border'
+          }`}
         >
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-muted uppercase tracking-widest flex items-center gap-2">
-              <CreditCard size={14} className={isEditing ? 'text-primary' : 'text-muted'} /> UPI ID
-              (VPA)
+          <div className="flex items-center justify-between">
+            <label className="text-[0.7rem] font-bold text-muted uppercase tracking-widest flex items-center gap-1.5">
+              <CreditCard size={13} className={isEditing ? 'text-primary' : 'text-muted'} /> UPI ID
+              (VPA for Receiving Money)
             </label>
-            <input
-              type="text"
-              value={upiId}
-              onChange={(e) => setUpiId(e.target.value)}
-              disabled={!isEditing}
-              placeholder="e.g. rahul@okhdfcbank"
-              className="w-full h-12 bg-transparent border-0 border-b border-border rounded-none px-0 font-medium focus:ring-0 focus:border-primary lowercase disabled:opacity-100 disabled:text-main"
-            />
-            {isEditing && (
-              <p className="text-xs text-muted mt-1 leading-relaxed">
-                Adding this allows friends to tap a button and deep-link straight to GPay/PhonePe.
-              </p>
+            {upiId.trim().includes('@') && (
+              <span className="inline-flex items-center gap-1 text-[0.65rem] font-bold text-emerald-500 bg-emerald-500/12 px-2 py-0.5 rounded-full">
+                <CheckCircle2 size={11} /> Active
+              </span>
             )}
           </div>
-        </div>
 
-        {/* Verified Credentials */}
-        <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-sm opacity-80">
-          <div className="flex items-center gap-2 mb-1">
-            <ShieldCheck size={18} className="text-muted" />
-            <h3 className="font-bold text-main text-sm">Verified Credentials (Read-Only)</h3>
-          </div>
-          <div className="flex flex-col gap-1.5 mt-2">
-            <label className="text-xs font-bold text-muted uppercase tracking-widest flex items-center gap-2">
-              <Mail size={14} /> Email
-            </label>
-            <input
-              type="text"
-              value={email}
-              disabled
-              className="w-full h-10 bg-transparent border-0 px-0 font-medium text-muted cursor-not-allowed"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-muted uppercase tracking-widest flex items-center gap-2">
-              <Smartphone size={14} /> Phone
-            </label>
-            <input
-              type="text"
-              value={phone}
-              disabled
-              placeholder="Not linked"
-              className="w-full h-10 bg-transparent border-0 px-0 font-medium text-muted cursor-not-allowed"
-            />
-          </div>
+          <input
+            type="text"
+            value={upiId}
+            onChange={(e) => setUpiId(e.target.value)}
+            disabled={!isEditing}
+            placeholder="e.g. rahul@okhdfcbank"
+            className="w-full h-11 bg-page border border-border rounded-xl px-3.5 font-mono font-semibold text-main lowercase disabled:opacity-90"
+          />
+
+          <p className="text-xs text-muted leading-relaxed">
+            Powers 1-tap GPay/PhonePe links and dynamic table UPI QR codes when friends owe you.
+          </p>
+
+          {!isEditing && upiId.trim().includes('@') && (
+            <button
+              type="button"
+              onClick={() => {
+                utils.haptic('light');
+                setShowUpiQrPreview(true);
+              }}
+              className="h-10 w-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <QrCode size={15} /> Preview My UPI Receive QR
+            </button>
+          )}
         </div>
 
         {isEditing && (
-          <div className="flex gap-3 mt-2">
+          <div className="flex gap-3 mt-1">
             {!isOnboarding && (
               <button
                 type="button"
                 onClick={() => setIsEditing(false)}
-                className="h-14 flex-1 bg-surface text-main border border-border rounded-xl font-bold transition-colors"
+                className="h-12 flex-1 bg-surface text-main border border-border rounded-xl font-bold text-sm transition-colors"
               >
                 Cancel
               </button>
@@ -329,43 +277,77 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
             <button
               type="submit"
               disabled={isSaving}
-              className="h-14 flex-1 bg-primary active:bg-primary-hover text-white rounded-xl font-bold shadow-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+              className="h-12 flex-1 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-70"
             >
-              {isSaving && <Loader2 size={18} className="animate-spin" />}
+              {isSaving && <Loader2 size={16} className="animate-spin" />}
               {isOnboarding ? 'Complete Setup' : 'Save Changes'}
             </button>
           </div>
         )}
 
+        {/* Verified Credentials (Read-Only) */}
+        {!isOnboarding && (
+          <div className="bg-surface border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-sm mt-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck size={16} className="text-primary" />
+              <h3 className="font-bold text-main text-xs uppercase tracking-widest">
+                Linked Account Credentials
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="bg-page border border-border rounded-xl p-3 flex flex-col gap-1">
+                <span className="text-[0.65rem] font-bold text-muted uppercase tracking-widest flex items-center gap-1.5">
+                  <Mail size={12} /> Email
+                </span>
+                <span className="text-xs font-semibold text-main truncate">
+                  {email || 'Anonymous Guest'}
+                </span>
+              </div>
+              <div className="bg-page border border-border rounded-xl p-3 flex flex-col gap-1">
+                <span className="text-[0.65rem] font-bold text-muted uppercase tracking-widest flex items-center gap-1.5">
+                  <Smartphone size={12} /> Phone
+                </span>
+                <span className="text-xs font-semibold text-main truncate">
+                  {phone || 'Not linked'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* DANGER ZONE */}
         {!isOnboarding && !isEditing && (
-          <div className="mt-8 pt-6 border-t border-border flex flex-col items-center">
+          <div className="mt-6 pt-5 border-t border-border flex flex-col items-center">
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
-              className="text-sm font-bold text-danger hover:text-danger/80 transition-colors"
+              className="text-xs font-bold text-danger hover:text-danger/80 flex items-center gap-1.5 py-2 px-4 rounded-xl hover:bg-danger/10 transition-colors"
             >
-              Delete Account Permanently
+              <Trash2 size={14} /> Delete Account Permanently
             </button>
           </div>
         )}
       </form>
 
-      {/* The Personal QR Modal */}
-      <BottomSheet isOpen={showMyQR} onClose={() => setShowMyQR(false)} title="My Friend Code">
-        <div className="flex flex-col items-center">
-          <p className="text-sm text-muted text-center mb-6">
-            Have a friend scan this code to instantly add you to their Ekwly network.
+      {/* PERSONAL UPI RECEIVE QR MODAL */}
+      <BottomSheet
+        isOpen={showUpiQrPreview}
+        onClose={() => setShowUpiQrPreview(false)}
+        title="My UPI Receive QR"
+      >
+        <div className="flex flex-col items-center pb-4">
+          <p className="text-xs text-muted text-center mb-5 max-w-xs leading-relaxed">
+            Anyone can scan this QR with GPay, PhonePe, or Paytm to pay{' '}
+            <strong className="text-main">{name || 'you'}</strong> directly.
           </p>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-border mb-6">
-            <QRCode value={friendLink} size={220} />
-          </div>
-          <div className="bg-subtle border border-border rounded-xl px-6 py-3 w-full text-center">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted mb-1">Friend ID</p>
-            <p className="text-lg font-mono font-bold text-primary truncate">
-              {user?.id.split('-')[0]}
-            </p>
-          </div>
+          {personalUpiUri && (
+            <div className="bg-white p-5 rounded-3xl shadow-md border border-border mb-4">
+              <QRCode value={personalUpiUri} size={210} />
+            </div>
+          )}
+          <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-lg">
+            {upiId}
+          </span>
         </div>
       </BottomSheet>
     </div>

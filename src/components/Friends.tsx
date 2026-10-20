@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
+import { swrCache } from '../lib/swrCache';
 import { showToast, utils } from '../lib/utils';
 import type {
   SavedSquad,
@@ -44,17 +45,28 @@ interface FriendProfile {
   upi_id: string | null;
 }
 
+interface CachedFriendsData {
+  friends: FriendProfile[];
+  suggestions: CoDinerSuggestion[];
+  myUpiId: string | null;
+}
+
 interface Props {
   user: SupabaseUser | null;
   onBack: () => void;
 }
 
 export default function Friends({ user }: Props) {
-  const [friends, setFriends] = useState<FriendProfile[]>([]);
-  const [suggestions, setSuggestions] = useState<CoDinerSuggestion[]>([]);
-  const [savedSquads, setSavedSquads] = useState<SavedSquad[]>([]);
-  const [myUpiId, setMyUpiId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `friends_${user?.id || 'guest'}`;
+  const cached = swrCache.get<CachedFriendsData>(cacheKey);
+
+  const [friends, setFriends] = useState<FriendProfile[]>(cached?.friends || []);
+  const [suggestions, setSuggestions] = useState<CoDinerSuggestion[]>(cached?.suggestions || []);
+  const [savedSquads, setSavedSquads] = useState<SavedSquad[]>(() =>
+    utils.getSavedSquads(user?.id)
+  );
+  const [myUpiId, setMyUpiId] = useState<string | null>(cached?.myUpiId || null);
+  const [isLoading, setIsLoading] = useState(!cached);
 
   // --- QR & SHARE STATE ---
   const [showMyQR, setShowMyQR] = useState(false);
@@ -106,7 +118,8 @@ export default function Friends({ user }: Props) {
       supabase.from('sessions').select('id').eq('host_id', user.id).limit(50),
     ]);
 
-    setMyUpiId(myProfileRes.data?.upi_id || null);
+    const resolvedMyUpi = myProfileRes.data?.upi_id || null;
+    setMyUpiId(resolvedMyUpi);
 
     const connections = connectionsRes.data || [];
     const friendIds = Array.from(
@@ -131,6 +144,7 @@ export default function Friends({ user }: Props) {
       ])
     );
 
+    let builtSuggestions: CoDinerSuggestion[] = [];
     if (sessionIds.length > 0) {
       const { data: coMembers } = await supabase
         .from('members')
@@ -155,7 +169,7 @@ export default function Friends({ user }: Props) {
           .select('id, name, avatar_url, upi_id')
           .in('id', candidateIds);
 
-        const builtSuggestions: CoDinerSuggestion[] = (candidateProfiles || [])
+        builtSuggestions = (candidateProfiles || [])
           .filter((p) => p.name && !/^Guest\s+[0-9a-f]{5}$/i.test(p.name))
           .map((p) => ({
             id: p.id,
@@ -165,15 +179,18 @@ export default function Friends({ user }: Props) {
             sharedCount: coDinerCounts.get(p.id)?.size || 1,
           }))
           .sort((a, b) => b.sharedCount - a.sharedCount);
-
-        setSuggestions(builtSuggestions);
-      } else {
-        setSuggestions([]);
       }
     }
+    setSuggestions(builtSuggestions);
+
+    swrCache.set<CachedFriendsData>(cacheKey, {
+      friends: loadedFriends,
+      suggestions: builtSuggestions,
+      myUpiId: resolvedMyUpi,
+    });
 
     setIsLoading(false);
-  }, [user]);
+  }, [user, cacheKey]);
 
   useEffect(() => {
     fetchNetworkAndSuggestions();
@@ -255,7 +272,13 @@ export default function Friends({ user }: Props) {
         `and(user_id.eq.${user.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${user.id})`
       );
 
-    setFriends((prev) => prev.filter((f) => f.id !== friendId));
+    const updated = friends.filter((f) => f.id !== friendId);
+    setFriends(updated);
+    swrCache.set<CachedFriendsData>(cacheKey, {
+      friends: updated,
+      suggestions,
+      myUpiId,
+    });
     if (selectedFriend?.id === friendId) setSelectedFriend(null);
     showToast('Friend removed.', 'success');
   };
@@ -390,6 +413,8 @@ export default function Friends({ user }: Props) {
         .eq('debtor_id', user.id)
         .eq('creditor_id', selectedFriend.id),
     ]);
+    swrCache.invalidate('ledger_');
+    swrCache.invalidate('home_');
     setDossierBalance(null);
     setConfirmSettleDossier(false);
     showToast(`Settled up with ${selectedFriend.name}!`, 'success');
@@ -465,7 +490,7 @@ export default function Friends({ user }: Props) {
         </div>
         <h2 className="text-2xl font-bold text-main tracking-tight">Dining Network</h2>
         <p className="text-muted text-sm font-medium">
-          Friends, Saved Squads & shared dining history
+          Friends, Saved Squads &amp; shared dining history
         </p>
       </div>
 

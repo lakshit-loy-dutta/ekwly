@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { swrCache } from '../lib/swrCache';
 import { showToast, utils } from '../lib/utils';
 import type { DatabaseSession, GlobalLedgerRow } from '../lib/types';
 import QrScannerModal from './ui/QrScannerModal';
@@ -22,6 +23,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+interface CachedHomeData {
+  recentSessions: DatabaseSession[];
+  owedToMe: number;
+  iOwe: number;
+}
+
 interface Props {
   onOpenLobby: (mode: 'create' | 'join') => void;
   onJoinSession: (sessionId: string, pin: string) => void;
@@ -37,10 +44,15 @@ export default function Home({
   onRequireSignIn,
   user,
 }: Props) {
-  const [recentSessions, setRecentSessions] = useState<DatabaseSession[]>([]);
-  const [owedToMe, setOwedToMe] = useState(0);
-  const [iOwe, setIOwe] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = `home_${user?.id || 'guest'}`;
+  const cached = swrCache.get<CachedHomeData>(cacheKey);
+
+  const [recentSessions, setRecentSessions] = useState<DatabaseSession[]>(
+    cached?.recentSessions || []
+  );
+  const [owedToMe, setOwedToMe] = useState(cached?.owedToMe || 0);
+  const [iOwe, setIOwe] = useState(cached?.iOwe || 0);
+  const [isLoading, setIsLoading] = useState(!cached);
 
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editSessionName, setEditSessionName] = useState('');
@@ -49,7 +61,10 @@ export default function Home({
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      if (!user || user.is_anonymous) return setIsLoading(false);
+      if (!user || user.is_anonymous) {
+        setIsLoading(false);
+        return;
+      }
 
       const [sessionRes, creditorRes, debtorRes] = await Promise.all([
         supabase
@@ -62,20 +77,27 @@ export default function Home({
         supabase.from('global_ledger').select('*').eq('debtor_id', user.id),
       ]);
 
-      if (sessionRes.data) setRecentSessions(sessionRes.data as DatabaseSession[]);
-
+      const nextSessions = (sessionRes.data || []) as DatabaseSession[];
       const netted = utils.netBilateralBalances(
         (creditorRes.data || []) as GlobalLedgerRow[],
         (debtorRes.data || []) as GlobalLedgerRow[]
       );
 
+      setRecentSessions(nextSessions);
       setOwedToMe(netted.totalOwedToMe);
       setIOwe(netted.totalIOwe);
+
+      swrCache.set<CachedHomeData>(cacheKey, {
+        recentSessions: nextSessions,
+        owedToMe: netted.totalOwedToMe,
+        iOwe: netted.totalIOwe,
+      });
+
       setIsLoading(false);
     };
 
     fetchDashboardData();
-  }, [user]);
+  }, [user, cacheKey]);
 
   const processScannedUrl = (scannedUrl: string) => {
     let sessionId = null;
@@ -96,8 +118,16 @@ export default function Home({
   const confirmDeleteSession = async () => {
     if (!sessionToDelete) return;
     const delId = sessionToDelete.id;
-    setRecentSessions((prev) => prev.filter((s) => s.id !== delId));
+    const updated = recentSessions.filter((s) => s.id !== delId);
+    setRecentSessions(updated);
+    swrCache.set<CachedHomeData>(cacheKey, {
+      recentSessions: updated,
+      owedToMe,
+      iOwe,
+    });
     await supabase.from('sessions').delete().eq('id', delId);
+    swrCache.invalidate('ledger_');
+    swrCache.invalidate('analytics_');
     showToast('Session deleted', 'success');
   };
 
@@ -106,17 +136,19 @@ export default function Home({
     sessionId: string
   ) => {
     e.stopPropagation();
-    if (!editSessionName.trim()) return setEditingSessionId(null);
+    const trimmed = editSessionName.trim();
+    if (!trimmed) return setEditingSessionId(null);
 
-    setRecentSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, name: editSessionName.trim() } : s))
-    );
+    const updated = recentSessions.map((s) => (s.id === sessionId ? { ...s, name: trimmed } : s));
+    setRecentSessions(updated);
+    swrCache.set<CachedHomeData>(cacheKey, {
+      recentSessions: updated,
+      owedToMe,
+      iOwe,
+    });
     setEditingSessionId(null);
 
-    const { error } = await supabase
-      .from('sessions')
-      .update({ name: editSessionName.trim() })
-      .eq('id', sessionId);
+    const { error } = await supabase.from('sessions').update({ name: trimmed }).eq('id', sessionId);
     if (error) showToast('Failed to rename session', 'error');
   };
 

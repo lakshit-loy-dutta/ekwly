@@ -1,205 +1,149 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, Sparkles, KeyRound, Hash, ArrowRight } from 'lucide-react';
-import { showToast } from '../lib/utils';
+import { ChevronLeft, KeyRound, Hash, ArrowRight, QrCode } from 'lucide-react';
+import { showToast, utils } from '../lib/utils';
+import QrScannerModal from './ui/QrScannerModal';
 
 interface Props {
-  initialMode: 'create' | 'join';
+  initialMode?: 'create' | 'join';
   onClose: () => void;
-  onLaunch: (name: string, pin: string) => void;
+  onLaunch?: (name: string, pin: string) => void;
   onJoin: (id: string, pin: string) => void;
 }
 
-export default function Lobby({ initialMode, onClose, onLaunch, onJoin }: Props) {
-  const [mode, setMode] = useState<'create' | 'join'>(initialMode);
-
-  // Create State
-  const [sessionName, setSessionName] = useState('');
-  const [createPin, setCreatePin] = useState('');
-
-  // Join State
+export default function Lobby({ onClose, onJoin }: Props) {
   const [joinId, setJoinId] = useState('');
   const [joinPin, setJoinPin] = useState('');
-
-  useEffect(() => {
-    // Auto-generate a random 4-digit PIN for new rooms
-    if (mode === 'create' && !createPin) {
-      setCreatePin(Math.floor(1000 + Math.random() * 9000).toString());
-    }
-  }, [mode]);
-
-  const handleLaunch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!createPin || createPin.length < 4) return showToast('PIN must be 4 digits', 'error');
-    onLaunch(sessionName.trim(), createPin);
-  };
+  const [isScanningQr, setIsScanningQr] = useState(false);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinId.trim() || !joinPin.trim()) return showToast('Enter ID and PIN', 'error');
+    if (!joinId.trim() || !joinPin.trim())
+      return showToast('Enter Room ID and 4-digit PIN', 'error');
+    utils.haptic('medium');
     onJoin(joinId.trim().toLowerCase(), joinPin.trim());
+  };
+
+  const handleScannedRoomUrl = (scannedUrl: string) => {
+    let sessionId: string | null = null;
+    let pin: string | null = null;
+    try {
+      const url = new URL(scannedUrl);
+      sessionId = url.searchParams.get('s');
+      pin = url.searchParams.get('p');
+    } catch {
+      const urlParams = new URLSearchParams(scannedUrl.split('?')[1]);
+      sessionId = urlParams.get('s');
+      pin = urlParams.get('p');
+    }
+    if (sessionId && pin) {
+      onJoin(sessionId, pin);
+    } else {
+      showToast('Invalid Room QR Code.', 'error');
+    }
   };
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
+      exit={{ opacity: 0, y: 16 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
       className="w-full flex flex-col flex-1 relative bg-page min-h-dvh z-50"
     >
-      {/* GLOBAL TEXTURE */}
-      <div className="absolute inset-0 bg-grid-pattern z-0"></div>
+      <QrScannerModal
+        isOpen={isScanningQr}
+        title="Scan Room QR"
+        onClose={() => setIsScanningQr(false)}
+        onScanSuccess={handleScannedRoomUrl}
+      />
 
-      {/* CUSTOM HEADER */}
-      <div className="w-full h-16 flex items-center justify-between px-4 relative z-10">
+      <div className="absolute inset-0 bg-grid-pattern z-0" />
+
+      {/* HEADER */}
+      <div className="w-full h-16 flex items-center justify-between px-4 relative z-10 border-b border-border bg-surface/85 backdrop-blur-xl">
         <button
+          type="button"
           onClick={onClose}
-          className="p-2 -ml-2 rounded-full text-muted hover:bg-subtle hover:text-main transition-colors"
+          className="p-2 -ml-2 rounded-full text-primary hover:bg-subtle transition-colors"
+          aria-label="Back to Home"
         >
-          <ChevronLeft size={28} />
+          <ChevronLeft size={26} />
         </button>
-        <div className="flex bg-surface border border-border rounded-lg p-1 shadow-sm">
-          <button
-            onClick={() => setMode('create')}
-            className={`px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${mode === 'create' ? 'bg-primary text-white shadow-sm' : 'text-muted hover:text-main'}`}
-          >
-            Host
-          </button>
-          <button
-            onClick={() => setMode('join')}
-            className={`px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${mode === 'join' ? 'bg-main text-surface shadow-sm' : 'text-muted hover:text-main'}`}
-          >
-            Join
-          </button>
-        </div>
-        <div className="w-8"></div> {/* Spacer for centering */}
+        <span className="font-bold text-main text-base tracking-tight">Join Live Room</span>
+        <div className="w-8" />
       </div>
 
-      <div className="flex flex-col flex-1 px-6 pt-8 pb-12 relative z-10 max-w-md mx-auto w-full">
-        {mode === 'create' ? (
-          <motion.form
-            key="create"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            onSubmit={handleLaunch}
-            className="flex flex-col flex-1"
+      <div className="flex flex-col flex-1 px-6 pt-8 pb-10 relative z-10 max-w-md mx-auto w-full">
+        <form onSubmit={handleJoin} className="flex flex-col flex-1">
+          <div className="mb-8">
+            <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mb-4 shadow-2xs">
+              <Hash size={24} />
+            </div>
+            <h1 className="text-3xl font-extrabold text-main tracking-tight mb-1.5">
+              Enter Room Details
+            </h1>
+            <p className="text-muted text-sm font-medium">
+              Ask the table host for the Room ID and 4-digit PIN, or scan their Invite QR code.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              utils.haptic('light');
+              setIsScanningQr(true);
+            }}
+            className="w-full h-12 mb-6 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors"
           >
-            <div className="mb-10">
-              <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-5 border border-primary/20">
-                <Sparkles size={28} />
-              </div>
-              <h1 className="text-4xl font-extrabold text-main tracking-tight mb-2">New Room</h1>
-              <p className="text-muted font-medium">Create a workspace to split your bill.</p>
+            <QrCode size={16} /> Scan Host&apos;s QR Code Instead
+          </button>
+
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-muted uppercase tracking-widest pl-1">
+                Room ID
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={joinId}
+                onChange={(e) => setJoinId(e.target.value)}
+                placeholder="e.g. kz2x9a"
+                className="w-full h-13 bg-surface border border-border rounded-2xl px-4 text-base font-mono font-bold text-main lowercase shadow-2xs"
+                required
+              />
             </div>
 
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-muted uppercase tracking-widest pl-1">
-                  Room Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={sessionName}
-                  onChange={(e) => setSessionName(e.target.value)}
-                  placeholder="e.g. Friday Beers"
-                  className="w-full h-14 bg-surface/80 backdrop-blur-md border border-border rounded-2xl px-4 text-lg font-bold text-main focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-sm transition-all placeholder:font-medium placeholder:text-muted/50"
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-muted uppercase tracking-widest pl-1">
-                  Access PIN
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted">
-                    <KeyRound size={20} />
-                  </div>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={4}
-                    value={createPin}
-                    onChange={(e) => setCreatePin(e.target.value)}
-                    className="w-full h-14 bg-surface/80 backdrop-blur-md border border-border rounded-2xl pl-12 pr-4 text-xl font-mono font-bold tracking-[0.2em] text-main focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-sm transition-all"
-                    required
-                  />
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-muted uppercase tracking-widest pl-1">
+                4-Digit Room PIN
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted">
+                  <KeyRound size={18} />
                 </div>
-                <p className="text-[0.75rem] text-muted pl-1 font-medium mt-1">
-                  Friends will need this PIN to join the room.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="mt-auto h-14 w-full premium-gradient-card text-white rounded-2xl font-bold text-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
-            >
-              Launch Workspace <ArrowRight size={20} />
-            </button>
-          </motion.form>
-        ) : (
-          <motion.form
-            key="join"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            onSubmit={handleJoin}
-            className="flex flex-col flex-1"
-          >
-            <div className="mb-10">
-              <div className="w-14 h-14 rounded-2xl bg-surface border border-border text-main flex items-center justify-center mb-5 shadow-sm">
-                <Hash size={28} />
-              </div>
-              <h1 className="text-4xl font-extrabold text-main tracking-tight mb-2">Join Room</h1>
-              <p className="text-muted font-medium">Enter the details provided by the host.</p>
-            </div>
-
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-muted uppercase tracking-widest pl-1">
-                  Room ID
-                </label>
                 <input
                   type="text"
-                  autoFocus
-                  value={joinId}
-                  onChange={(e) => setJoinId(e.target.value)}
-                  placeholder="e.g. kz2x9a"
-                  className="w-full h-14 bg-surface/80 backdrop-blur-md border border-border rounded-2xl px-4 text-lg font-bold text-main focus:ring-2 focus:ring-main/10 focus:border-main shadow-sm transition-all lowercase"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={joinPin}
+                  onChange={(e) => setJoinPin(e.target.value)}
+                  placeholder="0000"
+                  className="w-full h-13 bg-surface border border-border rounded-2xl pl-11 pr-4 text-xl font-mono font-bold tracking-[0.2em] text-main tabular-nums shadow-2xs"
                   required
                 />
               </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-muted uppercase tracking-widest pl-1">
-                  4-Digit PIN
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted">
-                    <KeyRound size={20} />
-                  </div>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={4}
-                    value={joinPin}
-                    onChange={(e) => setJoinPin(e.target.value)}
-                    placeholder="0000"
-                    className="w-full h-14 bg-surface/80 backdrop-blur-md border border-border rounded-2xl pl-12 pr-4 text-xl font-mono font-bold tracking-[0.2em] text-main focus:ring-2 focus:ring-main/10 focus:border-main shadow-sm transition-all"
-                    required
-                  />
-                </div>
-              </div>
             </div>
+          </div>
 
-            <button
-              type="submit"
-              className="mt-auto h-14 w-full bg-main active:bg-main/90 text-surface rounded-2xl font-bold text-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all shadow-md"
-            >
-              Enter Room <ArrowRight size={20} />
-            </button>
-          </motion.form>
-        )}
+          <button
+            type="submit"
+            className="mt-8 h-13 w-full premium-gradient-card text-white rounded-2xl font-bold text-base flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-sm"
+          >
+            Enter Room <ArrowRight size={18} />
+          </button>
+        </form>
       </div>
     </motion.div>
   );

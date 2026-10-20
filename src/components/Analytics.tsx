@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { swrCache } from '../lib/swrCache';
 import { utils, showToast } from '../lib/utils';
 import BrandLoader from './ui/BrandLoader';
 import { BarChart3, Sparkles, TrendingUp, Store, Users, Lock, CheckCircle2 } from 'lucide-react';
@@ -17,21 +18,34 @@ interface DebtorStat {
   total_owed: number;
 }
 
+interface CachedAnalyticsData {
+  isPro: boolean;
+  proExpiresAt: string | null;
+  scansUsed: number;
+  venueStats: VenueStat[];
+  topDebtors: DebtorStat[];
+  totalSettledSpend: number;
+  totalSessionsHosted: number;
+}
+
 interface Props {
   user: SupabaseUser | null;
   onBack: () => void;
 }
 
 export default function Analytics({ user }: Props) {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isPro, setIsPro] = useState(false);
-  const [proExpiresAt, setProExpiresAt] = useState<string | null>(null);
-  const [scansUsed, setScansUsed] = useState(0);
+  const cacheKey = `analytics_${user?.id || 'guest'}`;
+  const cached = swrCache.get<CachedAnalyticsData>(cacheKey);
 
-  const [venueStats, setVenueStats] = useState<VenueStat[]>([]);
-  const [topDebtors, setTopDebtors] = useState<DebtorStat[]>([]);
-  const [totalSettledSpend, setTotalSettledSpend] = useState(0);
-  const [totalSessionsHosted, setTotalSessionsHosted] = useState(0);
+  const [isLoading, setIsLoading] = useState(!cached);
+  const [isPro, setIsPro] = useState(cached?.isPro || false);
+  const [proExpiresAt, setProExpiresAt] = useState<string | null>(cached?.proExpiresAt || null);
+  const [scansUsed, setScansUsed] = useState(cached?.scansUsed || 0);
+
+  const [venueStats, setVenueStats] = useState<VenueStat[]>(cached?.venueStats || []);
+  const [topDebtors, setTopDebtors] = useState<DebtorStat[]>(cached?.topDebtors || []);
+  const [totalSettledSpend, setTotalSettledSpend] = useState(cached?.totalSettledSpend || 0);
+  const [totalSessionsHosted, setTotalSessionsHosted] = useState(cached?.totalSessionsHosted || 0);
 
   useEffect(() => {
     const fetchAnalytics = async () => {
@@ -65,38 +79,47 @@ export default function Analytics({ user }: Props) {
       ]);
 
       const now = new Date();
-      if (profileRes.data) {
-        const exp = profileRes.data.pro_expires_at;
-        setProExpiresAt(exp);
-        setIsPro(Boolean(exp && new Date(exp) > now));
-        setScansUsed(profileRes.data.ai_scans_used || 0);
-      }
+      const exp = profileRes.data?.pro_expires_at || null;
+      const nextIsPro = Boolean(exp && new Date(exp) > now);
+      const nextScansUsed = profileRes.data?.ai_scans_used || 0;
 
-      if (venueRes.data) {
-        const mapped = venueRes.data.map((v: any) => ({
-          venue_name: v.venue_name || 'Unnamed Venue',
-          visits: Number(v.visits || 1),
-          total_spent: Number(v.total_spent || 0),
-        }));
-        setVenueStats(mapped);
-        setTotalSettledSpend(mapped.reduce((acc, row) => acc + row.total_spent, 0));
-      }
+      const mappedVenues: VenueStat[] = (venueRes.data || []).map((v: any) => ({
+        venue_name: v.venue_name || 'Unnamed Venue',
+        visits: Number(v.visits || 1),
+        total_spent: Number(v.total_spent || 0),
+      }));
+      const nextSettledSpend = mappedVenues.reduce((acc, row) => acc + row.total_spent, 0);
 
-      if (creditorRes.data) {
-        setTopDebtors(
-          creditorRes.data.map((d: any) => ({
-            debtor_name: d.debtor_name,
-            total_owed: Number(d.total_owed || 0),
-          }))
-        );
-      }
+      const mappedDebtors: DebtorStat[] = (creditorRes.data || []).map((d: any) => ({
+        debtor_name: d.debtor_name,
+        total_owed: Number(d.total_owed || 0),
+      }));
 
-      setTotalSessionsHosted(sessionsRes.count || 0);
+      const nextHosted = sessionsRes.count || 0;
+
+      setProExpiresAt(exp);
+      setIsPro(nextIsPro);
+      setScansUsed(nextScansUsed);
+      setVenueStats(mappedVenues);
+      setTotalSettledSpend(nextSettledSpend);
+      setTopDebtors(mappedDebtors);
+      setTotalSessionsHosted(nextHosted);
+
+      swrCache.set<CachedAnalyticsData>(cacheKey, {
+        isPro: nextIsPro,
+        proExpiresAt: exp,
+        scansUsed: nextScansUsed,
+        venueStats: mappedVenues,
+        topDebtors: mappedDebtors,
+        totalSettledSpend: nextSettledSpend,
+        totalSessionsHosted: nextHosted,
+      });
+
       setIsLoading(false);
     };
 
     fetchAnalytics();
-  }, [user]);
+  }, [user, cacheKey]);
 
   if (isLoading) {
     return (
@@ -124,7 +147,7 @@ export default function Analytics({ user }: Props) {
           )}
         </div>
         <p className="text-muted text-sm font-medium mt-1">
-          Your lifetime dining insights, venue frequency & quota status
+          Your lifetime dining insights, venue frequency &amp; quota status
         </p>
       </div>
 
@@ -195,7 +218,7 @@ export default function Analytics({ user }: Props) {
           </p>
           <ul className="flex flex-col gap-2.5 text-left w-full bg-page border border-border rounded-2xl p-4 mb-6">
             <li className="flex items-center gap-2 text-sm font-medium text-main">
-              <CheckCircle2 size={16} className="text-success shrink-0" /> Top Venues & Spend
+              <CheckCircle2 size={16} className="text-success shrink-0" /> Top Venues &amp; Spend
               Breakdown
             </li>
             <li className="flex items-center gap-2 text-sm font-medium text-main">
