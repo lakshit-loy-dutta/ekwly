@@ -6,6 +6,6 @@
   "server": {
     "androidScheme": "https",
     "iosScheme": "https",
-    "cleartext": true
+    "cleartext": false
   }
 }

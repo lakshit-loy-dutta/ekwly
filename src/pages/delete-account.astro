@@ -1,7 +1,7 @@
 ---
 import '../styles/global.css';
 
-const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+const baseUrl = import.meta.env.BASE_URL.replace(/\/\$/, '');
 ---
 
 <!doctype html>
@@ -9,7 +9,7 @@ const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Account Deletion Request | Ekwly</title>
+    <title>Account & Data Deletion | Ekwly</title>
     <link rel="icon" href={`${baseUrl}/favicon.ico`} type="image/x-icon" />
   </head>
   <body class="bg-page text-main antialiased selection:bg-primary-light selection:text-primary min-h-screen py-10 px-4 md:px-8">
@@ -18,39 +18,42 @@ const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
         <a
           href={`${baseUrl}/`}
           class="text-sm font-semibold text-primary hover:text-primary-hover transition-colors">
-          ← Return to App
+          &larr; Return to Ekwly App
         </a>
         <span class="text-xs font-bold text-danger uppercase tracking-widest">
-          Account Management
+          Data Privacy Portal
         </span>
       </div>
 
-      <h1 class="text-3xl font-bold tracking-tight text-main mb-2">Account & Data Deletion</h1>
+      <h1 class="text-3xl font-extrabold tracking-tight text-main mb-2">
+        Account &amp; Data Deletion
+      </h1>
       <p class="text-sm text-muted mb-8">
-        Learn how to delete your Ekwly profile and all associated data, or trigger an immediate
-        deletion request.
+        Delete your Ekwly account and all associated personal data immediately from inside the app,
+        or submit a web deletion request below.
       </p>
 
       <section class="space-y-6 text-sm text-main/90 leading-relaxed">
-        <div class="bg-primary/5 border border-primary/15 rounded-xl p-4">
+        <div class="bg-primary/5 border border-primary/15 rounded-xl p-5">
           <h2 class="text-base font-bold text-primary mb-1">
-            Option 1: In-App Immediate Deletion (Fastest)
+            Option 1: Instant In-App Deletion (Immediate Wipe)
           </h2>
           <p class="text-muted text-xs leading-relaxed mb-3">
-            If you have the app open on web or mobile:
+            If you are signed into Ekwly on web or mobile, you can wipe your account in 10 seconds:
           </p>
-          <ol class="list-decimal list-inside space-y-1 text-xs text-muted">
-            <li>Open the app and select your avatar in the upper right.</li>
+          <ol class="list-decimal list-inside space-y-1.5 text-xs text-muted">
+            <li>Tap your profile avatar in the top-right corner of the app.</li>
             <li>
-              Click <strong class="text-main">Edit Profile</strong>.
+              Tap the <strong class="text-main">Edit Profile (Pencil)</strong> button.
             </li>
             <li>
-              Scroll to the bottom and click{' '}
+              Scroll to the bottom and tap{' '}
               <strong class="text-danger">Delete Account Permanently</strong>.
             </li>
             <li>
-              Type <strong class="text-main">DELETE</strong> to confirm. Your profile and records
-              are wiped instantly.
+              Type <strong class="text-main font-mono">DELETE</strong> to confirm. Your
+              authentication record, profile, UPI ID, and connections are wiped immediately via
+              cascading database deletion.
             </li>
           </ol>
         </div>
@@ -58,13 +61,13 @@ const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
         <div>
           <h2 class="text-lg font-bold text-main mb-2">Option 2: Web Deletion Request</h2>
           <p class="text-muted mb-4">
-            If you no longer have access to the app, submit your registered account details below.
-            Our team validates identity and purges all server records within 7 calendar days.
+            If you have uninstalled the mobile app or cannot access your device, submit your
+            registered account email below. All associated server records are purged within 7
+            calendar days.
           </p>
 
           <form
-            action="https://formspree.io/f/placeholder"
-            method="POST"
+            id="ekwly-delete-form"
             class="bg-page border border-border rounded-xl p-4 md:p-6 space-y-4">
             <div>
               <label
@@ -92,38 +95,75 @@ const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
                 id="reason"
                 name="reason"
                 rows="3"
-                placeholder="Provide any feedback or specifics..."
+                placeholder="Optional feedback..."
                 class="w-full bg-surface border border-border rounded-lg p-3 text-main text-sm focus:outline-none focus:border-primary resize-none"></textarea>
             </div>
 
             <button
               type="submit"
               class="w-full h-11 bg-danger hover:bg-danger/90 active:scale-[0.99] text-white font-bold rounded-lg text-sm transition-all shadow-sm">
-              Submit Deletion Request
+              Submit Permanent Deletion Request
             </button>
+
+            <div
+              id="delete-confirm-banner"
+              class="hidden p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-semibold leading-relaxed">
+              Your deletion request has been prepared in your email client addressed to our Data
+              Protection Officer (<strong>lloy.dutta@gmail.com</strong>). Send the email to complete
+              verification, or use Option 1 inside the app for an instant automated wipe.
+            </div>
           </form>
         </div>
 
         <div>
           <h2 class="text-lg font-bold text-main mb-2">What Data Is Deleted?</h2>
-          <ul class="list-disc list-inside space-y-1 text-muted">
+          <ul class="list-disc list-inside space-y-1.5 text-muted">
             <li>
-              <strong class="text-main">Permanently Purged:</strong> Name, authentication UID,
-              email, linked UPI ID, connection friendships, personal ledger shares, and scan quota
-              logs.
+              <strong class="text-main">Permanently Purged Immediately:</strong> Authentication UID,
+              display name, email address, linked UPI ID (VPA), friend connections, and AI scan
+              quota logs.
             </li>
             <li>
-              <strong class="text-main">Anonymized Session Data:</strong> Bill breakdown items in
-              active shared rooms where other group members remain active retain fallback text
-              labels to prevent breaking peer calculations.
-            </li>
-            <li>
-              <strong class="text-main">Retention Period:</strong> Database records cascade delete
-              immediately. Server audit and security logs are fully wiped within 30 days.
+              <strong class="text-main">Anonymized Shared Session Records:</strong> Historical group
+              bills where other participants remain active retain only non-identifiable fallback
+              first-name text so other users&apos; math totals do not break.
             </li>
           </ul>
         </div>
       </section>
     </main>
+
+    <script is:inline>
+      const form = document.getElementById('ekwly-delete-form');
+      const banner = document.getElementById('delete-confirm-banner');
+      if (form) {
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          const emailInput = document.getElementById('email');
+          const reasonInput = document.getElementById('reason');
+          const emailVal = emailInput ? emailInput.value.trim() : '';
+          const reasonVal = reasonInput
+            ? reasonInput.value.trim()
+            : 'User requested account deletion';
+          if (!emailVal) return;
+
+          const subject = encodeURIComponent('Ekwly Account & Data Deletion Request — ' + emailVal);
+          const body = encodeURIComponent(
+            'Please permanently delete my Ekwly account and all associated personal data.\n\n' +
+              'Registered Email: ' +
+              emailVal +
+              '\n' +
+              'Reason: ' +
+              reasonVal +
+              '\n' +
+              'Timestamp: ' +
+              new Date().toISOString()
+          );
+
+          if (banner) banner.classList.remove('hidden');
+          window.location.href = 'mailto:lloy.dutta@gmail.com?subject=' + subject + '&body=' + body;
+        });
+      }
+    </script>
   </body>
 </html>

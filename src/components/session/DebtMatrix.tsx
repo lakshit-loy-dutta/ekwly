@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Copy,
   CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import ToggleSwitch from '../ui/ToggleSwitch';
@@ -35,24 +36,9 @@ interface Props {
   venueName: string;
 }
 
-function buildUpiPaymentUri(params: {
-  upiId: string;
-  payeeName: string;
-  amount: number;
-  note?: string;
-}): string {
-  const cleanUpi = params.upiId.trim();
-  const cleanAmt = utils.round2(params.amount).toFixed(2);
-  const encodedName = encodeURIComponent(params.payeeName.trim() || 'Ekwly User');
-  let url = `upi://pay?pa=${encodeURIComponent(cleanUpi)}&pn=${encodedName}&am=${cleanAmt}&cu=INR`;
-  if (params.note && params.note.trim()) {
-    url += `&tn=${encodeURIComponent(params.note.trim())}`;
-  }
-  return url;
-}
-
 export default function DebtMatrix(props: Props) {
   const [upiMap, setUpiMap] = useState<Record<string, string>>({});
+  const [verifiedProfileUpiKeys, setVerifiedProfileUpiKeys] = useState<Record<string, boolean>>({});
   const [activeQrLedgerRow, setActiveQrLedgerRow] = useState<any | null>(null);
   const [inlineUpiInput, setInlineUpiInput] = useState('');
   const [isSavingUpi, setIsSavingUpi] = useState(false);
@@ -68,10 +54,15 @@ export default function DebtMatrix(props: Props) {
 
       const { data } = await supabase.from('profiles').select('id, upi_id').in('id', creditorIds);
       const map: Record<string, string> = {};
+      const verifiedMap: Record<string, boolean> = {};
       data?.forEach((p) => {
-        if (p.upi_id) map[p.id] = p.upi_id;
+        if (p.upi_id) {
+          map[p.id] = p.upi_id;
+          verifiedMap[p.id] = true;
+        }
       });
       setUpiMap(map);
+      setVerifiedProfileUpiKeys(verifiedMap);
     };
 
     fetchUpis();
@@ -84,11 +75,13 @@ export default function DebtMatrix(props: Props) {
     }
     setIsSavingUpi(true);
     try {
-      if (creditorId && creditorId === props.currentUserId) {
+      const isSelf = Boolean(creditorId && creditorId === props.currentUserId);
+      if (isSelf && creditorId) {
         await supabase
           .from('profiles')
           .update({ upi_id: trimmed, updated_at: new Date().toISOString() })
           .eq('id', creditorId);
+        setVerifiedProfileUpiKeys((prev) => ({ ...prev, [creditorKey]: true }));
       }
       setUpiMap((prev) => ({ ...prev, [creditorKey]: trimmed }));
       setInlineUpiInput('');
@@ -112,9 +105,10 @@ export default function DebtMatrix(props: Props) {
       ? activeQrLedgerRow.creditor_id || `fallback:${activeQrLedgerRow.creditor_name}`
       : '';
     const activeQrUpi = qrCreditorKey ? upiMap[qrCreditorKey] : null;
+    const isActiveQrVerified = Boolean(qrCreditorKey && verifiedProfileUpiKeys[qrCreditorKey]);
     const activeQrUri =
       activeQrLedgerRow && activeQrUpi
-        ? buildUpiPaymentUri({
+        ? utils.buildUpiUrl({
             upiId: activeQrUpi,
             payeeName: activeQrLedgerRow.creditor_name,
             amount: Number(activeQrLedgerRow.amount),
@@ -159,9 +153,10 @@ export default function DebtMatrix(props: Props) {
           {props.ledger.map((l) => {
             const creditorKey = l.creditor_id || `fallback:${l.creditor_name}`;
             const creditorUpi = upiMap[creditorKey] || null;
+            const isVerifiedUpi = Boolean(verifiedProfileUpiKeys[creditorKey]);
             const amICreditor = Boolean(l.creditor_id && l.creditor_id === props.currentUserId);
             const upiDeepLink = creditorUpi
-              ? buildUpiPaymentUri({
+              ? utils.buildUpiUrl({
                   upiId: creditorUpi,
                   payeeName: l.creditor_name,
                   amount: Number(l.amount),
@@ -173,11 +168,21 @@ export default function DebtMatrix(props: Props) {
               <div key={l.id} className="p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-col min-w-0">
-                    <span className="font-bold text-main text-[0.95rem] truncate">
-                      {l.debtor_name}{' '}
-                      <span className="text-muted text-xs font-medium mx-1">owes</span>{' '}
-                      {l.creditor_name}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-main text-[0.95rem] truncate">
+                        {l.debtor_name}{' '}
+                        <span className="text-muted text-xs font-medium mx-1">owes</span>{' '}
+                        {l.creditor_name}
+                      </span>
+                      {creditorUpi && isVerifiedUpi && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/12 text-emerald-500 text-[0.6rem] font-extrabold uppercase tracking-wider"
+                          title="UPI ID verified from linked Ekwly profile"
+                        >
+                          <ShieldCheck size={11} /> Verified UPI
+                        </span>
+                      )}
+                    </div>
                     <span className="text-primary text-base font-extrabold tabular-nums mt-0.5">
                       {utils.formatMoney(Number(l.amount))}
                     </span>
@@ -211,7 +216,6 @@ export default function DebtMatrix(props: Props) {
                 {/* ACTION BAR FOR UNSETTLED DEBTS */}
                 {!l.settled && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    {/* 1. NATIVE UPI DEEP LINK (For Debtors on Mobile) */}
                     {upiDeepLink && !amICreditor && (
                       <a
                         href={upiDeepLink}
@@ -222,7 +226,6 @@ export default function DebtMatrix(props: Props) {
                       </a>
                     )}
 
-                    {/* 2. HOST / TABLE DYNAMIC UPI QR MODAL BUTTON */}
                     {(creditorUpi || props.isHost || amICreditor) && (
                       <button
                         type="button"
@@ -236,7 +239,6 @@ export default function DebtMatrix(props: Props) {
                       </button>
                     )}
 
-                    {/* 3. 1-TAP WHATSAPP NUDGE FOR HOST / CREDITOR */}
                     {(props.isHost || amICreditor) && (
                       <a
                         href={utils.buildWhatsAppReminderUrl({
@@ -245,6 +247,7 @@ export default function DebtMatrix(props: Props) {
                           amount: Number(l.amount),
                           venueName: props.venueName,
                           upiId: creditorUpi,
+                          isReminder: false,
                         })}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -264,17 +267,17 @@ export default function DebtMatrix(props: Props) {
           <div className="grid grid-cols-2 gap-2.5">
             <button
               type="button"
-              className="h-11 bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+              className="h-12 bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
               onClick={() => props.handleExportPDF('download')}
             >
-              <DownloadCloud size={16} className="text-primary" /> Download PDF
+              <DownloadCloud size={17} className="text-primary" /> Download PDF
             </button>
             <button
               type="button"
-              className="h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              className="h-12 bg-primary/10 active:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
               onClick={() => props.handleExportPDF('share')}
             >
-              <Smartphone size={16} /> Share PDF
+              <Smartphone size={17} /> Share PDF
             </button>
           </div>
 
@@ -292,7 +295,7 @@ export default function DebtMatrix(props: Props) {
               className="h-12 w-full bg-surface active:bg-danger/10 text-danger border border-border rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm mt-2"
               onClick={props.handleUnlockSession}
             >
-              <Unlock size={18} /> Unlock & Edit Bill
+              <Unlock size={18} /> Unlock &amp; Edit Bill
             </button>
           )}
         </div>
@@ -325,9 +328,20 @@ export default function DebtMatrix(props: Props) {
 
                   <div className="w-full bg-page border border-border rounded-xl px-4 py-2.5 flex items-center justify-between gap-2">
                     <div className="flex flex-col min-w-0">
-                      <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                        Creditor UPI ID
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                          Creditor UPI ID
+                        </span>
+                        {isActiveQrVerified ? (
+                          <span className="inline-flex items-center gap-0.5 text-[0.6rem] font-extrabold text-emerald-500">
+                            <ShieldCheck size={11} /> Verified Profile
+                          </span>
+                        ) : (
+                          <span className="text-[0.6rem] font-bold text-amber-500">
+                            Manual Entry
+                          </span>
+                        )}
+                      </div>
                       <span className="text-sm font-mono font-bold text-main truncate">
                         {activeQrUpi}
                       </span>
@@ -421,7 +435,7 @@ export default function DebtMatrix(props: Props) {
         <div className="flex justify-between py-2.5 text-sm">
           <span className="text-muted">Total Items</span>
           <span className="font-semibold text-main tabular-nums">
-            {gs.totalQty.toFixed(2).replace(/\.00$/, '')}
+            {gs.totalQty.toFixed(2).replace(/\.00\$/, '')}
           </span>
         </div>
 
@@ -436,7 +450,7 @@ export default function DebtMatrix(props: Props) {
 
         {gs.itemDiscountAmount > 0 && (
           <div className="flex justify-between py-2.5 text-sm text-success">
-            <span className="font-medium">Item / Section Discounts</span>
+            <span className="font-medium">Item / Category Discounts</span>
             <span className="font-bold tabular-nums">
               - {utils.formatMoney(gs.itemDiscountAmount)}
             </span>
@@ -532,7 +546,7 @@ export default function DebtMatrix(props: Props) {
                 <div className="px-4 py-3 border-b border-border bg-page/50 flex items-center justify-between">
                   <h3 className="font-bold text-main text-sm">{b.memberName || personKey}</h3>
                   <span className="text-xs font-bold text-muted tabular-nums">
-                    {b.items.length} {b.items.length === 1 ? 'dish' : 'dishes'}
+                    {b.items.length} {b.items.length === 1 ? 'item' : 'items'}
                   </span>
                 </div>
                 <div className="flex flex-col divide-y divide-border/50 px-4">
@@ -575,7 +589,7 @@ export default function DebtMatrix(props: Props) {
         <div className="px-4 mt-6">
           <div className="bg-surface border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-widest text-muted">
-              Finalize & Collect
+              Finalize &amp; Collect
             </h3>
             <input
               type="text"
@@ -593,22 +607,23 @@ export default function DebtMatrix(props: Props) {
               className="h-12 w-full bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-sm"
               onClick={props.handleLockSession}
             >
-              <LockKeyhole size={18} /> Lock Room & Generate UPI Links
+              <LockKeyhole size={18} /> Lock Room &amp; Generate UPI Links
             </button>
+
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
-                className="h-11 bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+                className="h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
                 onClick={() => props.handleExportPDF('download')}
               >
-                <DownloadCloud size={16} className="text-primary" /> Download PDF
+                <DownloadCloud size={15} className="text-primary" /> Download PDF
               </button>
               <button
                 type="button"
-                className="h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                className="h-11 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
                 onClick={() => props.handleExportPDF('share')}
               >
-                <Smartphone size={16} /> Share PDF
+                <Smartphone size={15} /> Share PDF
               </button>
             </div>
           </div>
