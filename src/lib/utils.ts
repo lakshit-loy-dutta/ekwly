@@ -106,10 +106,18 @@ export const utils = {
     amount: number;
     venueName?: string;
     upiId?: string | null;
+    isReminder?: boolean;
   }) => {
     const formattedAmt = `₹${params.amount.toFixed(2)}`;
-    const contextStr = params.venueName ? ` for *${params.venueName}*` : '';
-    let message = `Hey ${params.debtorName}! 👋 Your split share${contextStr} on Ekwly is *${formattedAmt}* (owed to ${params.creditorName}).`;
+    const contextStr = params.venueName ? ` at *${params.venueName}*` : '';
+
+    let message = '';
+    if (params.isReminder) {
+      message = `Hey ${params.debtorName}! 👋 Friendly reminder regarding your pending balance of *${formattedAmt}*${contextStr} owed to ${params.creditorName} on Ekwly.`;
+    } else {
+      message = `Hey ${params.debtorName}! 👋 Here is the bill split${contextStr} on Ekwly. Your exact share is *${formattedAmt}* (payable to ${params.creditorName}).`;
+    }
+
     if (params.upiId) {
       const upiLink = utils.buildUpiUrl({
         upiId: params.upiId,
@@ -117,7 +125,7 @@ export const utils = {
         amount: params.amount,
         note: params.venueName ? `Ekwly: ${params.venueName}` : 'Ekwly Split',
       });
-      message += `\n\nPay instantly via UPI (${params.upiId}):\n${upiLink}`;
+      message += `\n\nSettle instantly via UPI (${params.upiId}):\n${upiLink}`;
     }
     return `https://wa.me/?text=${encodeURIComponent(message)}`;
   },

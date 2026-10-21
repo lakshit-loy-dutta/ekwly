@@ -11,7 +11,8 @@ export const exportToPDF = async (
   scTaxPresetId: string,
   serviceChargeRate: number,
   members: DBMember[],
-  ledger: any[]
+  ledger: any[],
+  mode: 'download' | 'share' = 'download'
 ) => {
   try {
     if (!calculationResult) return showToast('Calculate split first.', 'error');
@@ -354,25 +355,36 @@ export const exportToPDF = async (
       : `Settlement_${new Date().toISOString().slice(0, 10)}`;
     const fileNameWithExt = `${safeFilename}.pdf`;
 
-    const pdfBlob = doc.output('blob');
-    const pdfFile = new File([pdfBlob], fileNameWithExt, { type: 'application/pdf' });
+    if (mode === 'share') {
+      const pdfBlob = doc.output('blob');
+      const pdfFile = new File([pdfBlob], fileNameWithExt, { type: 'application/pdf' });
 
-    if (
-      typeof navigator !== 'undefined' &&
-      typeof navigator.canShare === 'function' &&
-      navigator.canShare({ files: [pdfFile] })
-    ) {
-      await navigator.share({
-        title: docTitle,
-        text: `Settlement receipt for ${docTitle} generated via Ekwly.`,
-        files: [pdfFile],
-      });
-      showToast('Receipt shared!', 'success');
-    } else {
-      doc.save(fileNameWithExt);
-      showToast('PDF Generated Successfully!', 'success');
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [pdfFile] })
+      ) {
+        try {
+          await navigator.share({
+            title: docTitle,
+            text: `Bill split receipt for ${docTitle} generated via Ekwly.`,
+            files: [pdfFile],
+          });
+          showToast('Receipt shared!', 'success');
+        } catch (shareErr: any) {
+          // User dismissed the native share sheet; do not show an error toast
+          if (shareErr?.name === 'AbortError') return;
+          doc.save(fileNameWithExt);
+          showToast('PDF downloaded to device!', 'success');
+        }
+        return;
+      }
     }
-  } catch (error) {
+
+    doc.save(fileNameWithExt);
+    showToast('PDF downloaded to device!', 'success');
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return;
     console.error(error);
     showToast('Error generating PDF.', 'error');
   }

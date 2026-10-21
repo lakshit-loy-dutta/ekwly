@@ -29,7 +29,7 @@ interface Props {
   currentUserId: string | null;
   handleLockSession: () => void;
   handleToggleSettled: (id: string, current: boolean) => void;
-  handleExportPDF: () => void;
+  handleExportPDF: (mode?: 'download' | 'share') => void;
   handleUnlockSession: () => void;
   handleGoHome: () => void;
   venueName: string;
@@ -261,13 +261,22 @@ export default function DebtMatrix(props: Props) {
         </div>
 
         <div className="px-4 mt-6 flex flex-col gap-3">
-          <button
-            type="button"
-            className="h-12 w-full bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm"
-            onClick={props.handleExportPDF}
-          >
-            <DownloadCloud size={18} className="text-primary" /> Share / Download PDF Receipt
-          </button>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              className="h-11 bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+              onClick={() => props.handleExportPDF('download')}
+            >
+              <DownloadCloud size={16} className="text-primary" /> Download PDF
+            </button>
+            <button
+              type="button"
+              className="h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              onClick={() => props.handleExportPDF('share')}
+            >
+              <Smartphone size={16} /> Share PDF
+            </button>
+          </div>
 
           <button
             type="button"
@@ -586,13 +595,22 @@ export default function DebtMatrix(props: Props) {
             >
               <LockKeyhole size={18} /> Lock Room & Generate UPI Links
             </button>
-            <button
-              type="button"
-              className="h-11 w-full bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
-              onClick={props.handleExportPDF}
-            >
-              <DownloadCloud size={16} className="text-primary" /> Export Draft PDF
-            </button>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                className="h-11 bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+                onClick={() => props.handleExportPDF('download')}
+              >
+                <DownloadCloud size={16} className="text-primary" /> Download PDF
+              </button>
+              <button
+                type="button"
+                className="h-11 bg-primary/10 active:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                onClick={() => props.handleExportPDF('share')}
+              >
+                <Smartphone size={16} /> Share PDF
+              </button>
+            </div>
           </div>
         </div>
       )}

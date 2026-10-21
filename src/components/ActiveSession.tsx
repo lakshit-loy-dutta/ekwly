@@ -1,14 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Receipt,
-  CreditCard,
-  ArrowRight,
-  Wallet,
-  Trash2,
-  CheckCircle2,
-  AlertCircle,
-} from 'lucide-react';
+import { Receipt, CreditCard, ArrowRight, Wallet, Trash2, Check, Users } from 'lucide-react';
 import { SessionProvider, useSessionContext } from '../lib/SessionContext';
 import { mathEngine } from '../lib/mathEngine';
 import { exportToPDF } from '../lib/pdf';
@@ -77,8 +69,16 @@ function ActiveSessionContent({
 
   const grandTotal = liveCalculation.globalSummary.grandTotal;
   const totalPaid = members.reduce((sum, m) => sum + (m.paid_amount || 0), 0);
-  const paymentDiff = utils.round2(grandTotal - totalPaid);
-  const isPaymentBalanced = Math.abs(paymentDiff) <= 0.05;
+
+  const assignSinglePayer = async (targetMemberId: string) => {
+    if (!isHost || grandTotal <= 0) return;
+    utils.haptic('light');
+    await Promise.all(
+      members.map((m) =>
+        actions.updateMemberPaymentInDB(m.id, m.id === targetMemberId ? grandTotal : 0)
+      )
+    );
+  };
 
   const applySmartCashierDefault = async () => {
     if (!isHost || members.length === 0 || grandTotal <= 0) return;
@@ -99,7 +99,7 @@ function ActiveSessionContent({
       await applySmartCashierDefault();
     }
     setActiveTab(tab);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
   };
 
   const handleUpdatePayment = (memberId: string, amountStr: string) => {
@@ -109,7 +109,7 @@ function ActiveSessionContent({
 
   const handleLockSession = async () => {
     if (items.length === 0) {
-      return showToast('Add at least one dish before locking the bill.', 'error');
+      return showToast('Add at least one item before locking the bill.', 'error');
     }
 
     let updatedMembers = [...members];
@@ -146,17 +146,18 @@ function ActiveSessionContent({
     showToast('Bill unlocked for editing.', 'default');
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = (mode: 'download' | 'share' = 'download') => {
     utils.haptic('light');
     exportToPDF(
       liveCalculation,
-      receiptTitle || sessionRules.venueName || initialName || 'Settlement Receipt',
+      receiptTitle || initialName || sessionRules.venueName || 'Settlement Receipt',
       items,
       taxPresets,
       sessionRules.scTaxPresetId,
       sessionRules.serviceChargeRate,
       members,
-      ledger
+      ledger,
+      mode
     );
   };
 
@@ -166,13 +167,7 @@ function ActiveSessionContent({
     onExit();
   };
 
-  const activePayers = members.filter((m) => (m.paid_amount || 0) > 0);
-  const payerSummaryLabel =
-    activePayers.length === 0
-      ? 'No payer assigned'
-      : activePayers.length === 1
-        ? `${activePayers[0].name} paid ${utils.formatMoney(activePayers[0].paid_amount)}`
-        : `${activePayers.length} people split cashier payment`;
+  const activePayers = members.filter((m) => (m.paid_amount || 0) > 0.01);
 
   return (
     <div className="w-full flex flex-col flex-1 bg-page relative">
@@ -181,13 +176,13 @@ function ActiveSessionContent({
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleDeleteRoom}
         title="Delete This Room?"
-        description="This permanently deletes the current receipt, all dishes, and member claims for everyone in the room."
+        description="This permanently deletes the current receipt, all items, and member claims for everyone in the room."
         confirmLabel="Delete Room"
         variant="danger"
       />
 
-      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Docks cleanly below the 64px top navbar) */}
-      <div className="sticky top-16 z-30 bg-surface/95 backdrop-blur-xl border-b border-border px-4 py-2.5 shadow-2xs gpu-layer">
+      {/* 2-TAB SEGMENTED WORKBENCH HEADER (High z-30 so scrolling content always passes underneath) */}
+      <div className="sticky top-16 z-30 bg-surface/95 backdrop-blur-xl border-b border-border px-4 py-2.5 shadow-sm gpu-layer">
         <div className="bg-page border border-border rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
           <button
             type="button"
@@ -232,16 +227,16 @@ function ActiveSessionContent({
         {activeTab === 'workbench' ? (
           <motion.div
             key="workbench"
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -12 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-            className="flex flex-col flex-1"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex flex-col flex-1 relative z-10"
           >
             <ReceiptWorkbench />
 
             {isHost && (
-              <div className="px-4 pb-32 flex justify-center">
+              <div className="px-4 pt-2 pb-28 flex justify-center">
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
@@ -255,45 +250,76 @@ function ActiveSessionContent({
         ) : (
           <motion.div
             key="settle"
-            initial={{ opacity: 0, x: 12 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 12 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-            className="flex flex-col flex-1 pt-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex flex-col flex-1 pt-4 relative z-10"
           >
-            {/* SMART CASHIER PAYER BAR (DRAFT STATE ONLY) */}
+            {/* UPGRADED "WHO PAID THE RESTAURANT BILL?" CARD WITH 1-TAP PAYER CHIPS */}
             {sessionStatus !== 'locked' && (
-              <div className="mx-4 mb-3 bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      isPaymentBalanced
-                        ? 'bg-emerald-500/15 text-emerald-500'
-                        : 'bg-amber-500/15 text-amber-500'
-                    }`}
-                  >
-                    {isPaymentBalanced ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                      Who Paid the Cashier?
-                    </span>
-                    <span className="text-sm font-bold text-main truncate">
-                      {payerSummaryLabel}
+              <div className="mx-4 mb-4 bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Wallet size={15} className="text-primary" />
+                    <span className="text-xs font-extrabold uppercase tracking-wider text-main">
+                      Who Paid the Restaurant Bill?
                     </span>
                   </div>
+                  <span className="text-xs font-extrabold text-primary tabular-nums">
+                    {utils.formatMoney(grandTotal)}
+                  </span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    utils.haptic('light');
-                    setShowPayerSheet(true);
-                  }}
-                  className="h-9 px-3.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs shrink-0 flex items-center gap-1.5 transition-colors"
-                >
-                  <Wallet size={14} /> Change Payer
-                </button>
+                <p className="text-[0.72rem] text-muted leading-relaxed -mt-1">
+                  Tap the person who paid the waiter/cashier so everyone else&apos;s UPI links route
+                  to them:
+                </p>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {members.map((m) => {
+                    const isSolePayer =
+                      activePayers.length === 1 &&
+                      activePayers[0].id === m.id &&
+                      Math.abs(m.paid_amount - grandTotal) <= 0.5;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        disabled={!isHost}
+                        onClick={() => assignSinglePayer(m.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 ${
+                          isSolePayer
+                            ? 'bg-primary text-white border-primary shadow-2xs'
+                            : 'bg-page text-main border-border hover:border-primary/40'
+                        }`}
+                      >
+                        {isSolePayer && <Check size={13} />}
+                        <span>{m.name}</span>
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      utils.haptic('light');
+                      setShowPayerSheet(true);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
+                      activePayers.length > 1
+                        ? 'bg-primary/15 text-primary border-primary/40'
+                        : 'bg-page text-muted border-border hover:text-main'
+                    }`}
+                  >
+                    <Users size={13} />
+                    <span>
+                      {activePayers.length > 1
+                        ? `${activePayers.length} Payers Split Bill`
+                        : 'Multiple Payers...'}
+                    </span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -322,7 +348,7 @@ function ActiveSessionContent({
           <div className="pointer-events-auto w-full max-w-xl bg-surface/92 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] flex items-center justify-between gap-3 gpu-layer">
             <div className="flex flex-col pl-1">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                Grand Total ({items.length} {items.length === 1 ? 'dish' : 'dishes'})
+                Grand Total ({items.length} {items.length === 1 ? 'item' : 'items'})
               </span>
               <span className="text-xl font-extrabold text-main tabular-nums">
                 {utils.formatMoney(grandTotal)}

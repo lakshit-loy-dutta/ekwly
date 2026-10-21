@@ -154,7 +154,6 @@ export default function Home({
 
   const getSessionTitle = (session: DatabaseSession) =>
     session.name ||
-    session.venue_name ||
     `${new Date(session.created_at).toLocaleDateString(undefined, {
       weekday: 'short',
       month: 'short',
@@ -346,10 +345,11 @@ export default function Home({
                   const title = getSessionTitle(session);
                   const isEditing = editingSessionId === session.id;
                   const isLocked = session.status === 'locked';
-                  const hasDistinctVenue =
-                    session.name &&
+                  const hasDistinctVenue = Boolean(
                     session.venue_name &&
-                    session.name.toLowerCase() !== session.venue_name.toLowerCase();
+                    (!session.name ||
+                      session.name.toLowerCase() !== session.venue_name.toLowerCase())
+                  );
 
                   return (
                     <motion.div

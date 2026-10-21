@@ -415,6 +415,7 @@ export default function Ledger({ user }: Props) {
                     creditorName: entry.selfName || 'me',
                     amount: entry.netAmount,
                     upiId: myUpiId,
+                    isReminder: true,
                   })}
                   target="_blank"
                   rel="noopener noreferrer"

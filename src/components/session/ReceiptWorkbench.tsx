@@ -18,6 +18,11 @@ import {
   Tag,
   Layers,
   X,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Store,
+  Lock,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
@@ -42,6 +47,30 @@ interface FriendQuickChip {
   avatar_url: string | null;
 }
 
+/** True SVG sawtooth edge mimicking a receipt torn against a serrated metal POS printer blade */
+function ThermalReceiptSawtooth({ position }: { position: 'top' | 'bottom' }) {
+  const points =
+    position === 'top'
+      ? '0,12 0,6 10,0 20,6 30,0 40,6 50,0 60,6 70,0 80,6 90,0 100,6 110,0 120,6 130,0 140,6 150,0 160,6 170,0 180,6 190,0 200,6 210,0 220,6 230,0 240,6 250,0 260,6 270,0 280,6 290,0 300,6 310,0 320,6 330,0 340,6 350,0 360,6 370,0 380,6 390,0 400,6 400,12'
+      : '0,0 0,6 10,12 20,6 30,12 40,6 50,12 60,6 70,12 80,6 90,12 100,6 110,12 120,6 130,12 140,6 150,12 160,6 170,12 180,6 190,12 200,6 210,12 220,6 230,12 240,6 250,12 260,6 270,12 280,6 290,12 300,6 310,12 320,6 330,12 340,6 350,12 360,6 370,12 380,6 390,12 400,6 400,0';
+
+  return (
+    <svg
+      viewBox="0 0 400 12"
+      preserveAspectRatio="none"
+      className="w-full h-3 block select-none pointer-events-none"
+      aria-hidden="true"
+    >
+      <polygon
+        points={points}
+        fill="var(--receipt-bg)"
+        stroke="var(--receipt-border)"
+        strokeWidth="1"
+      />
+    </svg>
+  );
+}
+
 export default function ReceiptWorkbench() {
   const {
     isHost,
@@ -58,12 +87,25 @@ export default function ReceiptWorkbench() {
     liveCalculation,
   } = useSessionContext();
 
+  // --- AI MAGIC SCAN QUOTA & ONBOARDING BANNER STATE ---
+  const [scansRemaining, setScansRemaining] = useState<number>(3);
+  const [isProUser, setIsProUser] = useState<boolean>(false);
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [showQuotaUpsellModal, setShowQuotaUpsellModal] = useState<boolean>(false);
+  const [showMagicPromoBanner, setShowMagicPromoBanner] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? !localStorage.getItem('ekwly_hide_magic_promo') : true
+  );
+
   // --- VENUE AUTOCOMPLETE STATE ---
   const [localVenue, setLocalVenue] = useState<string>(sessionRules.venueName);
   const [venueResults, setVenueResults] = useState<DatabaseVenue[]>([]);
   const [isSearchingVenue, setIsSearchingVenue] = useState(false);
   const [showVenueDropdown, setShowVenueDropdown] = useState(false);
+  const [loadedVenueBadge, setLoadedVenueBadge] = useState<string | null>(null);
   const [showScannerDrawer, setShowScannerDrawer] = useState(false);
+
+  // --- COLLAPSIBLE BILL RULES & TAXES STATE ---
+  const [isRulesCollapsed, setIsRulesCollapsed] = useState<boolean>(items.length > 0);
 
   // --- MEMBER, FRIEND & SAVED SQUAD QUICK-ADD STATE ---
   const [showMemberSheet, setShowMemberSheet] = useState(false);
@@ -75,7 +117,7 @@ export default function ReceiptWorkbench() {
   const [profileSearchResults, setProfileSearchResults] = useState<FriendQuickChip[]>([]);
   const [, setIsSearchingProfiles] = useState(false);
 
-  // --- ADD / EDIT DISH STATE ---
+  // --- ADD / EDIT ITEM STATE ---
   const [newItemName, setNewItemName] = useState('');
   const [newItemQty, setNewItemQty] = useState<string>('1');
   const [newItemPrice, setNewItemPrice] = useState('');
@@ -88,11 +130,37 @@ export default function ReceiptWorkbench() {
   const [itemResults, setItemResults] = useState<DatabaseItem[]>([]);
   const [showItemDropdown, setShowItemDropdown] = useState(false);
 
-  // --- EXPANDED CUSTOM SPLIT DISH ID ---
+  // --- EXPANDED CUSTOM SPLIT ITEM ID ---
   const [expandedCustomSplitItemId, setExpandedCustomSplitItemId] = useState<string | null>(null);
 
   // --- CONTEXTUAL RULE DRAWERS (DISCOUNT, SERVICE CHARGE, TAX BRACKETS) ---
   const [activeRuleSheet, setActiveRuleSheet] = useState<'sc' | 'discount' | 'taxes' | null>(null);
+
+  // Fetch user's Magic Scan quota and Pro status
+  useEffect(() => {
+    if (!currentUserId) return;
+    const fetchQuota = async () => {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('ai_scans_used, last_scan_reset, pro_expires_at, email')
+        .eq('id', currentUserId)
+        .maybeSingle();
+      if (!profile) return;
+
+      setUserEmail(profile.email || '');
+      const now = new Date();
+      const proActive = Boolean(profile.pro_expires_at && new Date(profile.pro_expires_at) > now);
+      setIsProUser(proActive);
+
+      const lastReset = new Date(profile.last_scan_reset || 0);
+      const monthRolledOver =
+        now.getUTCFullYear() > lastReset.getUTCFullYear() ||
+        now.getUTCMonth() > lastReset.getUTCMonth();
+      const used = monthRolledOver ? 0 : Number(profile.ai_scans_used || 0);
+      setScansRemaining(Math.max(0, 3 - used));
+    };
+    fetchQuota();
+  }, [currentUserId, items.length]);
 
   useEffect(() => {
     setLocalVenue(sessionRules.venueName);
@@ -114,7 +182,7 @@ export default function ReceiptWorkbench() {
     return () => clearTimeout(timer);
   }, [localVenue, sessionRules.venueName, actions]);
 
-  // Search known venues
+  // Search known crowdsourced venues
   useEffect(() => {
     if (localVenue.trim().length < 2 || !isHost) {
       setVenueResults([]);
@@ -125,7 +193,7 @@ export default function ReceiptWorkbench() {
       setIsSearchingVenue(true);
       const { data } = await supabase.rpc('search_venues', { search_term: localVenue.trim() });
       if (data && data.length > 0) {
-        if (data[0].name.toLowerCase() === localVenue.trim().toLowerCase()) {
+        if (data[0].name.toLowerCase() === localVenue.trim().toLowerCase() && loadedVenueBadge) {
           setShowVenueDropdown(false);
         } else {
           setVenueResults(data);
@@ -136,11 +204,11 @@ export default function ReceiptWorkbench() {
       }
       setIsSearchingVenue(false);
     };
-    const timer = setTimeout(searchDb, 300);
+    const timer = setTimeout(searchDb, 280);
     return () => clearTimeout(timer);
-  }, [localVenue, isHost]);
+  }, [localVenue, isHost, loadedVenueBadge]);
 
-  // Load connected Ekwly Friends & Saved Squads for 1-tap table population
+  // Load connected Ekwly Friends & Saved Squads
   useEffect(() => {
     setSavedSquads(utils.getSavedSquads(currentUserId));
     if (!currentUserId) return;
@@ -179,7 +247,7 @@ export default function ReceiptWorkbench() {
     return () => clearTimeout(timer);
   }, [newMemberName]);
 
-  // Search venue menu items for price autocomplete
+  // Search crowdsourced venue menu items for price autocomplete
   useEffect(() => {
     if (newItemName.trim().length < 2 || !sessionRules.venueName) {
       setItemResults([]);
@@ -201,9 +269,19 @@ export default function ReceiptWorkbench() {
       } else {
         setShowItemDropdown(false);
       }
-    }, 280);
+    }, 260);
     return () => clearTimeout(timer);
   }, [newItemName, sessionRules.venueName]);
+
+  const handleMagicScanClick = () => {
+    utils.haptic('medium');
+    if (!isProUser && scansRemaining <= 0) {
+      showToast("Sorry, you don't have any free Magic Scan quota left for this month.", 'error');
+      setShowQuotaUpsellModal(true);
+      return;
+    }
+    setShowScannerDrawer(true);
+  };
 
   const handleApplySquad = async (squad: SavedSquad) => {
     utils.haptic('medium');
@@ -243,6 +321,7 @@ export default function ReceiptWorkbench() {
   const handleSelectVenue = async (venue: DatabaseVenue) => {
     utils.haptic('medium');
     setLocalVenue(venue.name);
+    setLoadedVenueBadge(venue.name);
     setShowVenueDropdown(false);
     const parsedScRate = Number(venue.service_charge_rate || 0);
 
@@ -252,7 +331,7 @@ export default function ReceiptWorkbench() {
       serviceChargeRate: parsedScRate,
     });
 
-    if (venue.tax_presets && Array.isArray(venue.tax_presets)) {
+    if (venue.tax_presets && Array.isArray(venue.tax_presets) && venue.tax_presets.length > 0) {
       const mappedPresets = venue.tax_presets.map((t) => ({
         id: utils.generateId(),
         name: t.name,
@@ -260,8 +339,15 @@ export default function ReceiptWorkbench() {
         split: t.split !== false,
       }));
       await actions.replaceTaxPresetsInDB(mappedPresets);
-      showToast(`${venue.name} tax & SC rules applied!`, 'success');
     }
+    showToast(`Loaded ${venue.name}'s community tax rules & menu!`, 'success');
+  };
+
+  const adjustNewItemQty = (delta: number) => {
+    utils.haptic('light');
+    const current = parseFloat(newItemQty) || 1;
+    const next = Math.max(1, utils.round2(current + delta));
+    setNewItemQty(next.toString());
   };
 
   const handleSaveItem = (e?: React.FormEvent) => {
@@ -330,7 +416,7 @@ export default function ReceiptWorkbench() {
     setNewItemDiscType(item.discountType === 'flat' ? 'flat' : 'percentage');
     setNewItemDiscVal(item.discountValue ? item.discountValue.toString() : '');
     setEditingItemId(item.id);
-    window.scrollTo({ top: 220, behavior: 'smooth' });
+    window.scrollTo({ top: 260, behavior: 'smooth' });
   };
 
   // --- 1-TAP ITEM-CENTRIC AVATAR CLAIMING ---
@@ -377,7 +463,6 @@ export default function ReceiptWorkbench() {
   const computedGrossTotal =
     gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
 
-  // Compute preTaxMultiplier for individual Dish Card display parity
   const eligibleBaseAfterItemDisc = items.reduce((sum, item) => {
     const discVal = Number(item.discountValue || 0);
     let itemDisc = 0;
@@ -397,68 +482,148 @@ export default function ReceiptWorkbench() {
 
   const hasActivePreTaxBillDiscount = gs.preTaxDiscountAmount > 0;
   const scPercent = Math.round(sessionRules.serviceChargeRate * 100);
+  const canUseMagicScan = isProUser || scansRemaining > 0;
 
   return (
-    <div className="w-full flex flex-col gap-3.5 px-4 pt-3 pb-36">
-      {/* ZONE 1: VENUE & AI MAGIC SCAN HEADER CARD */}
-      <div className="bg-surface border border-border rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5 relative z-30">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
-              {isSearchingVenue ? (
-                <Loader2 size={15} className="animate-spin text-primary" />
-              ) : (
-                <Search size={15} />
-              )}
-            </div>
-            <input
-              type="text"
-              disabled={!isHost}
-              value={localVenue}
-              onChange={(e) => setLocalVenue(e.target.value)}
-              placeholder="Venue (e.g. Toit, Chin Lung)"
-              className="w-full h-11 bg-page border border-border rounded-xl pl-10 pr-3 text-sm font-semibold text-main"
-            />
-
-            {showVenueDropdown && venueResults.length > 0 && (
-              <div className="absolute top-12 left-0 right-0 bg-surface border border-border rounded-xl shadow-xl z-40 flex flex-col overflow-hidden max-h-56 overflow-y-auto">
-                <div className="px-3 py-1.5 bg-page border-b border-border text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                  Auto-Load Known Venue Rules
-                </div>
-                {venueResults.map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => handleSelectVenue(v)}
-                    className="flex flex-col px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
-                  >
-                    <span className="font-bold text-main text-sm truncate">{v.name}</span>
-                    <span className="text-[0.7rem] text-muted">
-                      {v.tax_presets ? v.tax_presets.length : 0} Tax Brackets •{' '}
-                      {v.service_charge_rate > 0
-                        ? `${v.service_charge_rate * 100}% S.C.`
-                        : 'No S.C.'}
+    <div className="w-full flex flex-col gap-3.5 px-4 pt-4 pb-6 relative z-10">
+      {/* ZONE 1: FRONT-AND-CENTER AI MAGIC SCANNER HERO & CROWDSOURCED VENUE AUTOCOMPLETE */}
+      {isHost && (
+        <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3 relative z-20">
+          {/* AI Magic Scanner Hero Banner */}
+          {canUseMagicScan ? (
+            <div className="premium-gradient-card rounded-2xl p-4 text-white flex flex-col gap-2.5 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                    <Sparkles size={17} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-extrabold text-sm tracking-tight">
+                      AI Magic Bill Scanner
                     </span>
+                    <span className="text-[0.68rem] text-white/85 font-semibold tabular-nums">
+                      {isProUser
+                        ? 'PRO • Unlimited AI Scans Active'
+                        : `${scansRemaining} of 3 Free Scans Available This Month`}
+                    </span>
+                  </div>
+                </div>
+                {showMagicPromoBanner && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.setItem('ekwly_hide_magic_promo', 'true');
+                      setShowMagicPromoBanner(false);
+                    }}
+                    className="p-1 text-white/70 hover:text-white rounded-lg"
+                    aria-label="Dismiss tip"
+                  >
+                    <X size={14} />
                   </button>
-                ))}
+                )}
               </div>
-            )}
-          </div>
 
-          {isHost && (
+              {showMagicPromoBanner && (
+                <p className="text-xs text-white/90 leading-relaxed">
+                  Skip the tedious task of typing items and figuring out taxes, service charges, and
+                  discounts yourself—snap your paper bill and let AI do it in 5 seconds!
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={handleMagicScanClick}
+                className="w-full h-11 bg-white text-primary hover:bg-white/95 active:scale-[0.98] rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-transform"
+              >
+                <Sparkles size={15} /> Scan Receipt with AI Magic
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              onClick={() => {
-                utils.haptic('light');
-                setShowScannerDrawer(true);
-              }}
-              className="h-11 px-3.5 premium-gradient-card text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95 transition-transform"
+              onClick={handleMagicScanClick}
+              className="w-full p-3.5 rounded-2xl bg-page border border-border text-muted flex items-center justify-between gap-3 opacity-80 hover:opacity-100 transition-opacity text-left"
             >
-              <Sparkles size={15} /> Magic Scan
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-subtle text-muted flex items-center justify-center shrink-0">
+                  <Lock size={16} />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="font-bold text-xs text-main truncate">
+                    AI Magic Scan (0 / 3 Free Scans Left)
+                  </span>
+                  <span className="text-[0.68rem] text-muted truncate">
+                    Tap to unlock unlimited AI receipt scans with Ekwly Pro
+                  </span>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-primary/15 text-primary text-[0.68rem] font-extrabold shrink-0">
+                Upgrade
+              </span>
             </button>
           )}
+
+          {/* Crowdsourced Restaurant / Venue Search */}
+          <div className="flex flex-col gap-1.5 pt-1">
+            <div className="flex items-center justify-between px-0.5">
+              <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
+                <Store size={12} className="text-primary" /> Restaurant / Venue (Auto-Loads Menu
+                &amp; Taxes)
+              </label>
+              {loadedVenueBadge && (
+                <span className="text-[0.62rem] font-bold text-emerald-500 bg-emerald-500/12 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 size={10} /> Rules Loaded
+                </span>
+              )}
+            </div>
+
+            <div className="relative w-full">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
+                {isSearchingVenue ? (
+                  <Loader2 size={15} className="animate-spin text-primary" />
+                ) : (
+                  <Search size={15} />
+                )}
+              </div>
+              <input
+                type="text"
+                disabled={!isHost}
+                value={localVenue}
+                onChange={(e) => {
+                  setLocalVenue(e.target.value);
+                  setLoadedVenueBadge(null);
+                }}
+                placeholder="Search known restaurant (e.g. Toit, Chin Lung)..."
+                className="w-full h-11 bg-page border border-border rounded-xl pl-10 pr-3 text-sm font-semibold text-main"
+              />
+
+              {showVenueDropdown && venueResults.length > 0 && (
+                <div className="absolute top-12 left-0 right-0 bg-surface border border-primary/40 rounded-xl shadow-2xl z-30 flex flex-col overflow-hidden max-h-56 overflow-y-auto">
+                  <div className="px-3 py-1.5 bg-primary/10 border-b border-border text-[0.65rem] font-extrabold uppercase tracking-widest text-primary">
+                    Tap to Auto-Load Community Taxes &amp; Menu
+                  </div>
+                  {venueResults.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => handleSelectVenue(v)}
+                      className="flex flex-col px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
+                    >
+                      <span className="font-bold text-main text-sm truncate">{v.name}</span>
+                      <span className="text-[0.7rem] text-muted">
+                        {v.tax_presets ? v.tax_presets.length : 0} Tax Brackets •{' '}
+                        {v.service_charge_rate > 0
+                          ? `${v.service_charge_rate * 100}% Service Charge`
+                          : 'No Service Charge'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ZONE 2: "AT THE TABLE" MEMBER BAR + 1-TAP FRIEND & SAVED SQUAD CHIPS */}
       <div className="bg-surface border border-border rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5">
@@ -481,11 +646,6 @@ export default function ReceiptWorkbench() {
                   ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
                   : 'bg-page text-muted border-border hover:text-main'
               }`}
-              title={
-                isRealtimeActive
-                  ? 'Realtime WebSockets active'
-                  : 'Solo Fast Mode (Tap or open Invite QR to enable live multiplayer sync)'
-              }
             >
               <Radio size={10} className={isRealtimeActive ? 'animate-pulse' : ''} />
               {isRealtimeActive ? 'Live Sync' : 'Solo Mode'}
@@ -550,111 +710,162 @@ export default function ReceiptWorkbench() {
         )}
       </div>
 
-      {/* ZONE 2.5: PROMINENT BILL RULES, DISCOUNTS, S.C. & TAX BRACKETS BAR */}
-      <div className="bg-surface border border-border rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
-            <Layers size={13} className="text-primary" /> Bill Rules, Taxes &amp; Offers
-          </span>
-          <span className="text-[0.65rem] text-muted font-medium">Tap to configure</span>
-        </div>
-
-        {/* Row 1: Global Discounts, Service Charge, and Custom Tax Trigger */}
-        <div className="grid grid-cols-3 gap-2">
+      {/* ZONE 2.5: SPACIOUS, IDIOT-PROOF & COLLAPSIBLE "BILL TAXES, SERVICE CHARGE & OFFERS" CARD */}
+      <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
+        {isRulesCollapsed ? (
           <button
             type="button"
             onClick={() => {
               utils.haptic('light');
-              setActiveRuleSheet('discount');
+              setIsRulesCollapsed(false);
             }}
-            className={`p-2.5 rounded-xl border text-left flex flex-col gap-0.5 transition-all active:scale-95 ${
-              gs.discountAmount > 0
-                ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-500'
-                : 'bg-page border-border text-main hover:border-primary/40'
-            }`}
+            className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left hover:bg-subtle/40 transition-colors"
           >
-            <span className="text-[0.62rem] font-bold uppercase tracking-wider text-muted flex items-center gap-1">
-              <Percent size={10} className="text-emerald-500" /> Discounts
-            </span>
-            <span className="text-xs font-extrabold tabular-nums truncate">
-              {gs.discountAmount > 0 ? `-${utils.formatMoney(gs.discountAmount)}` : 'Add Offer'}
+            <div className="flex items-center gap-2 min-w-0">
+              <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-extrabold text-main truncate">
+                  Bill Taxes &amp; Charges Configured
+                </span>
+                <span className="text-[0.68rem] text-muted truncate tabular-nums">
+                  {taxPresets.map((t) => `${t.name} ${t.rate}%`).join(' • ')} •{' '}
+                  {sessionRules.isScApplicable && scPercent > 0 ? `S.C. ${scPercent}%` : 'No S.C.'}
+                  {gs.discountAmount > 0 ? ` • -${utils.formatMoney(gs.discountAmount)} Off` : ''}
+                </span>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-bold shrink-0 flex items-center gap-1">
+              Edit <ChevronDown size={13} />
             </span>
           </button>
+        ) : (
+          <div className="p-4 flex flex-col gap-3.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                  <Layers size={14} /> Step 1: Check the Bottom of Your Bill
+                </span>
+                <p className="text-xs text-muted leading-relaxed">
+                  Setting your bill&apos;s taxes &amp; charges first ensures every item you add
+                  automatically calculates the exact Food GST, Liquor VAT, and Service Charge.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRulesCollapsed(true)}
+                className="p-1.5 text-muted hover:text-main rounded-lg shrink-0"
+                title="Collapse section"
+              >
+                <ChevronUp size={16} />
+              </button>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              utils.haptic('light');
-              setActiveRuleSheet('sc');
-            }}
-            className={`p-2.5 rounded-xl border text-left flex flex-col gap-0.5 transition-all active:scale-95 ${
-              sessionRules.isScApplicable && scPercent > 0
-                ? 'bg-primary/10 border-primary/35 text-primary'
-                : 'bg-page border-border text-main hover:border-primary/40'
-            }`}
-          >
-            <span className="text-[0.62rem] font-bold uppercase tracking-wider text-muted">
-              Service Chg
-            </span>
-            <span className="text-xs font-extrabold tabular-nums truncate">
-              {sessionRules.isScApplicable && scPercent > 0 ? `${scPercent}% Active` : 'None (0%)'}
-            </span>
-          </button>
+            {/* 1. Taxes Section */}
+            <div className="bg-page border border-border rounded-xl p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-main">
+                  1. Which taxes are printed on your bill?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveRuleSheet('taxes')}
+                  className="text-xs font-extrabold text-primary hover:underline"
+                >
+                  + Add / Pick Taxes
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {taxPresets.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setActiveRuleSheet('taxes')}
+                    className="px-3 py-1.5 rounded-xl bg-surface border border-border text-xs font-bold text-main flex items-center gap-1.5 tabular-nums shadow-2xs"
+                  >
+                    <span>{t.name}</span>
+                    <span className="text-primary font-extrabold">{t.rate}%</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setActiveRuleSheet('taxes')}
+                  className="px-3 py-1.5 rounded-xl border border-dashed border-primary/40 text-primary text-xs font-bold flex items-center gap-1"
+                >
+                  <Plus size={13} /> Custom Tax
+                </button>
+              </div>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              utils.haptic('light');
-              setActiveRuleSheet('taxes');
-            }}
-            className="p-2.5 rounded-xl border bg-page border-border hover:border-primary/40 text-main text-left flex flex-col gap-0.5 transition-all active:scale-95"
-          >
-            <span className="text-[0.62rem] font-bold uppercase tracking-wider text-muted">
-              Tax Brackets
-            </span>
-            <span className="text-xs font-extrabold text-primary truncate">
-              {taxPresets.length} Active • +Add
-            </span>
-          </button>
-        </div>
+            {/* 2. Service Charge & Discounts Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setActiveRuleSheet('sc')}
+                className={`p-3 rounded-xl border text-left flex items-center justify-between gap-2 transition-all ${
+                  sessionRules.isScApplicable && scPercent > 0
+                    ? 'bg-primary/10 border-primary/35'
+                    : 'bg-page border-border'
+                }`}
+              >
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-main">2. Service Charge</span>
+                  <span className="text-[0.7rem] text-muted">
+                    {sessionRules.isScApplicable && scPercent > 0
+                      ? `${scPercent}% Active on Bill`
+                      : 'None (Tap if bill has 5%–10% S.C.)'}
+                  </span>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-surface border border-border text-xs font-extrabold text-primary shrink-0">
+                  {sessionRules.isScApplicable && scPercent > 0 ? `${scPercent}%` : 'Set'}
+                </span>
+              </button>
 
-        {/* Row 2: Visible Tax Preset Pills + 1-Tap "+ Custom Tax" */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
-          {taxPresets.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveRuleSheet('taxes')}
-              className="shrink-0 px-2.5 py-1 rounded-lg bg-page border border-border text-[0.68rem] font-bold text-muted hover:text-main hover:border-primary/40 tabular-nums flex items-center gap-1"
-            >
-              <span className="text-main">{t.name}</span>
-              <span className="text-primary">{t.rate}%</span>
-            </button>
-          ))}
-          {isHost && (
+              <button
+                type="button"
+                onClick={() => setActiveRuleSheet('discount')}
+                className={`p-3 rounded-xl border text-left flex items-center justify-between gap-2 transition-all ${
+                  gs.discountAmount > 0
+                    ? 'bg-emerald-500/10 border-emerald-500/35'
+                    : 'bg-page border-border'
+                }`}
+              >
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-main">3. Discounts &amp; Coupons</span>
+                  <span className="text-[0.7rem] text-muted">
+                    {gs.discountAmount > 0
+                      ? `Saving ${utils.formatMoney(gs.discountAmount)}`
+                      : 'Pre-Tax, Zomato/Swiggy or Item Offers'}
+                  </span>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-surface border border-border text-xs font-extrabold text-emerald-500 shrink-0 flex items-center gap-1">
+                  <Percent size={11} /> {gs.discountAmount > 0 ? 'Edit' : 'Add'}
+                </span>
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={() => {
                 utils.haptic('light');
-                setActiveRuleSheet('taxes');
+                setIsRulesCollapsed(true);
               }}
-              className="shrink-0 px-2.5 py-1 rounded-lg border border-dashed border-primary/40 text-primary text-[0.68rem] font-bold flex items-center gap-1 hover:bg-primary/5"
+              className="w-full h-10 bg-emerald-500/15 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-colors"
             >
-              <Plus size={11} /> Custom Tax
+              <CheckCircle2 size={15} /> Everything Looks Right — Hide &amp; Add Items
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* ZONE 3: ADD / EDIT DISH BAR (HOST ONLY — WITH VISIBLE TAX PILLS & COMPACT OFFER TOGGLE) */}
+      {/* ZONE 3: ADD / EDIT ITEM BAR (WITH LABELED +/- QUANTITY STEPPER & CLEAR TAX PILLS) */}
       {isHost && (
         <form
           onSubmit={handleSaveItem}
-          className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3 relative z-20"
+          className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3 relative z-15"
         >
           <div className="flex items-center justify-between">
             <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted">
-              {editingItemId ? 'Editing Dish on Receipt' : 'Add Dish to Receipt'}
+              {editingItemId ? 'Editing Item on Bill' : 'Add Item to Bill'}
             </span>
             {editingItemId && (
               <button
@@ -674,83 +885,112 @@ export default function ReceiptWorkbench() {
             )}
           </div>
 
-          {/* Dish Name + Qty + Unit Price Row */}
-          <div className="grid grid-cols-12 gap-2">
-            <div className="col-span-12 sm:col-span-6 relative">
-              <input
-                type="text"
-                value={newItemName}
-                onChange={(e) => setNewItemName(e.target.value)}
-                placeholder="Dish or Drink Name (e.g. Crispy Corn)"
-                className="w-full h-11 bg-page border border-border rounded-xl px-3.5 text-sm font-semibold text-main"
-              />
-              {showItemDropdown && itemResults.length > 0 && (
-                <div className="absolute top-12 left-0 right-0 bg-surface border border-border rounded-xl shadow-xl z-30 flex flex-col overflow-hidden max-h-48 overflow-y-auto">
-                  {itemResults.map((item, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setNewItemName(item.name);
-                        setNewItemPrice(item.price.toString());
-                        setShowItemDropdown(false);
-                      }}
-                      className="flex items-center justify-between px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
-                    >
-                      <span className="font-semibold text-main text-sm truncate pr-3">
-                        {item.name}
-                      </span>
-                      <span className="text-xs font-bold text-primary tabular-nums shrink-0">
-                        {utils.formatMoney(item.price)}
-                      </span>
-                    </button>
-                  ))}
+          {/* Item Name Input with Crowdsourced Menu Price Autocomplete */}
+          <div className="relative">
+            <input
+              type="text"
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              placeholder="Item Name (e.g. Crispy Corn, LIIT Pitcher)"
+              className="w-full h-11 bg-page border border-border rounded-xl px-3.5 text-sm font-semibold text-main"
+            />
+            {showItemDropdown && itemResults.length > 0 && (
+              <div className="absolute top-12 left-0 right-0 bg-surface border border-primary/40 rounded-xl shadow-xl z-30 flex flex-col overflow-hidden max-h-48 overflow-y-auto">
+                <div className="px-3 py-1 bg-primary/10 border-b border-border text-[0.62rem] font-bold uppercase tracking-widest text-primary">
+                  Known Menu Prices at {sessionRules.venueName}
                 </div>
-              )}
-            </div>
-
-            <div className="col-span-4 sm:col-span-2">
-              <input
-                type="number"
-                inputMode="decimal"
-                value={newItemQty}
-                onChange={(e) => setNewItemQty(e.target.value)}
-                placeholder="Qty"
-                min="0.01"
-                step="any"
-                className="w-full h-11 bg-page border border-border rounded-xl px-2 text-center text-sm font-bold tabular-nums"
-              />
-            </div>
-
-            <div className="col-span-8 sm:col-span-4 relative">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted font-bold text-sm">
-                ₹
+                {itemResults.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setNewItemName(item.name);
+                      setNewItemPrice(item.price.toString());
+                      setShowItemDropdown(false);
+                    }}
+                    className="flex items-center justify-between px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
+                  >
+                    <span className="font-semibold text-main text-sm truncate pr-3">
+                      {item.name}
+                    </span>
+                    <span className="text-xs font-bold text-primary tabular-nums shrink-0">
+                      {utils.formatMoney(item.price)}
+                    </span>
+                  </button>
+                ))}
               </div>
-              <input
-                type="number"
-                inputMode="decimal"
-                value={newItemPrice}
-                onChange={(e) => setNewItemPrice(e.target.value)}
-                placeholder="Unit Price"
-                min="0"
-                step="any"
-                className="w-full h-11 bg-page border border-border rounded-xl pl-7 pr-3 text-sm font-bold tabular-nums"
-              />
+            )}
+          </div>
+
+          {/* Labeled Quantity Stepper (- 1 +) & Labeled Unit Price Input */}
+          <div className="grid grid-cols-12 gap-3">
+            <div className="col-span-6 sm:col-span-5 flex flex-col gap-1">
+              <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted pl-0.5">
+                Quantity (No. of Items)
+              </label>
+              <div className="h-11 bg-page border border-border rounded-xl p-1 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => adjustNewItemQty(-1)}
+                  className="w-9 h-9 rounded-lg bg-surface border border-border text-main hover:bg-subtle active:scale-90 flex items-center justify-center transition-transform shrink-0"
+                  aria-label="Decrease quantity"
+                >
+                  <Minus size={15} />
+                </button>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={newItemQty}
+                  onChange={(e) => setNewItemQty(e.target.value)}
+                  min="0.01"
+                  step="any"
+                  className="w-full h-9 bg-transparent border-0 px-1 text-center text-sm font-extrabold text-main tabular-nums focus:ring-0"
+                />
+                <button
+                  type="button"
+                  onClick={() => adjustNewItemQty(1)}
+                  className="w-9 h-9 rounded-lg bg-surface border border-border text-main hover:bg-subtle active:scale-90 flex items-center justify-center transition-transform shrink-0"
+                  aria-label="Increase quantity"
+                >
+                  <Plus size={15} />
+                </button>
+              </div>
+            </div>
+
+            <div className="col-span-6 sm:col-span-7 flex flex-col gap-1">
+              <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted pl-0.5">
+                Unit Price (₹ per item)
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted font-bold text-sm">
+                  ₹
+                </div>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={newItemPrice}
+                  onChange={(e) => setNewItemPrice(e.target.value)}
+                  placeholder="0.00"
+                  min="0"
+                  step="any"
+                  className="w-full h-11 bg-page border border-border rounded-xl pl-8 pr-3 text-sm font-bold tabular-nums"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Clear, Un-Truncated 1-Tap Tax Bracket Selector Pills */}
+          {/* 1-Tap Tax Bracket Pills */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                Select Item Tax Bracket
+                Item Tax Bracket
               </span>
               <button
                 type="button"
                 onClick={() => setActiveRuleSheet('taxes')}
                 className="text-[0.68rem] font-bold text-primary hover:underline"
               >
-                + Add Custom Tax
+                + Custom Tax
               </button>
             </div>
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
@@ -778,7 +1018,7 @@ export default function ReceiptWorkbench() {
             </div>
           </div>
 
-          {/* Bottom Action Row: Compact Toggle Chips (+S.C., % Item Discount) + Submit Button */}
+          {/* Bottom Action Row: Compact Toggle Chips (+S.C., + Item Discount) + Submit Button */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/50">
             <div className="flex items-center gap-1.5 flex-wrap">
               {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && (
@@ -817,11 +1057,11 @@ export default function ReceiptWorkbench() {
               type="submit"
               className="h-9 px-4 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-transform ml-auto shrink-0"
             >
-              <Plus size={14} /> {editingItemId ? 'Update Dish' : 'Add Dish'}
+              <Plus size={14} /> {editingItemId ? 'Update Item' : 'Add Item'}
             </button>
           </div>
 
-          {/* Conditional Inline Item Discount Input (Only shown when '+ Item Discount' chip is active) */}
+          {/* Conditional Inline Item Discount Input */}
           {hasNewItemOffer && (
             <div className="flex items-center gap-2 bg-page border border-emerald-500/30 p-2.5 rounded-xl">
               <div className="flex bg-surface p-0.5 rounded-lg border border-border shrink-0">
@@ -862,17 +1102,17 @@ export default function ReceiptWorkbench() {
         </form>
       )}
 
-      {/* ZONE 4: SKEUOMORPHIC LIVE THERMAL POS RECEIPT (UNIFIED DISH LIST + ACCOUNTING LEDGER) */}
-      <div className="mt-1">
-        <div className="pos-receipt-edge-top" />
+      {/* ZONE 4: SKEUOMORPHIC LIVE BILL SPLIT RECEIPT (WITH TRUE SVG JAGGED THERMAL BLADE EDGES) */}
+      <div className="mt-1 relative z-10">
+        <ThermalReceiptSawtooth position="top" />
         <div className="pos-receipt px-4 py-5 flex flex-col gap-3">
           {/* RECEIPT PAPER HEADER */}
-          <div className="flex flex-col items-center text-center pb-3 pos-double-line pt-3">
-            <span className="text-[0.62rem] font-mono font-bold uppercase tracking-[0.22em] text-muted">
-              ★ LIVE POS SPLIT RECEIPT ★
+          <div className="flex flex-col items-center text-center pb-3 pos-double-line pt-1">
+            <span className="text-[0.65rem] font-mono font-extrabold uppercase tracking-[0.22em] text-primary">
+              ★ LIVE BILL SPLIT ★
             </span>
             <h3 className="text-base font-extrabold text-main tracking-tight mt-0.5">
-              {sessionRules.venueName || 'Dining Table Receipt'}
+              {sessionRules.venueName || 'Dining Table Bill'}
             </h3>
             <span className="text-[0.68rem] font-mono text-muted tabular-nums mt-0.5">
               {new Date().toLocaleDateString(undefined, {
@@ -880,7 +1120,7 @@ export default function ReceiptWorkbench() {
                 month: 'short',
                 day: 'numeric',
               })}{' '}
-              • {members.length} {members.length === 1 ? 'Guest' : 'Guests'} • {items.length}{' '}
+              • {members.length} {members.length === 1 ? 'Person' : 'People'} • {items.length}{' '}
               {items.length === 1 ? 'Item' : 'Items'}
             </span>
           </div>
@@ -889,10 +1129,10 @@ export default function ReceiptWorkbench() {
           {items.length === 0 ? (
             <div className="py-8 text-center flex flex-col items-center gap-2">
               <Receipt size={26} className="text-muted/40" />
-              <p className="text-sm font-bold text-main">Receipt is currently blank</p>
+              <p className="text-sm font-bold text-main">No items on the bill yet</p>
               <p className="text-xs text-muted max-w-xs">
-                Tap <strong>Magic Scan</strong> at the top to extract your paper bill with AI, or
-                add dishes above.
+                Use <strong>AI Magic Scan</strong> at the top to extract your paper receipt, or add
+                items manually above.
               </p>
             </div>
           ) : (
@@ -925,9 +1165,9 @@ export default function ReceiptWorkbench() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.96 }}
                       transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      className="py-3.5 first:pt-1 flex flex-col gap-2.5 gpu-layer"
+                      className="py-3.5 first:pt-1 flex flex-col gap-2.5"
                     >
-                      {/* Receipt Line 1: Item Number, Dish Name, Qty, Status & Line Total */}
+                      {/* Receipt Line 1: Item Number, Name, Qty, Status & Line Total */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-col min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1049,7 +1289,7 @@ export default function ReceiptWorkbench() {
                                 type="button"
                                 onClick={() => handleEditItem(item)}
                                 className="p-1.5 text-muted hover:text-main rounded-lg hover:bg-subtle"
-                                aria-label="Edit dish"
+                                aria-label="Edit item"
                               >
                                 <Edit2 size={13} />
                               </button>
@@ -1057,7 +1297,7 @@ export default function ReceiptWorkbench() {
                                 type="button"
                                 onClick={() => actions.removeItemFromDB(item.id)}
                                 className="p-1.5 text-muted hover:text-danger rounded-lg hover:bg-danger/10"
-                                aria-label="Delete dish"
+                                aria-label="Delete item"
                               >
                                 <Trash2 size={13} />
                               </button>
@@ -1218,11 +1458,11 @@ export default function ReceiptWorkbench() {
             <div className="pos-dashed-line w-full" />
           </div>
 
-          {/* LIVE RECEIPT ACCOUNTING SUMMARY (INTEGRATED ON THE SAME RECEIPT PAPER) */}
+          {/* LIVE BILL ACCOUNTING SUMMARY */}
           <div className="flex flex-col gap-1.5 font-mono text-xs">
             <div className="flex items-center justify-between pb-1">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                Tax &amp; Charge Breakdown
+                Bill Summary
               </span>
               <div className="flex items-center gap-1">
                 <button
@@ -1264,7 +1504,7 @@ export default function ReceiptWorkbench() {
                 onClick={() => setActiveRuleSheet('discount')}
                 className="flex justify-between py-1 text-emerald-500 w-full text-left hover:opacity-80"
               >
-                <span className="underline decoration-dotted">ITEM / SECTION OFFERS</span>
+                <span className="underline decoration-dotted">ITEM / CATEGORY OFFERS</span>
                 <span className="font-bold tabular-nums">
                   - {utils.formatMoney(gs.itemDiscountAmount)}
                 </span>
@@ -1316,13 +1556,7 @@ export default function ReceiptWorkbench() {
               className="flex justify-between py-1 w-full text-left hover:opacity-80"
             >
               <span className="text-muted underline decoration-dotted">
-                SERVICE CHARGE ({scPercent}% •{' '}
-                {sessionRules.scTaxPresetId === 'inherit'
-                  ? 'CASCADING'
-                  : sessionRules.scTaxPresetId === 'none'
-                    ? 'UNTAXED'
-                    : 'GLOBAL'}
-                )
+                SERVICE CHARGE ({scPercent}%)
               </span>
               <span className="font-bold text-main tabular-nums">
                 {utils.formatMoney(gs.serviceCharge)}
@@ -1372,7 +1606,7 @@ export default function ReceiptWorkbench() {
             </div>
           </div>
         </div>
-        <div className="pos-receipt-edge-bottom" />
+        <ThermalReceiptSawtooth position="bottom" />
       </div>
 
       {/* DRAWER 1: MAGIC SCANNER */}
@@ -1382,6 +1616,54 @@ export default function ReceiptWorkbench() {
         title="AI Magic Scan"
       >
         <MagicScanner onScanComplete={() => setShowScannerDrawer(false)} />
+      </BottomSheet>
+
+      {/* DRAWER 1B: 0-QUOTA UPSELL MODAL */}
+      <BottomSheet
+        isOpen={showQuotaUpsellModal}
+        onClose={() => setShowQuotaUpsellModal(false)}
+        title="Unlock Unlimited AI Magic Scans"
+      >
+        <div className="flex flex-col items-center pb-4 text-center">
+          <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-4">
+            <Sparkles size={32} />
+          </div>
+          <h2 className="text-xl font-bold text-main mb-2">No Free Magic Scans Left This Month</h2>
+          <p className="text-sm text-muted mb-6 leading-relaxed">
+            You&apos;ve used all 3 of your free AI Magic Scans for this month. Upgrade to{' '}
+            <strong>Ekwly Pro</strong> to scan unlimited restaurant bills automatically.
+          </p>
+
+          <div className="w-full bg-page border border-primary/25 rounded-2xl p-5 mb-6 text-left shadow-sm">
+            <div className="flex justify-between items-baseline mb-3">
+              <span className="font-extrabold text-main text-base">Ekwly Pro</span>
+              <span className="text-primary text-xl font-extrabold tabular-nums">
+                ₹99 <span className="text-xs text-muted font-medium">/ month</span>
+              </span>
+            </div>
+            <ul className="flex flex-col gap-2.5 text-sm font-medium text-main">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Unlimited AI
+                Receipt Scans
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Personal Analytics
+                &amp; Venue Insights
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Priority Support
+              </li>
+            </ul>
+          </div>
+
+          <a
+            href={`mailto:lloy.dutta@gmail.com?subject=Ekwly Pro Subscription Request&body=Hi, I would like to upgrade my account to Ekwly Pro. My registered email is: ${userEmail}`}
+            onClick={() => showToast('Opening mail client...', 'success')}
+            className="w-full h-12 premium-gradient-card text-white rounded-xl font-bold text-sm flex items-center justify-center shadow-sm active:scale-95 transition-transform"
+          >
+            Upgrade to Ekwly Pro — ₹99/mo
+          </a>
+        </div>
       </BottomSheet>
 
       {/* DRAWER 2: TABLE MEMBERS, SAVED SQUADS & 1-TAP FRIEND CHIPS */}
@@ -1578,7 +1860,7 @@ export default function ReceiptWorkbench() {
         </div>
       </BottomSheet>
 
-      {/* EXTRACTED RULE DRAWERS (SERVICE CHARGE, 3-LAYER DISCOUNTS & TAX BRACKETS) */}
+      {/* EXTRACTED RULE DRAWERS */}
       <WorkbenchRuleDrawers
         activeSheet={activeRuleSheet}
         onClose={() => setActiveRuleSheet(null)}

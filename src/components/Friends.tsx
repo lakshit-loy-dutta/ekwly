@@ -993,6 +993,7 @@ export default function Friends({ user }: Props) {
                               creditorName: user?.user_metadata?.full_name || 'me',
                               amount: dossierBalance.netAmount,
                               upiId: myUpiId,
+                              isReminder: true,
                             })}
                             target="_blank"
                             rel="noopener noreferrer"

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Check, Sparkles, Tag, Layers, Percent } from 'lucide-react';
+import { Trash2, Check, Sparkles, Tag, Layers, Percent, Plus } from 'lucide-react';
 import { useSessionContext } from '../../lib/SessionContext';
 import { utils, showToast } from '../../lib/utils';
 import BottomSheet from '../ui/BottomSheet';
@@ -9,6 +9,25 @@ interface Props {
   activeSheet: 'sc' | 'discount' | 'taxes' | null;
   onClose: () => void;
 }
+
+const COMMON_TAX_TEMPLATES = [
+  {
+    name: 'Food GST',
+    rate: 5,
+    split: true,
+    desc: '2.5% CGST + 2.5% SGST (Standard Restaurant Food)',
+  },
+  { name: 'Alcohol VAT', rate: 10, split: false, desc: 'State Liquor VAT / Excise Tax' },
+  { name: 'Liquor VAT (Assam/KA)', rate: 6, split: false, desc: '6% State Bar / Pub VAT' },
+  {
+    name: 'Aerated / Sin GST',
+    rate: 28,
+    split: true,
+    desc: '14% CGST + 14% SGST (Energy Drinks / Hookah)',
+  },
+  { name: 'Tobacco GST', rate: 40, split: true, desc: '20% CGST + 20% SGST' },
+  { name: 'Exempt / MRP', rate: 0, split: false, desc: '0% Tax (Bottled Water / MRP Items)' },
+];
 
 export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
   const { isHost, items, taxPresets, sessionRules, actions } = useSessionContext();
@@ -66,7 +85,7 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
   const handleApplySectionDiscount = async () => {
     const val = parseFloat(sectionDiscValue);
     if (selectedItemIds.length === 0) {
-      return showToast('Select at least one dish or section.', 'error');
+      return showToast('Select at least one item or category.', 'error');
     }
     if (isNaN(val) || val < 0) {
       return showToast('Enter a valid discount value.', 'error');
@@ -83,7 +102,6 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
       if (sectionDiscType === 'percentage') {
         return { ...item, discountType: 'percentage' as const, discountValue: val };
       }
-      // Distribute flat ₹ discount proportionally across the selected section items
       const itemShare =
         totalSelectedBase > 0 ? utils.round2(val * (item.totalBase / totalSelectedBase)) : 0;
       return { ...item, discountType: 'flat' as const, discountValue: itemShare };
@@ -93,8 +111,8 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
     setSectionDiscValue('');
     showToast(
       val === 0
-        ? `Cleared item discounts on ${updated.length} dishes.`
-        : `Applied section discount to ${updated.length} dishes!`,
+        ? `Cleared item discounts on ${updated.length} items.`
+        : `Applied discount to ${updated.length} items!`,
       'success'
     );
   };
@@ -126,23 +144,52 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
     setNewTaxName('');
     setNewTaxRate('');
     setNewTaxSplit(true);
-    showToast('Tax bracket added.', 'success');
+    showToast('Tax bracket added to bill.', 'success');
+  };
+
+  const handleToggleQuickTaxTemplate = (tpl: (typeof COMMON_TAX_TEMPLATES)[number]) => {
+    utils.haptic('light');
+    const existing = taxPresets.find(
+      (t) => t.name.toLowerCase() === tpl.name.toLowerCase() && t.rate === tpl.rate
+    );
+    if (existing) {
+      if (taxPresets.length <= 1) {
+        return showToast('At least 1 tax bracket must remain active.', 'default');
+      }
+      actions.removeTaxPresetFromDB(existing.id);
+    } else {
+      actions.addTaxPresetToDB({
+        id: utils.generateId(),
+        name: tpl.name,
+        rate: tpl.rate,
+        split: tpl.split,
+      });
+    }
   };
 
   const postTaxType = sessionRules.postTaxDiscountType || 'none';
+  const scRatePct = Number((sessionRules.serviceChargeRate * 100).toFixed(2));
 
   return (
     <>
-      {/* DRAWER 1: SERVICE CHARGE CONFIG */}
-      <BottomSheet isOpen={activeSheet === 'sc'} onClose={onClose} title="Service Charge Rules">
+      {/* DRAWER 1: IDIOT-PROOF SERVICE CHARGE CONFIG */}
+      <BottomSheet isOpen={activeSheet === 'sc'} onClose={onClose} title="Service Charge Setup">
         <div className="flex flex-col gap-4 pb-4">
+          <p className="text-xs text-muted leading-relaxed">
+            Check the bottom of your paper bill. If the restaurant added a{' '}
+            <strong>Service Charge (usually 5% or 10%)</strong>, turn this on and pick the rate.
+          </p>
+
           <label className="flex items-center justify-between p-3.5 bg-page border border-border rounded-xl cursor-pointer">
-            <span className="font-bold text-sm text-main">Enable Service Charge</span>
+            <span className="font-bold text-sm text-main">Bill has a Service Charge</span>
             <ToggleSwitch
               checked={sessionRules.isScApplicable}
               onChange={(val) =>
                 actions.updateSessionRulesInDB({
                   isScApplicable: val,
+                  ...(val && sessionRules.serviceChargeRate === 0
+                    ? { serviceChargeRate: 0.1, scTaxPresetId: 'inherit' }
+                    : {}),
                   ...(!val ? { serviceChargeRate: 0, scTaxPresetId: 'none' } : {}),
                 })
               }
@@ -151,84 +198,127 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
 
           {sessionRules.isScApplicable && (
             <>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2">
                 <label className="text-xs font-bold uppercase tracking-widest text-muted">
-                  Service Charge Rate (%)
+                  Service Charge Percentage (%)
                 </label>
-                <input
-                  type="number"
-                  disabled={!isHost}
-                  value={
-                    sessionRules.serviceChargeRate > 0
-                      ? Number((sessionRules.serviceChargeRate * 100).toFixed(2))
-                      : ''
-                  }
-                  onChange={(e) =>
-                    actions.updateSessionRulesInDB({
-                      serviceChargeRate: (parseFloat(e.target.value) || 0) / 100,
-                    })
-                  }
-                  placeholder="e.g. 5 or 10"
-                  className="w-full h-11 bg-page border border-border rounded-xl px-3.5 font-bold tabular-nums"
-                />
+                <div className="grid grid-cols-4 gap-2">
+                  {[5, 7.5, 10].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      disabled={!isHost}
+                      onClick={() => {
+                        utils.haptic('light');
+                        actions.updateSessionRulesInDB({ serviceChargeRate: pct / 100 });
+                      }}
+                      className={`h-10 rounded-xl font-extrabold text-xs border tabular-nums transition-all ${
+                        Math.abs(scRatePct - pct) < 0.01
+                          ? 'bg-primary text-white border-primary shadow-sm'
+                          : 'bg-page text-main border-border'
+                      }`}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    disabled={!isHost}
+                    value={scRatePct > 0 ? scRatePct : ''}
+                    onChange={(e) =>
+                      actions.updateSessionRulesInDB({
+                        serviceChargeRate: (parseFloat(e.target.value) || 0) / 100,
+                      })
+                    }
+                    placeholder="Custom %"
+                    className="h-10 bg-page border border-border rounded-xl px-2.5 text-center text-xs font-bold tabular-nums"
+                  />
+                </div>
               </div>
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2 pt-1">
                 <label className="text-xs font-bold uppercase tracking-widest text-muted">
-                  How Does the Restaurant Tax Service Charge?
+                  Did the restaurant charge GST on the Service Charge?
                 </label>
-                <select
-                  disabled={!isHost}
-                  value={
+
+                {[
+                  {
+                    id: 'inherit',
+                    title: 'Yes — Taxed along with items (Most Common)',
+                    desc: 'GST/VAT is calculated on (Item Price + Service Charge). Used by most pubs & restaurants.',
+                  },
+                  {
+                    id: 'global',
+                    title: 'Yes — Taxed separately under Food GST (5%)',
+                    desc: 'Service Charge is taxed at 5% GST even on liquor bills.',
+                  },
+                  {
+                    id: 'none',
+                    title: 'No extra tax on Service Charge',
+                    desc: 'Service Charge is added flat without GST on top of it.',
+                  },
+                ].map((opt) => {
+                  const currentMode =
                     sessionRules.scTaxPresetId === 'inherit' ||
                     sessionRules.scTaxPresetId === 'none'
                       ? sessionRules.scTaxPresetId
-                      : 'global'
-                  }
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'inherit' || val === 'none') {
-                      actions.updateSessionRulesInDB({ scTaxPresetId: val });
-                    } else {
-                      actions.updateSessionRulesInDB({
-                        scTaxPresetId: taxPresets[0]?.id || 'none',
-                      });
-                    }
-                  }}
-                  className="w-full h-11 bg-page border border-border rounded-xl px-3 font-semibold text-sm"
-                >
-                  <option value="inherit">Cascading: Inherit Each Item&apos;s Tax</option>
-                  <option value="global">Independent: Tax S.C. by a Global Bracket</option>
-                  <option value="none">Untaxed: No Tax on Service Charge</option>
-                </select>
+                      : 'global';
+                  const isSelected = currentMode === opt.id;
 
-                {sessionRules.scTaxPresetId !== 'inherit' &&
-                  sessionRules.scTaxPresetId !== 'none' && (
-                    <select
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
                       disabled={!isHost}
-                      value={sessionRules.scTaxPresetId}
-                      onChange={(e) =>
-                        actions.updateSessionRulesInDB({ scTaxPresetId: e.target.value })
-                      }
-                      className="w-full h-11 mt-2 bg-subtle border border-primary/30 rounded-xl px-3 font-bold text-primary text-sm"
+                      onClick={() => {
+                        utils.haptic('light');
+                        if (opt.id === 'inherit' || opt.id === 'none') {
+                          actions.updateSessionRulesInDB({ scTaxPresetId: opt.id });
+                        } else {
+                          const foodPreset =
+                            taxPresets.find((t) => /food|gst/i.test(t.name)) || taxPresets[0];
+                          actions.updateSessionRulesInDB({
+                            scTaxPresetId: foodPreset?.id || 'none',
+                          });
+                        }
+                      }}
+                      className={`p-3.5 rounded-2xl border text-left flex items-start gap-3 transition-all ${
+                        isSelected
+                          ? 'bg-primary/10 border-primary/40 text-main'
+                          : 'bg-page border-border text-muted hover:text-main'
+                      }`}
                     >
-                      {taxPresets.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.rate}%)
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                      <div
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                          isSelected ? 'bg-primary border-primary text-white' : 'border-border'
+                        }`}
+                      >
+                        {isSelected && <Check size={12} />}
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-extrabold text-main">{opt.title}</span>
+                        <span className="text-[0.7rem] text-muted leading-relaxed">{opt.desc}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </>
           )}
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full h-11 mt-1 bg-primary text-white rounded-xl font-bold text-xs shadow-sm"
+          >
+            Done
+          </button>
         </div>
       </BottomSheet>
 
       {/* DRAWER 2: 3-LAYER DISCOUNTS (PRE-TAX + POST-TAX + ITEM/SECTION) */}
       <BottomSheet isOpen={activeSheet === 'discount'} onClose={onClose} title="Discounts & Offers">
         <div className="flex flex-col gap-4 pb-4">
-          {/* 3-Mode Discount Layer Switcher */}
           <div className="grid grid-cols-3 gap-1 bg-page p-1 rounded-xl border border-border">
             <button
               type="button"
@@ -261,17 +351,16 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                   : 'text-muted hover:text-main'
               }`}
             >
-              <Layers size={12} /> By Item/Sec
+              <Layers size={12} /> By Item
             </button>
           </div>
 
-          {/* TAB 1: PRE-TAX RESTAURANT DISCOUNT + SELECTIVE ITEM ELIGIBILITY */}
           {discountTab === 'pre' && (
             <div className="flex flex-col gap-4">
               <p className="text-xs text-muted leading-relaxed">
-                <strong>Pre-Tax Restaurant Discount:</strong> Subtracted before GST/VAT and Service
-                Charge. You can uncheck specific dishes (e.g., Alcohol) below if the restaurant
-                discount is Food-only.
+                <strong>In-House Restaurant Discount (Pre-Tax):</strong> Subtracted from the
+                subtotal <em>before</em> GST/VAT is calculated. Tap any item below to exclude
+                Alcohol/MRP if the offer was Food-only.
               </p>
 
               <div className="flex items-center gap-1 bg-page p-1 rounded-xl border border-border">
@@ -317,11 +406,9 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
 
                   {items.length > 0 && (
                     <div className="flex flex-col gap-2 pt-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                          Eligible Dishes (Tap to Exclude Alcohol/MRP)
-                        </span>
-                      </div>
+                      <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                        Eligible Items (Tap to Exclude Alcohol/MRP)
+                      </span>
                       <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto p-1">
                         {items.map((item) => {
                           const eligible = item.applyDiscount !== false;
@@ -355,13 +442,12 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
             </div>
           )}
 
-          {/* TAB 2: SIMULTANEOUS POST-TAX COUPON / APP DISCOUNT */}
           {discountTab === 'post' && (
             <div className="flex flex-col gap-4">
               <p className="text-xs text-muted leading-relaxed">
-                <strong>Post-Tax Coupon / App Offer:</strong> Subtracted from the final Gross Total
-                after taxes (e.g., Swiggy Dineout, Zomato Gold, or bank card offers). Works
-                simultaneously with Pre-Tax and Item discounts.
+                <strong>App / Bank Coupon (Post-Tax):</strong> Subtracted from the final bill{' '}
+                <em>after</em> taxes (e.g., Swiggy Dineout, Zomato Gold, EazyDiner). Works alongside
+                Pre-Tax discounts.
               </p>
 
               <div className="flex items-center gap-1 bg-page p-1 rounded-xl border border-border">
@@ -406,25 +492,23 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
             </div>
           )}
 
-          {/* TAB 3: ITEM & SECTION / CATEGORY DISCOUNT BUILDER */}
           {discountTab === 'section' && (
             <div className="flex flex-col gap-4">
               <p className="text-xs text-muted leading-relaxed">
-                <strong>Item or Section Discount:</strong> Select specific dishes (or tap a category
-                preset like <em>Food GST</em> or <em>Alcohol VAT</em>) to apply a Happy Hour,
-                Beverage, or Dessert discount strictly to those items.
+                <strong>Item or Category Discount:</strong> Select specific items (or tap a category
+                like <em>Food GST</em> or <em>Alcohol VAT</em>) to apply a Happy Hour or Dessert
+                discount strictly to those items.
               </p>
 
               {items.length === 0 ? (
                 <div className="p-4 bg-page border border-border rounded-xl text-center text-xs text-muted">
-                  Add dishes to the receipt first to apply item or section discounts.
+                  Add items to the bill first to apply item-specific discounts.
                 </div>
               ) : (
                 <>
-                  {/* 1-Tap Category / Tax Bracket Section Filters */}
                   <div className="flex flex-col gap-1.5">
                     <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                      1. Quick-Select Section or Tap Dishes ({selectedItemIds.length} selected)
+                      1. Quick-Select Category or Tap Items ({selectedItemIds.length} selected)
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       <button
@@ -457,7 +541,6 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                     </div>
                   </div>
 
-                  {/* Multi-Select Dish List */}
                   <div className="bg-page border border-border rounded-xl divide-y divide-border max-h-44 overflow-y-auto">
                     {items.map((item) => {
                       const isSelected = selectedItemIds.includes(item.id);
@@ -506,7 +589,6 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                     })}
                   </div>
 
-                  {/* Section Discount Type & Amount Controls */}
                   {isHost && (
                     <div className="flex flex-col gap-2.5 pt-1">
                       <div className="flex gap-2">
@@ -561,7 +643,7 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                           className="flex-1 h-10 bg-primary text-white rounded-xl font-bold text-xs shadow-sm active:scale-95 transition-transform"
                         >
                           Apply to {selectedItemIds.length} Selected{' '}
-                          {selectedItemIds.length === 1 ? 'Dish' : 'Dishes'}
+                          {selectedItemIds.length === 1 ? 'Item' : 'Items'}
                         </button>
                       </div>
                     </div>
@@ -573,33 +655,83 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
         </div>
       </BottomSheet>
 
-      {/* DRAWER 3: TAX BRACKETS & CGST/SGST SPLIT */}
+      {/* DRAWER 3: IDIOT-PROOF TAX BRACKETS SELECTOR */}
       <BottomSheet
         isOpen={activeSheet === 'taxes'}
         onClose={onClose}
-        title="Tax Brackets (GST / VAT)"
+        title="Select Bill Tax Brackets"
       >
         <div className="flex flex-col gap-5 pb-4">
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-bold text-main">
+              Look at the bottom of your paper bill and tap the taxes you see:
+            </span>
+            <p className="text-[0.72rem] text-muted leading-relaxed">
+              Selected taxes become 1-tap buttons when you add items, so Food GST goes to food
+              eaters and Liquor VAT goes strictly to drinkers.
+            </p>
+
+            <div className="flex flex-col gap-2 pt-1">
+              {COMMON_TAX_TEMPLATES.map((tpl) => {
+                const isActive = taxPresets.some(
+                  (t) => t.name.toLowerCase() === tpl.name.toLowerCase() && t.rate === tpl.rate
+                );
+                return (
+                  <button
+                    key={`${tpl.name}-${tpl.rate}`}
+                    type="button"
+                    disabled={!isHost}
+                    onClick={() => handleToggleQuickTaxTemplate(tpl)}
+                    className={`p-3 rounded-2xl border text-left flex items-center justify-between gap-3 transition-all ${
+                      isActive
+                        ? 'bg-primary/10 border-primary/40 text-main'
+                        : 'bg-page border-border text-muted hover:text-main'
+                    }`}
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-xs text-main">{tpl.name}</span>
+                        <span className="text-[0.7rem] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded tabular-nums">
+                          {tpl.rate}%
+                        </span>
+                      </div>
+                      <span className="text-[0.68rem] text-muted truncate mt-0.5">{tpl.desc}</span>
+                    </div>
+                    <div
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border ${
+                        isActive
+                          ? 'bg-primary border-primary text-white'
+                          : 'border-border bg-surface text-muted'
+                      }`}
+                    >
+                      {isActive ? <Check size={14} /> : <Plus size={14} />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {isHost && (
             <div className="bg-page border border-border rounded-2xl p-3.5 flex flex-col gap-3">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-                Create New Tax Bracket
+                See a different tax % on your bill? Add Custom:
               </span>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={newTaxName}
                   onChange={(e) => setNewTaxName(e.target.value)}
-                  placeholder="Name (e.g. Liquor VAT)"
-                  className="flex-1 h-10 bg-surface border border-border rounded-xl px-3 text-sm font-semibold"
+                  placeholder="Name (e.g. Wine VAT)"
+                  className="flex-1 h-10 bg-surface border border-border rounded-xl px-3 text-xs font-semibold"
                 />
                 <input
                   type="number"
                   inputMode="decimal"
                   value={newTaxRate}
                   onChange={(e) => setNewTaxRate(e.target.value)}
-                  placeholder="%"
-                  className="w-20 h-10 bg-surface border border-border rounded-xl px-2 text-center text-sm font-bold tabular-nums"
+                  placeholder="Rate %"
+                  className="w-24 h-10 bg-surface border border-border rounded-xl px-2 text-center text-xs font-bold tabular-nums"
                 />
               </div>
               <div className="flex items-center justify-between pt-1">
@@ -614,7 +746,7 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                   onClick={handleAddTaxPreset}
                   className="h-9 px-4 bg-primary text-white rounded-xl font-bold text-xs"
                 >
-                  Add Tax
+                  + Add Custom
                 </button>
               </div>
             </div>
@@ -622,19 +754,19 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
 
           <div className="flex flex-col gap-2">
             <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
-              Active Brackets ({taxPresets.length})
+              Active on This Bill ({taxPresets.length})
             </span>
             <div className="bg-page border border-border rounded-2xl divide-y divide-border">
               {taxPresets.map((t) => (
-                <div key={t.id} className="flex items-center justify-between px-3.5 py-3">
+                <div key={t.id} className="flex items-center justify-between px-3.5 py-2.5">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-main">{t.name}</span>
-                    <span className="text-xs font-bold text-muted bg-surface px-1.5 py-0.5 rounded border border-border tabular-nums">
+                    <span className="font-bold text-xs text-main">{t.name}</span>
+                    <span className="text-xs font-bold text-primary bg-surface px-1.5 py-0.5 rounded border border-border tabular-nums">
                       {t.rate}%
                     </span>
                     {t.split && (
-                      <span className="text-[0.6rem] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded uppercase">
-                        CGST/SGST
+                      <span className="text-[0.6rem] font-bold text-muted uppercase">
+                        (CGST/SGST)
                       </span>
                     )}
                   </div>
@@ -644,13 +776,21 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                       onClick={() => actions.removeTaxPresetFromDB(t.id)}
                       className="p-1 text-muted hover:text-danger"
                     >
-                      <Trash2 size={15} />
+                      <Trash2 size={14} />
                     </button>
                   )}
                 </div>
               ))}
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full h-11 bg-primary text-white rounded-xl font-bold text-xs shadow-sm"
+          >
+            Done
+          </button>
         </div>
       </BottomSheet>
     </>
