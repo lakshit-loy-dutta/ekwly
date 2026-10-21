@@ -42,6 +42,8 @@
   --border-hover: #89c4ff;
 
   --input-h: 44px;
+
+  --brand-kwly: #0284c7;
 }
 
 [data-theme='dark'] {
@@ -55,4 +57,6 @@
 
   --border: #1c2738;
   --border-hover: #0080ff;
+
+  --brand-kwly: #93c5fd;
 }
