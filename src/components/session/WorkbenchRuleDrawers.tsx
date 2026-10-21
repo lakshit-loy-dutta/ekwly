@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Trash2, Check, Sparkles, Tag, Layers, Percent, Plus } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Trash2, Check, Sparkles, Tag, Layers, Percent, Plus, Wand2 } from 'lucide-react';
 import { useSessionContext } from '../../lib/SessionContext';
+import { mathEngine } from '../../lib/mathEngine';
 import { utils, showToast } from '../../lib/utils';
 import BottomSheet from '../ui/BottomSheet';
 import ToggleSwitch from '../ui/ToggleSwitch';
@@ -29,8 +30,15 @@ const COMMON_TAX_TEMPLATES = [
   { name: 'Exempt / MRP', rate: 0, split: false, desc: '0% Tax (Bottled Water / MRP Items)' },
 ];
 
+const PRESET_SC_RATES = [5, 7.5, 10];
+
 export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
-  const { isHost, items, taxPresets, sessionRules, actions } = useSessionContext();
+  const { isHost, items, members, formattedClaims, taxPresets, sessionRules, actions } =
+    useSessionContext();
+
+  // --- SERVICE CHARGE AUTO-DETECT STATE ---
+  const [printedBillTotalInput, setPrintedBillTotalInput] = useState('');
+  const [autoMatchedModeLabel, setAutoMatchedModeLabel] = useState<string | null>(null);
 
   // --- DISCOUNT DRAWER STATE ---
   const [discountTab, setDiscountTab] = useState<'pre' | 'post' | 'section'>('pre');
@@ -81,6 +89,98 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
     }, 400);
     return () => clearTimeout(timer);
   }, [localPostDiscount, sessionRules.postTaxDiscountValue, actions]);
+
+  const foodPresetId = useMemo(() => {
+    const found = taxPresets.find((t) => /food|gst/i.test(t.name) && t.rate > 0) || taxPresets[0];
+    return found?.id || 'none';
+  }, [taxPresets]);
+
+  // Compute live previews for each of the 3 Service Charge tax modes so the user can visually match their paper receipt
+  const scModePreviews = useMemo(() => {
+    const computeForPresetId = (targetScTaxPresetId: string) => {
+      if (items.length === 0) return { totalTax: 0, grandTotal: 0 };
+      const res = mathEngine.generateSplit({
+        items,
+        members,
+        formattedClaims,
+        discountType: sessionRules.discountType,
+        discountMode: sessionRules.discountMode,
+        discountValue: sessionRules.discountValue,
+        postTaxDiscountType: sessionRules.postTaxDiscountType,
+        postTaxDiscountValue: sessionRules.postTaxDiscountValue,
+        taxPresets,
+        scTaxPresetId: targetScTaxPresetId,
+        serviceChargeRate: sessionRules.isScApplicable ? sessionRules.serviceChargeRate : 0,
+      });
+      const totalTax = utils.round2(
+        Object.values(res.globalSummary.taxBreakdown).reduce((a, b) => a + b, 0)
+      );
+      return {
+        totalTax,
+        grandTotal: res.globalSummary.grandTotal,
+        rawTotal:
+          res.globalSummary.subTotal +
+          res.globalSummary.serviceCharge +
+          totalTax -
+          res.globalSummary.postTaxDiscountAmount,
+      };
+    };
+
+    return {
+      inherit: computeForPresetId('inherit'),
+      global: computeForPresetId(foodPresetId),
+      none: computeForPresetId('none'),
+    };
+  }, [items, members, formattedClaims, sessionRules, taxPresets, foodPresetId]);
+
+  // Auto-detect which SC mode matches the user's printed paper bill Grand Total
+  const handleAutoDetectScMode = (inputStr: string) => {
+    setPrintedBillTotalInput(inputStr);
+    const target = parseFloat(inputStr);
+    if (isNaN(target) || target <= 0 || items.length === 0) {
+      setAutoMatchedModeLabel(null);
+      return;
+    }
+
+    const candidates = [
+      {
+        mode: 'inherit',
+        presetVal: 'inherit',
+        label: 'Taxed along with items',
+        diff: Math.min(
+          Math.abs(scModePreviews.inherit.grandTotal - target),
+          Math.abs((scModePreviews.inherit.rawTotal || 0) - target)
+        ),
+      },
+      {
+        mode: 'global',
+        presetVal: foodPresetId,
+        label: 'Taxed separately under Food GST (5%)',
+        diff: Math.min(
+          Math.abs(scModePreviews.global.grandTotal - target),
+          Math.abs((scModePreviews.global.rawTotal || 0) - target)
+        ),
+      },
+      {
+        mode: 'none',
+        presetVal: 'none',
+        label: 'No extra tax on Service Charge',
+        diff: Math.min(
+          Math.abs(scModePreviews.none.grandTotal - target),
+          Math.abs((scModePreviews.none.rawTotal || 0) - target)
+        ),
+      },
+    ].sort((a, b) => a.diff - b.diff);
+
+    const best = candidates[0];
+    if (best.diff <= 2.0) {
+      utils.haptic('medium');
+      actions.updateSessionRulesInDB({ scTaxPresetId: best.presetVal });
+      setAutoMatchedModeLabel(best.label);
+    } else {
+      setAutoMatchedModeLabel(null);
+    }
+  };
 
   const handleApplySectionDiscount = async () => {
     const val = parseFloat(sectionDiscValue);
@@ -169,10 +269,11 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
 
   const postTaxType = sessionRules.postTaxDiscountType || 'none';
   const scRatePct = Number((sessionRules.serviceChargeRate * 100).toFixed(2));
+  const isPresetScRate = PRESET_SC_RATES.some((p) => Math.abs(scRatePct - p) < 0.01);
 
   return (
     <>
-      {/* DRAWER 1: IDIOT-PROOF SERVICE CHARGE CONFIG */}
+      {/* DRAWER 1: SMART SERVICE CHARGE SETUP WITH AUTO-DETECT & LIVE RUPEE PREVIEWS */}
       <BottomSheet isOpen={activeSheet === 'sc'} onClose={onClose} title="Service Charge Setup">
         <div className="flex flex-col gap-4 pb-4">
           <p className="text-xs text-muted leading-relaxed">
@@ -203,7 +304,7 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                   Service Charge Percentage (%)
                 </label>
                 <div className="grid grid-cols-4 gap-2">
-                  {[5, 7.5, 10].map((pct) => (
+                  {PRESET_SC_RATES.map((pct) => (
                     <button
                       key={pct}
                       type="button"
@@ -224,38 +325,79 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                   <input
                     type="number"
                     disabled={!isHost}
-                    value={scRatePct > 0 ? scRatePct : ''}
+                    value={!isPresetScRate && scRatePct > 0 ? scRatePct : ''}
                     onChange={(e) =>
                       actions.updateSessionRulesInDB({
                         serviceChargeRate: (parseFloat(e.target.value) || 0) / 100,
                       })
                     }
-                    placeholder="Custom %"
-                    className="h-10 bg-page border border-border rounded-xl px-2.5 text-center text-xs font-bold tabular-nums"
+                    placeholder="Other %"
+                    className={`h-10 bg-page border rounded-xl px-2 text-center text-xs font-bold tabular-nums ${
+                      !isPresetScRate && scRatePct > 0
+                        ? 'border-primary text-primary'
+                        : 'border-border text-main'
+                    }`}
                   />
                 </div>
               </div>
 
+              {/* AUTO-DETECT SOLVER WHEN ITEMS ARE ON THE BILL */}
+              {items.length > 0 && (
+                <div className="bg-primary/8 border border-primary/25 rounded-2xl p-3.5 flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5 text-primary">
+                    <Wand2 size={14} />
+                    <span className="text-xs font-extrabold">
+                      Not sure how Service Charge is taxed? Auto-Detect it:
+                    </span>
+                  </div>
+                  <p className="text-[0.7rem] text-muted leading-relaxed">
+                    Type the final <strong>Grand Total</strong> printed on your paper bill (or just
+                    compare the resulting rupee totals on the 3 options below):
+                  </p>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted font-bold text-xs">
+                      ₹
+                    </div>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={printedBillTotalInput}
+                      onChange={(e) => handleAutoDetectScMode(e.target.value)}
+                      placeholder="Enter printed Grand Total (e.g. 1453)"
+                      className="w-full h-10 bg-surface border border-border rounded-xl pl-7 pr-3 text-xs font-bold tabular-nums"
+                    />
+                  </div>
+                  {autoMatchedModeLabel && (
+                    <div className="flex items-center gap-1.5 text-[0.7rem] font-extrabold text-emerald-500 pt-0.5">
+                      <Check size={13} /> Auto-Matched: &ldquo;{autoMatchedModeLabel}&rdquo;
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-col gap-2 pt-1">
                 <label className="text-xs font-bold uppercase tracking-widest text-muted">
-                  Did the restaurant charge GST on the Service Charge?
+                  How is Service Charge taxed on your bill?
                 </label>
 
                 {[
                   {
-                    id: 'inherit',
-                    title: 'Yes — Taxed along with items (Most Common)',
-                    desc: 'GST/VAT is calculated on (Item Price + Service Charge). Used by most pubs & restaurants.',
+                    id: 'inherit' as const,
+                    title: 'Standard — Taxed along with items (Most Common)',
+                    desc: 'GST/VAT is calculated on (Item Price + Service Charge).',
+                    preview: scModePreviews.inherit,
                   },
                   {
-                    id: 'global',
-                    title: 'Yes — Taxed separately under Food GST (5%)',
-                    desc: 'Service Charge is taxed at 5% GST even on liquor bills.',
+                    id: 'global' as const,
+                    title: 'Taxed separately under Food GST (5%)',
+                    desc: 'Service Charge attracts 5% GST even on liquor bills.',
+                    preview: scModePreviews.global,
                   },
                   {
-                    id: 'none',
+                    id: 'none' as const,
                     title: 'No extra tax on Service Charge',
-                    desc: 'Service Charge is added flat without GST on top of it.',
+                    desc: 'Service Charge is added flat after taxes.',
+                    preview: scModePreviews.none,
                   },
                 ].map((opt) => {
                   const currentMode =
@@ -275,10 +417,8 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                         if (opt.id === 'inherit' || opt.id === 'none') {
                           actions.updateSessionRulesInDB({ scTaxPresetId: opt.id });
                         } else {
-                          const foodPreset =
-                            taxPresets.find((t) => /food|gst/i.test(t.name)) || taxPresets[0];
                           actions.updateSessionRulesInDB({
-                            scTaxPresetId: foodPreset?.id || 'none',
+                            scTaxPresetId: foodPresetId,
                           });
                         }
                       }}
@@ -295,9 +435,19 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
                       >
                         {isSelected && <Check size={12} />}
                       </div>
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-col gap-1 flex-1 min-w-0">
                         <span className="text-xs font-extrabold text-main">{opt.title}</span>
                         <span className="text-[0.7rem] text-muted leading-relaxed">{opt.desc}</span>
+                        {items.length > 0 && (
+                          <div className="mt-1 pt-1.5 border-t border-border/60 flex items-center justify-between text-[0.7rem] font-mono tabular-nums">
+                            <span className="text-muted">
+                              Total Tax: <strong>{utils.formatMoney(opt.preview.totalTax)}</strong>
+                            </span>
+                            <span className="text-primary font-extrabold">
+                              Bill Total: {utils.formatMoney(opt.preview.grandTotal)}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </button>
                   );

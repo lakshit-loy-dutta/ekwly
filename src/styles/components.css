@@ -112,14 +112,23 @@ input:checked + .slider:before {
   }
 }
 
-/* --- SKEUOMORPHIC THERMAL POS RECEIPT --- */
-.pos-receipt {
-  --receipt-bg: #fffdf9;
+/* --- SKEUOMORPHIC THERMAL POS RECEIPT TOKENS --- */
+:root {
+  --receipt-bg: #fffdf8;
   --receipt-border: #cbd5e1;
   --receipt-dash: #94a3b8;
+}
+
+[data-theme='dark'] {
+  --receipt-bg: #152238;
+  --receipt-border: #2c4263;
+  --receipt-dash: #3b557d;
+}
+
+.pos-receipt {
   background-color: var(--receipt-bg);
-  border-left: 1px solid var(--receipt-border);
-  border-right: 1px solid var(--receipt-border);
+  border-left: 1.5px solid var(--receipt-border);
+  border-right: 1.5px solid var(--receipt-border);
   box-shadow:
     0 14px 34px -10px rgba(0, 30, 59, 0.14),
     0 2px 6px -1px rgba(0, 30, 59, 0.06);
@@ -127,46 +136,20 @@ input:checked + .slider:before {
 }
 
 [data-theme='dark'] .pos-receipt {
-  --receipt-bg: #111a2b;
-  --receipt-border: #24344d;
-  --receipt-dash: #334766;
-  background-image: radial-gradient(circle at 50% 0%, rgba(0, 128, 255, 0.07) 0%, transparent 65%);
+  background-image: radial-gradient(circle at 50% 0%, rgba(0, 128, 255, 0.09) 0%, transparent 70%);
   box-shadow:
-    0 18px 40px -12px rgba(0, 0, 0, 0.65),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
-}
-
-/* Serrated Sawtooth Paper Top & Bottom Edges */
-.pos-receipt-edge-top {
-  height: 10px;
-  width: 100%;
-  background-image:
-    linear-gradient(135deg, var(--bg-page) 50%, transparent 50%),
-    linear-gradient(225deg, var(--bg-page) 50%, transparent 50%);
-  background-position: top left;
-  background-size: 14px 10px;
-  background-repeat: repeat-x;
-}
-
-.pos-receipt-edge-bottom {
-  height: 10px;
-  width: 100%;
-  background-image:
-    linear-gradient(45deg, var(--bg-page) 50%, transparent 50%),
-    linear-gradient(315deg, var(--bg-page) 50%, transparent 50%);
-  background-position: bottom left;
-  background-size: 14px 10px;
-  background-repeat: repeat-x;
+    0 20px 44px -12px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
 }
 
 .pos-dashed-line {
   border-top: 1.5px dashed var(--receipt-dash);
-  opacity: 0.55;
+  opacity: 0.7;
 }
 
 .pos-double-line {
   border-top: 3px double var(--receipt-dash);
-  opacity: 0.75;
+  opacity: 0.85;
 }
 
 /* Side Ticket Cutout Notches */
@@ -184,10 +167,10 @@ input:checked + .slider:before {
 
 .pos-notch-left {
   left: -10px;
-  border-right: 1px solid var(--receipt-border);
+  border-right: 1.5px solid var(--receipt-border);
 }
 
 .pos-notch-right {
   right: -10px;
-  border-left: 1px solid var(--receipt-border);
+  border-left: 1.5px solid var(--receipt-border);
 }

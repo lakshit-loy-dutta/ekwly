@@ -47,25 +47,50 @@ interface FriendQuickChip {
   avatar_url: string | null;
 }
 
-/** True SVG sawtooth edge mimicking a receipt torn against a serrated metal POS printer blade */
+/** 32-tooth SVG serrated edge mimicking a paper receipt torn against a metal POS thermal printer blade */
 function ThermalReceiptSawtooth({ position }: { position: 'top' | 'bottom' }) {
-  const points =
-    position === 'top'
-      ? '0,12 0,6 10,0 20,6 30,0 40,6 50,0 60,6 70,0 80,6 90,0 100,6 110,0 120,6 130,0 140,6 150,0 160,6 170,0 180,6 190,0 200,6 210,0 220,6 230,0 240,6 250,0 260,6 270,0 280,6 290,0 300,6 310,0 320,6 330,0 340,6 350,0 360,6 370,0 380,6 390,0 400,6 400,12'
-      : '0,0 0,6 10,12 20,6 30,12 40,6 50,12 60,6 70,12 80,6 90,12 100,6 110,12 120,6 130,12 140,6 150,12 160,6 170,12 180,6 190,12 200,6 210,12 220,6 230,12 240,6 250,12 260,6 270,12 280,6 290,12 300,6 310,12 320,6 330,12 340,6 350,12 360,6 370,12 380,6 390,12 400,6 400,0';
+  const teethCount = 32;
+  const width = 640;
+  const height = 14;
+  const step = width / teethCount;
+
+  const pts: string[] = [];
+  if (position === 'top') {
+    pts.push(`0,${height}`);
+    for (let i = 0; i < teethCount; i++) {
+      const xStart = i * step;
+      const xMid = xStart + step / 2;
+      pts.push(`${xStart},${height}`);
+      pts.push(`${xMid},1`);
+    }
+    pts.push(`${width},${height}`);
+  } else {
+    pts.push('0,0');
+    for (let i = 0; i < teethCount; i++) {
+      const xStart = i * step;
+      const xMid = xStart + step / 2;
+      pts.push(`${xStart},0`);
+      pts.push(`${xMid},${height - 1}`);
+    }
+    pts.push(`${width},0`);
+  }
+
+  const edgePolyline = pts.slice(1, -1).join(' ');
 
   return (
     <svg
-      viewBox="0 0 400 12"
+      viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
-      className="w-full h-3 block select-none pointer-events-none"
+      className="w-full h-3.5 block select-none pointer-events-none"
       aria-hidden="true"
     >
-      <polygon
-        points={points}
-        fill="var(--receipt-bg)"
+      <polygon points={pts.join(' ')} fill="var(--receipt-bg)" />
+      <polyline
+        points={edgePolyline}
+        fill="none"
         stroke="var(--receipt-border)"
-        strokeWidth="1"
+        strokeWidth="1.5"
+        strokeLinejoin="miter"
       />
     </svg>
   );
@@ -563,8 +588,8 @@ export default function ReceiptWorkbench() {
             </button>
           )}
 
-          {/* Crowdsourced Restaurant / Venue Search */}
-          <div className="flex flex-col gap-1.5 pt-1">
+          {/* Crowdsourced Restaurant / Venue Search (Inline Expandable Tray — Never Overlaps Below) */}
+          <div className="flex flex-col gap-2 pt-1">
             <div className="flex items-center justify-between px-0.5">
               <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
                 <Store size={12} className="text-primary" /> Restaurant / Venue (Auto-Loads Menu
@@ -596,31 +621,46 @@ export default function ReceiptWorkbench() {
                 placeholder="Search known restaurant (e.g. Toit, Chin Lung)..."
                 className="w-full h-11 bg-page border border-border rounded-xl pl-10 pr-3 text-sm font-semibold text-main"
               />
+            </div>
 
-              {showVenueDropdown && venueResults.length > 0 && (
-                <div className="absolute top-12 left-0 right-0 bg-surface border border-primary/40 rounded-xl shadow-2xl z-30 flex flex-col overflow-hidden max-h-56 overflow-y-auto">
-                  <div className="px-3 py-1.5 bg-primary/10 border-b border-border text-[0.65rem] font-extrabold uppercase tracking-widest text-primary">
-                    Tap to Auto-Load Community Taxes &amp; Menu
-                  </div>
-                  {venueResults.map((v) => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => handleSelectVenue(v)}
-                      className="flex flex-col px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
-                    >
-                      <span className="font-bold text-main text-sm truncate">{v.name}</span>
-                      <span className="text-[0.7rem] text-muted">
+            {showVenueDropdown && venueResults.length > 0 && (
+              <div className="bg-page border border-primary/35 rounded-xl overflow-hidden flex flex-col divide-y divide-border/60 shadow-inner">
+                <div className="px-3 py-1.5 bg-primary/10 flex items-center justify-between">
+                  <span className="text-[0.62rem] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1">
+                    <Sparkles size={11} /> Found in Community Venue Database
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowVenueDropdown(false)}
+                    className="p-0.5 text-muted hover:text-main rounded"
+                    aria-label="Dismiss suggestions"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                {venueResults.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => handleSelectVenue(v)}
+                    className="flex items-center justify-between px-3 py-2.5 hover:bg-subtle/60 text-left gap-2 transition-colors"
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-main text-xs truncate">{v.name}</span>
+                      <span className="text-[0.68rem] text-muted truncate">
                         {v.tax_presets ? v.tax_presets.length : 0} Tax Brackets •{' '}
                         {v.service_charge_rate > 0
                           ? `${v.service_charge_rate * 100}% Service Charge`
                           : 'No Service Charge'}
                       </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-primary text-white text-[0.68rem] font-extrabold shrink-0 shadow-2xs">
+                      Load Rules
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -885,8 +925,8 @@ export default function ReceiptWorkbench() {
             )}
           </div>
 
-          {/* Item Name Input with Crowdsourced Menu Price Autocomplete */}
-          <div className="relative">
+          {/* Item Name Input with Inline Crowdsourced Menu Price Tray */}
+          <div className="flex flex-col gap-2">
             <input
               type="text"
               value={newItemName}
@@ -895,9 +935,18 @@ export default function ReceiptWorkbench() {
               className="w-full h-11 bg-page border border-border rounded-xl px-3.5 text-sm font-semibold text-main"
             />
             {showItemDropdown && itemResults.length > 0 && (
-              <div className="absolute top-12 left-0 right-0 bg-surface border border-primary/40 rounded-xl shadow-xl z-30 flex flex-col overflow-hidden max-h-48 overflow-y-auto">
-                <div className="px-3 py-1 bg-primary/10 border-b border-border text-[0.62rem] font-bold uppercase tracking-widest text-primary">
-                  Known Menu Prices at {sessionRules.venueName}
+              <div className="bg-page border border-primary/30 rounded-xl overflow-hidden flex flex-col divide-y divide-border/60">
+                <div className="px-3 py-1 bg-primary/10 flex items-center justify-between">
+                  <span className="text-[0.62rem] font-bold uppercase tracking-widest text-primary">
+                    Menu Prices at {sessionRules.venueName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowItemDropdown(false)}
+                    className="p-0.5 text-muted hover:text-main"
+                  >
+                    <X size={12} />
+                  </button>
                 </div>
                 {itemResults.map((item, idx) => (
                   <button
@@ -908,12 +957,12 @@ export default function ReceiptWorkbench() {
                       setNewItemPrice(item.price.toString());
                       setShowItemDropdown(false);
                     }}
-                    className="flex items-center justify-between px-3.5 py-2.5 hover:bg-subtle text-left border-b border-border/50 last:border-0"
+                    className="flex items-center justify-between px-3 py-2 hover:bg-subtle/60 text-left"
                   >
-                    <span className="font-semibold text-main text-sm truncate pr-3">
+                    <span className="font-semibold text-main text-xs truncate pr-3">
                       {item.name}
                     </span>
-                    <span className="text-xs font-bold text-primary tabular-nums shrink-0">
+                    <span className="text-xs font-extrabold text-primary tabular-nums shrink-0">
                       {utils.formatMoney(item.price)}
                     </span>
                   </button>
@@ -922,20 +971,20 @@ export default function ReceiptWorkbench() {
             )}
           </div>
 
-          {/* Labeled Quantity Stepper (- 1 +) & Labeled Unit Price Input */}
+          {/* Flush Segmented Quantity Stepper & Labeled Unit Price Input */}
           <div className="grid grid-cols-12 gap-3">
             <div className="col-span-6 sm:col-span-5 flex flex-col gap-1">
               <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted pl-0.5">
                 Quantity (No. of Items)
               </label>
-              <div className="h-11 bg-page border border-border rounded-xl p-1 flex items-center justify-between">
+              <div className="h-11 bg-page border border-border rounded-xl overflow-hidden grid grid-cols-[42px_1fr_42px] divide-x divide-border">
                 <button
                   type="button"
                   onClick={() => adjustNewItemQty(-1)}
-                  className="w-9 h-9 rounded-lg bg-surface border border-border text-main hover:bg-subtle active:scale-90 flex items-center justify-center transition-transform shrink-0"
+                  className="h-full w-full bg-surface/50 hover:bg-subtle active:bg-border text-muted hover:text-main flex items-center justify-center transition-colors"
                   aria-label="Decrease quantity"
                 >
-                  <Minus size={15} />
+                  <Minus size={15} strokeWidth={2.5} />
                 </button>
                 <input
                   type="number"
@@ -944,15 +993,15 @@ export default function ReceiptWorkbench() {
                   onChange={(e) => setNewItemQty(e.target.value)}
                   min="0.01"
                   step="any"
-                  className="w-full h-9 bg-transparent border-0 px-1 text-center text-sm font-extrabold text-main tabular-nums focus:ring-0"
+                  className="w-full h-full bg-transparent border-0 rounded-none px-1 text-center text-sm font-extrabold text-main tabular-nums focus:ring-0 focus:shadow-none"
                 />
                 <button
                   type="button"
                   onClick={() => adjustNewItemQty(1)}
-                  className="w-9 h-9 rounded-lg bg-surface border border-border text-main hover:bg-subtle active:scale-90 flex items-center justify-center transition-transform shrink-0"
+                  className="h-full w-full bg-surface/50 hover:bg-subtle active:bg-border text-muted hover:text-main flex items-center justify-center transition-colors"
                   aria-label="Increase quantity"
                 >
-                  <Plus size={15} />
+                  <Plus size={15} strokeWidth={2.5} />
                 </button>
               </div>
             </div>

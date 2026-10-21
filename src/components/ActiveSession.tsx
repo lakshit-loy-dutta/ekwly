@@ -181,13 +181,13 @@ function ActiveSessionContent({
         variant="danger"
       />
 
-      {/* 2-TAB SEGMENTED WORKBENCH HEADER (High z-30 so scrolling content always passes underneath) */}
-      <div className="sticky top-16 z-30 bg-surface/95 backdrop-blur-xl border-b border-border px-4 py-2.5 shadow-sm gpu-layer">
-        <div className="bg-page border border-border rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
+      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Matches Translucent Top Navbar) */}
+      <div className="sticky top-16 z-30 bg-surface/75 backdrop-blur-xl border-b border-border/80 px-4 py-2 gpu-layer">
+        <div className="bg-page/55 backdrop-blur-md border border-border/80 rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
           <button
             type="button"
             onClick={() => handleSwitchTab('workbench')}
-            className={`relative py-2.5 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
+            className={`relative py-2 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
               activeTab === 'workbench' ? 'text-white' : 'text-muted hover:text-main'
             }`}
           >
@@ -195,7 +195,7 @@ function ActiveSessionContent({
               <motion.div
                 layoutId="ekwly-workbench-tab"
                 transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
-                className="absolute inset-0 bg-primary rounded-xl shadow-sm -z-10"
+                className="absolute inset-0 bg-primary rounded-xl shadow-[0_2px_12px_rgba(0,128,255,0.4)] -z-10"
               />
             )}
             <Receipt size={15} />
@@ -205,7 +205,7 @@ function ActiveSessionContent({
           <button
             type="button"
             onClick={() => handleSwitchTab('settle')}
-            className={`relative py-2.5 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
+            className={`relative py-2 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
               activeTab === 'settle' ? 'text-white' : 'text-muted hover:text-main'
             }`}
           >
@@ -213,7 +213,7 @@ function ActiveSessionContent({
               <motion.div
                 layoutId="ekwly-workbench-tab"
                 transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
-                className="absolute inset-0 bg-primary rounded-xl shadow-sm -z-10"
+                className="absolute inset-0 bg-primary rounded-xl shadow-[0_2px_12px_rgba(0,128,255,0.4)] -z-10"
               />
             )}
             <CreditCard size={15} />
