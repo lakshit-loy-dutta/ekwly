@@ -39,9 +39,27 @@ export interface ItemBreakdownResult {
 
 export const mathEngine = {
   /**
-   * Computes an item's net base after its own item/section discount AND its share of
-   * any selective Pre-Tax bill discount, followed by Service Charge and Tax.
+   * Computes the pre-tax discount multiplier applied to eligible items (applyDiscount !== false)
+   * after individual item/section discounts have been subtracted.
    */
+  computePreTaxMultiplier: (items: BillItem[], preTaxDiscountAmount: number): number => {
+    if (!preTaxDiscountAmount || preTaxDiscountAmount <= 0) return 1;
+    const eligibleBaseAfterItemDisc = items.reduce((sum, item) => {
+      const discVal = Number(item.discountValue || 0);
+      let itemDisc = 0;
+      if (item.discountType === 'percentage' && discVal > 0) {
+        itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
+      } else if (item.discountType === 'flat' && discVal > 0) {
+        itemDisc = Math.min(item.totalBase, discVal);
+      }
+      const afterItem = Math.max(0, item.totalBase - itemDisc);
+      return item.applyDiscount !== false ? sum + afterItem : sum;
+    }, 0);
+
+    return eligibleBaseAfterItemDisc > 0
+      ? Math.max(0, (eligibleBaseAfterItemDisc - preTaxDiscountAmount) / eligibleBaseAfterItemDisc)
+      : 1;
+  },
   calculateItemBreakdown: (
     item: BillItem,
     options: {

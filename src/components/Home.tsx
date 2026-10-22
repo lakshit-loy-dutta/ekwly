@@ -360,7 +360,7 @@ export default function Home({
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.96 }}
                       transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      className="bg-surface border border-border hover:border-primary/40 rounded-2xl p-3.5 flex items-center justify-between text-left shadow-sm gpu-layer"
+                      className="bg-surface border border-border hover:border-primary/40 rounded-2xl p-3.5 flex items-center justify-between text-left shadow-sm"
                     >
                       <div
                         className="flex items-center gap-3.5 flex-1 min-w-0 cursor-pointer"

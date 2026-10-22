@@ -33,6 +33,7 @@ import MagicScanner from './MagicScanner';
 import WorkbenchRuleDrawers from './WorkbenchRuleDrawers';
 import BottomSheet from '../ui/BottomSheet';
 import AnimatedNumber from '../ui/AnimatedNumber';
+import ProUpgradeSheet from '../ui/ProUpgradeSheet';
 
 const FRACTION_PILLS = [
   { label: 'Clear', value: '' },
@@ -489,22 +490,7 @@ export default function ReceiptWorkbench() {
   const computedGrossTotal =
     gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
 
-  const eligibleBaseAfterItemDisc = items.reduce((sum, item) => {
-    const discVal = Number(item.discountValue || 0);
-    let itemDisc = 0;
-    if (item.discountType === 'percentage' && discVal > 0) {
-      itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
-    } else if (item.discountType === 'flat' && discVal > 0) {
-      itemDisc = Math.min(item.totalBase, discVal);
-    }
-    const afterItem = Math.max(0, item.totalBase - itemDisc);
-    return item.applyDiscount !== false ? sum + afterItem : sum;
-  }, 0);
-
-  const preTaxMultiplier =
-    eligibleBaseAfterItemDisc > 0
-      ? (eligibleBaseAfterItemDisc - gs.preTaxDiscountAmount) / eligibleBaseAfterItemDisc
-      : 1;
+  const preTaxMultiplier = mathEngine.computePreTaxMultiplier(items, gs.preTaxDiscountAmount);
 
   const hasActivePreTaxBillDiscount = gs.preTaxDiscountAmount > 0;
   const scPercent = Math.round(sessionRules.serviceChargeRate * 100);
@@ -1669,52 +1655,13 @@ export default function ReceiptWorkbench() {
       </BottomSheet>
 
       {/* DRAWER 1B: 0-QUOTA UPSELL MODAL */}
-      <BottomSheet
+      <ProUpgradeSheet
         isOpen={showQuotaUpsellModal}
         onClose={() => setShowQuotaUpsellModal(false)}
-        title="Unlock Unlimited AI Magic Scans"
-      >
-        <div className="flex flex-col items-center pb-4 text-center">
-          <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-4">
-            <Sparkles size={32} />
-          </div>
-          <h2 className="text-xl font-bold text-main mb-2">No Free Magic Scans Left This Month</h2>
-          <p className="text-sm text-muted mb-6 leading-relaxed">
-            You&apos;ve used all 3 of your free AI Magic Scans for this month. Upgrade to{' '}
-            <strong>Ekwly Pro</strong> to scan unlimited restaurant bills automatically.
-          </p>
-
-          <div className="w-full bg-page border border-primary/25 rounded-2xl p-5 mb-6 text-left shadow-sm">
-            <div className="flex justify-between items-baseline mb-3">
-              <span className="font-extrabold text-main text-base">Ekwly Pro</span>
-              <span className="text-primary text-xl font-extrabold tabular-nums">
-                ₹99 <span className="text-xs text-muted font-medium">/ month</span>
-              </span>
-            </div>
-            <ul className="flex flex-col gap-2.5 text-sm font-medium text-main">
-              <li className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Unlimited AI
-                Receipt Scans
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Personal Analytics
-                &amp; Venue Insights
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Priority Support
-              </li>
-            </ul>
-          </div>
-
-          <a
-            href={`mailto:lloy.dutta@gmail.com?subject=Ekwly Pro Subscription Request&body=Hi, I would like to upgrade my account to Ekwly Pro. My registered email is: ${userEmail}`}
-            onClick={() => showToast('Opening mail client...', 'success')}
-            className="w-full h-12 premium-gradient-card text-white rounded-xl font-bold text-sm flex items-center justify-center shadow-sm active:scale-95 transition-transform"
-          >
-            Upgrade to Ekwly Pro — ₹99/mo
-          </a>
-        </div>
-      </BottomSheet>
+        userId={currentUserId}
+        userEmail={userEmail}
+        reasonTitle="No Free Magic Scans Left This Month"
+      />
 
       {/* DRAWER 2: TABLE MEMBERS, SAVED SQUADS & 1-TAP FRIEND CHIPS */}
       <BottomSheet

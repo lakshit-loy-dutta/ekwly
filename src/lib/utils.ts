@@ -323,41 +323,33 @@ export const utils = {
 
 export const showToast = (message: string, type: 'default' | 'error' | 'success' = 'default') => {
   if (typeof document === 'undefined') return;
-
   let container = document.getElementById('toast-container');
   if (!container) {
     container = document.createElement('div');
     container.id = 'toast-container';
     container.style.cssText =
-      'position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; z-index: 99999; width: 90%; max-width: 400px; pointer-events: none;';
+      'position: fixed; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); z-index: 99999; display: flex; flex-direction: column; gap: 8px; width: 90%; max-width: 400px; pointer-events: none;';
     document.body.appendChild(container);
   }
 
   const toast = document.createElement('div');
-  const bgColor = type === 'error' ? '#DF1B41' : type === 'success' ? '#00D924' : '#141A28';
+  const bg = type === 'error' ? '#DF1B41' : type === 'success' ? '#10B981' : 'var(--bg-surface)';
+  const fg = type === 'default' ? 'var(--text-main)' : '#FFFFFF';
+  const border = type === 'default' ? '1px solid var(--border)' : 'none';
 
-  toast.style.cssText = `background: ${bgColor}; color: #ffffff; padding: 14px 20px; border-radius: 12px; font-size: 0.95rem; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 12px; transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform: translateY(20px); opacity: 0; pointer-events: auto; border: 1px solid rgba(255,255,255,0.1);`;
+  toast.style.cssText = `background: ${bg}; color: ${fg}; border: ${border}; padding: 13px 18px; border-radius: 14px; font-weight: 700; font-size: 0.85rem; box-shadow: 0 12px 28px rgba(0,0,0,0.28); text-align: center; opacity: 0; transform: translateY(16px); transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1); pointer-events: auto;`;
+  toast.textContent = message;
 
-  const icon =
-    type === 'error'
-      ? `<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
-      : type === 'success'
-        ? `<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
-        : `<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
-
-  toast.innerHTML = `${icon} <span style="flex-1">${message.replace(/[&<>'"]/g, (tag) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[tag as string] || tag)}</span>`;
   container.appendChild(toast);
 
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      toast.style.transform = 'translateY(0)';
-      toast.style.opacity = '1';
-    });
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
   });
 
   setTimeout(() => {
     toast.style.opacity = '0';
     toast.style.transform = 'translateY(10px)';
-    setTimeout(() => toast.remove(), 300);
-  }, 3500);
+    setTimeout(() => toast.remove(), 260);
+  }, 3000);
 };

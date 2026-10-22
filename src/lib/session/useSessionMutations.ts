@@ -99,17 +99,43 @@ export function useSessionMutations(deps: MutationDeps) {
     };
 
     const createSessionInDB = async (id: string, pin: string, name?: string | null) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const [
+        {
+          data: { session: authSession },
+        },
+        { data: existingSession },
+      ] = await Promise.all([
+        supabase.auth.getSession(),
+        supabase.from('sessions').select('id').eq('id', id).maybeSingle(),
+      ]);
 
-      const { data: existingSession } = await supabase
-        .from('sessions')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
+      const user = authSession?.user || null;
 
+      // Fast path for brand-new rooms: insert session + host member + default tax presets in parallel
       if (!existingSession) {
+        const defaultTaxes = [
+          { id: utils.generateId(), session_id: id, name: 'Food GST', rate: 5, split: true },
+          { id: utils.generateId(), session_id: id, name: 'Alcohol VAT', rate: 6, split: false },
+          { id: utils.generateId(), session_id: id, name: 'Exempt', rate: 0, split: false },
+        ];
+        setTaxPresets((prev) => (prev.length > 0 ? prev : defaultTaxes));
+
+        let newHostMember: DBMember | null = null;
+        if (user) {
+          const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
+          newHostMember = {
+            id: utils.generateId(),
+            session_id: id,
+            name: hostName,
+            user_id: user.id,
+            paid_amount: 0,
+          };
+          setMembers((prev) =>
+            prev.some((m) => m.user_id === user.id) ? prev : [...prev, newHostMember!]
+          );
+        }
+
+        // 1. Insert parent session row first (required by foreign keys on members & tax_presets)
         await supabase.from('sessions').insert({
           id,
           name: name || null,
@@ -118,47 +144,56 @@ export function useSessionMutations(deps: MutationDeps) {
           host_id: user?.id || null,
           discount_mode: 'pre-tax',
         });
+
+        // 2. Insert host member & default tax presets concurrently
+        await Promise.all([
+          newHostMember ? supabase.from('members').insert(newHostMember) : Promise.resolve(),
+          supabase.from('tax_presets').upsert(defaultTaxes),
+        ]);
+        return;
       }
 
-      if (user) {
+      // Existing room revisit: verify host member & tax presets concurrently
+      const [hostCheck, taxCheck] = await Promise.all([
+        user
+          ? supabase
+              .from('members')
+              .select('id')
+              .eq('session_id', id)
+              .eq('user_id', user.id)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+        supabase.from('tax_presets').select('id').eq('session_id', id).limit(1),
+      ]);
+
+      const tasks: PromiseLike<any>[] = [];
+
+      if (user && !hostCheck.data) {
         const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
-        const { data: existingHost } = await supabase
-          .from('members')
-          .select('id')
-          .eq('session_id', id)
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (!existingHost) {
-          const newHostMember: DBMember = {
-            id: utils.generateId(),
-            session_id: id,
-            name: hostName,
-            user_id: user.id,
-            paid_amount: 0,
-          };
-
-          setMembers((prev) =>
-            prev.some((m) => m.user_id === user.id) ? prev : [...prev, newHostMember]
-          );
-          await supabase.from('members').insert(newHostMember);
-        }
+        const newHostMember: DBMember = {
+          id: utils.generateId(),
+          session_id: id,
+          name: hostName,
+          user_id: user.id,
+          paid_amount: 0,
+        };
+        setMembers((prev) =>
+          prev.some((m) => m.user_id === user.id) ? prev : [...prev, newHostMember]
+        );
+        tasks.push(supabase.from('members').insert(newHostMember));
       }
 
-      const { data: existingTaxes } = await supabase
-        .from('tax_presets')
-        .select('id')
-        .eq('session_id', id);
-
-      if (!existingTaxes || existingTaxes.length === 0) {
+      if (!taxCheck.data || taxCheck.data.length === 0) {
         const defaultTaxes = [
           { id: utils.generateId(), session_id: id, name: 'Food GST', rate: 5, split: true },
           { id: utils.generateId(), session_id: id, name: 'Alcohol VAT', rate: 6, split: false },
           { id: utils.generateId(), session_id: id, name: 'Exempt', rate: 0, split: false },
         ];
         setTaxPresets((prev) => (prev.length > 0 ? prev : defaultTaxes));
-        await supabase.from('tax_presets').upsert(defaultTaxes);
+        tasks.push(supabase.from('tax_presets').upsert(defaultTaxes));
       }
+
+      if (tasks.length > 0) await Promise.all(tasks);
     };
 
     const addMemberToDB = async (name: string, overrideUserId?: string) => {
@@ -262,8 +297,9 @@ export function useSessionMutations(deps: MutationDeps) {
     const claimMemberIdentity = async (memberId: string) => {
       if (!sessionId) return;
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
+      const user = authSession?.user;
       if (!user) return showToast('Sign in to claim a profile.', 'error');
       if (latestRef.current.members.some((m) => m.user_id === user.id)) {
         return showToast('You are already at this table.', 'error');

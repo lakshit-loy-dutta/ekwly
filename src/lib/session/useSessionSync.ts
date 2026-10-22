@@ -72,7 +72,7 @@ export function useSessionSync(sessionId: string | null) {
   const [ledger, setLedger] = useState<any[]>([]);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id || null));
+    supabase.auth.getSession().then(({ data }) => setCurrentUserId(data.session?.user?.id || null));
   }, []);
 
   const enableRealtime = useCallback(() => {
@@ -105,13 +105,13 @@ export function useSessionSync(sessionId: string | null) {
           supabase.from('items').select('*').eq('session_id', sessionId),
           supabase.from('members').select('*').eq('session_id', sessionId),
           supabase.from('claims').select('*').eq('session_id', sessionId),
-          supabase.from('sessions').select('*').eq('id', sessionId).single(),
+          supabase.from('sessions').select('*').eq('id', sessionId).maybeSingle(),
           supabase.from('ledger').select('*').eq('session_id', sessionId),
           supabase.from('tax_presets').select('*').eq('session_id', sessionId),
-          supabase.auth.getUser(),
+          supabase.auth.getSession(),
         ]);
 
-      const activeUid = authRes.data.user?.id || null;
+      const activeUid = authRes.data.session?.user?.id || null;
       if (activeUid) setCurrentUserId(activeUid);
 
       if (sessionRes.data) {

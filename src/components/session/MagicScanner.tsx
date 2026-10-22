@@ -1,353 +1,297 @@
-import { useState } from 'react';
-import {
-  Camera as CameraIcon,
-  Image as ImageIcon,
-  Loader2,
-  Sparkles,
-  CheckCircle2,
-} from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Capacitor } from '@capacitor/core';
-import { Camera } from '@capacitor/camera';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
-import { showToast, utils } from '../../lib/utils';
-import BottomSheet from '../ui/BottomSheet';
+import { utils, showToast } from '../../lib/utils';
+import type { BillItem, TaxPreset } from '../../lib/types';
+import BrandLoader from '../ui/BrandLoader';
+import ProUpgradeSheet from '../ui/ProUpgradeSheet';
+import { Sparkles, Camera as CameraIcon, Image as ImageIcon } from 'lucide-react';
 
 interface Props {
   onScanComplete?: () => void;
 }
 
 export default function MagicScanner({ onScanComplete }: Props) {
-  const { isHost, sessionRules, taxPresets, actions } = useSessionContext();
+  const { isHost, taxPresets, currentUserId, actions } = useSessionContext();
   const [isScanning, setIsScanning] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isHost) return null;
 
-  const fileToBase64 = (blob: Blob): Promise<{ base64: string; mimeType: string }> => {
+  const compressImageToBase64 = (fileOrBlob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(blob);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_DIMENSION = 1400;
+          let width = img.width;
+          let height = img.height;
 
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        const MAX_DIM = 1400;
-        let { width, height } = img;
-
-        if (width > MAX_DIM || height > MAX_DIM) {
-          if (width > height) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
-          } else {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
+          if (width > height && width > MAX_DIMENSION) {
+            height = Math.round((height * MAX_DIMENSION) / width);
+            width = MAX_DIMENSION;
+          } else if (height > MAX_DIMENSION) {
+            width = Math.round((width * MAX_DIMENSION) / height);
+            height = MAX_DIMENSION;
           }
-        }
 
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return reject(new Error('Canvas context unavailable'));
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return reject(new Error('Canvas context unavailable'));
+          ctx.drawImage(img, 0, 0, width, height);
 
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-        const encoded = dataUrl.replace(/^data:image\/jpeg;base64,/, '');
-        resolve({ base64: encoded, mimeType: 'image/jpeg' });
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          const base64Clean = dataUrl.split(',')[1];
+          resolve(base64Clean);
+        };
+        img.onerror = () => reject(new Error('Failed to decode receipt image'));
+        img.src = event.target?.result as string;
       };
-
-      img.onerror = (err) => {
-        URL.revokeObjectURL(objectUrl);
-        reject(err);
-      };
-      img.src = objectUrl;
+      reader.onerror = () => reject(new Error('Failed to read image file'));
+      reader.readAsDataURL(fileOrBlob);
     });
   };
 
-  const initiateScan = async (
-    sourceType: 'CAMERA' | 'GALLERY',
-    e?: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const processBase64Receipt = async (base64Image: string) => {
     setIsScanning(true);
-    showToast('Analyzing receipt with AI...', 'default');
-
     try {
-      let base64Image = '';
-      let imageMimeType = 'image/jpeg';
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (Capacitor.isNativePlatform()) {
-        let imageWebPath = '';
-
-        if (sourceType === 'CAMERA') {
-          const image = await Camera.takePhoto({ quality: 90 });
-          if (!image || !image.webPath) throw new Error('Failed to capture image');
-          imageWebPath = image.webPath;
-        } else {
-          const gallery = await Camera.chooseFromGallery({
-            allowMultipleSelection: false,
-            quality: 90,
-          });
-          if (
-            !gallery ||
-            !gallery.results ||
-            gallery.results.length === 0 ||
-            !gallery.results[0].webPath
-          ) {
-            throw new Error('No image selected');
-          }
-          imageWebPath = gallery.results[0].webPath;
-        }
-
-        const response = await fetch(imageWebPath);
-        const blob = await response.blob();
-        const extracted = await fileToBase64(blob);
-        base64Image = extracted.base64;
-        imageMimeType = extracted.mimeType;
-      } else {
-        const file = e?.target.files?.[0];
-        if (!file) throw new Error('No file selected');
-        const extracted = await fileToBase64(file);
-        base64Image = extracted.base64;
-        imageMimeType = extracted.mimeType;
+      if (!session?.access_token) {
+        showToast('Sign in with Google or Email to use AI Magic Scan.', 'error');
+        setIsScanning(false);
+        return;
       }
 
+      if (session.user?.email) setUserEmail(session.user.email);
+
       const { data, error } = await supabase.functions.invoke('scan-receipt', {
-        body: {
-          imageBase64: base64Image,
-          mimeType: imageMimeType,
-          currentRules: sessionRules,
-          currentTaxes: taxPresets,
+        body: { base64Image },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
         },
       });
 
-      const errMessage = error?.message || data?.error;
-      if (errMessage) {
-        if (errMessage === 'RATE_LIMIT_REACHED' || errMessage.includes('3 free Magic Scans')) {
-          setShowUpgradeModal(true);
+      if (error) {
+        if (error.message?.includes('QUOTA_EXCEEDED') || (error as any)?.status === 402) {
+          setShowPaywall(true);
+          setIsScanning(false);
           return;
         }
-        throw new Error(errMessage);
+        throw error;
       }
 
-      if (!data?.items || data.items.length === 0)
-        throw new Error('AI could not find any items on this receipt.');
+      if (data?.error === 'QUOTA_EXCEEDED') {
+        setShowPaywall(true);
+        setIsScanning(false);
+        return;
+      }
 
-      // 1. PROCESS NEW TAX PRESETS FIRST
-      const tempIdMap: Record<string, string> = {};
-      if (data.newTaxPresets && Array.isArray(data.newTaxPresets)) {
-        for (const pt of data.newTaxPresets) {
-          const newRealId = utils.generateId();
-          tempIdMap[pt.tempId] = newRealId;
-          await actions.addTaxPresetToDB({
-            id: newRealId,
-            name: pt.name,
-            rate: pt.rate,
-            split: pt.split !== false,
-          });
+      if (!data || !Array.isArray(data.items)) {
+        throw new Error('Could not read items from this image. Try a clearer photo.');
+      }
+
+      // 1. Reconcile & batch-save any new tax brackets detected by Gemini
+      const updatedPresets: TaxPreset[] = [...taxPresets];
+      let hasNewPresets = false;
+
+      if (Array.isArray(data.newTaxPresets)) {
+        for (const tp of data.newTaxPresets) {
+          const exists = updatedPresets.some(
+            (existing) => Math.abs(existing.rate - Number(tp.rate)) < 0.1
+          );
+          if (!exists && Number(tp.rate) >= 0) {
+            updatedPresets.push({
+              id: utils.generateId(),
+              name: tp.name || `Tax ${tp.rate}%`,
+              rate: Number(tp.rate),
+              split: tp.split !== false,
+            });
+            hasNewPresets = true;
+          }
         }
       }
 
-      // 2. UPDATE SESSION RULES (Supports Simultaneous Pre-Tax & Post-Tax Discounts)
-      if (data.sessionRules) {
-        let scRate = data.sessionRules.serviceChargeRate || 0;
-        if (scRate > 1) scRate = scRate / 100;
-
-        let parsedScTaxId = data.sessionRules.scTaxPresetId || 'inherit';
-        if (tempIdMap[parsedScTaxId]) parsedScTaxId = tempIdMap[parsedScTaxId];
-
-        const rawDiscType =
-          data.sessionRules.discountType === 'percentage' ||
-          data.sessionRules.discountType === 'flat'
-            ? data.sessionRules.discountType
-            : 'none';
-        const rawPostType =
-          data.sessionRules.postTaxDiscountType === 'percentage' ||
-          data.sessionRules.postTaxDiscountType === 'flat'
-            ? data.sessionRules.postTaxDiscountType
-            : 'none';
-
-        await actions.updateSessionRulesInDB({
-          isScApplicable: Boolean(data.sessionRules.isScApplicable),
-          serviceChargeRate: scRate,
-          scTaxPresetId: parsedScTaxId,
-          discountType: rawDiscType,
-          discountValue: data.sessionRules.discountValue || '',
-          discountMode:
-            data.sessionRules.discountMode === 'post-tax' && rawPostType === 'none'
-              ? 'post-tax'
-              : 'pre-tax',
-          postTaxDiscountType: rawPostType,
-          postTaxDiscountValue: data.sessionRules.postTaxDiscountValue || '',
-        });
+      if (hasNewPresets) {
+        await actions.replaceTaxPresetsInDB(updatedPresets);
       }
 
-      // 3. BATCH INSERT ITEMS WITH ITEM/SECTION DISCOUNTS & ELIGIBILITY FLAGS
-      const itemsToInsert = data.items
-        .filter((extractedItem: any) => extractedItem.name && extractedItem.price)
-        .map((extractedItem: any) => {
-          const finalTaxId =
-            tempIdMap[extractedItem.taxPresetId] ||
-            extractedItem.taxPresetId ||
-            (taxPresets.length > 0 ? taxPresets[0].id : 'tx-1');
-          const qty = Number(extractedItem.qty || 1);
-          const unitPrice = Number(extractedItem.price || 0);
-          const itemDiscType =
-            extractedItem.discountType === 'percentage' || extractedItem.discountType === 'flat'
-              ? extractedItem.discountType
-              : 'none';
-          const itemDiscVal = Number(extractedItem.discountValue || 0);
+      // 2. Apply venue, service charge & 3-layer discounts if detected
+      const scRate = Number(data.serviceChargeRate || 0);
+      const normScRate = scRate > 1 ? scRate / 100 : scRate;
 
-          return {
-            id: utils.generateId(),
-            name: extractedItem.name,
-            qty,
-            unitPrice,
-            taxRate: 0,
-            taxPresetId: finalTaxId,
-            applySC: extractedItem.applySC !== false,
-            applyDiscount: extractedItem.applyDiscount !== false,
-            discountType: itemDiscType,
-            discountValue: itemDiscVal,
-            totalBase: qty * unitPrice,
-          };
-        });
+      let resolvedScTaxPresetId = 'inherit';
+      if (data.scTaxMode === 'none') {
+        resolvedScTaxPresetId = 'none';
+      } else if (data.scTaxMode === 'global') {
+        const foodPreset =
+          updatedPresets.find((t) => Math.abs(t.rate - 5) < 0.5) || updatedPresets[0];
+        if (foodPreset) resolvedScTaxPresetId = foodPreset.id;
+      }
 
-      await actions.addItemsBatchToDB?.(itemsToInsert);
+      await actions.updateSessionRulesInDB({
+        ...(data.venueName ? { venueName: data.venueName } : {}),
+        isScApplicable: normScRate > 0,
+        serviceChargeRate: normScRate,
+        scTaxPresetId: resolvedScTaxPresetId,
+        ...(data.discountType && data.discountType !== 'none'
+          ? {
+              discountType: data.discountType,
+              discountValue: String(data.discountValue || ''),
+              discountMode: data.discountMode || 'pre-tax',
+            }
+          : {}),
+        ...(data.postTaxDiscountType && data.postTaxDiscountType !== 'none'
+          ? {
+              postTaxDiscountType: data.postTaxDiscountType,
+              postTaxDiscountValue: String(data.postTaxDiscountValue || ''),
+            }
+          : {}),
+      });
 
-      showToast(`Magic Scan complete! Extracted ${itemsToInsert.length} items.`, 'success');
-      onScanComplete?.();
+      // 3. Map & batch-insert all extracted line items in one single DB call
+      const mappedItems: BillItem[] = data.items.map((raw: any) => {
+        const qty = Math.max(0.01, Number(raw.qty) || 1);
+        const unitPrice = Math.max(0, Number(raw.unitPrice) || 0);
+        const itemRate = Number(raw.taxRate || 0);
+        const matchedPreset =
+          updatedPresets.find((p) => Math.abs(p.rate - itemRate) < 0.5) || updatedPresets[0];
+
+        return {
+          id: utils.generateId(),
+          name: String(raw.name || 'Item').trim(),
+          qty,
+          unitPrice,
+          taxRate: matchedPreset ? matchedPreset.rate / 100 : 0,
+          taxPresetId: matchedPreset ? matchedPreset.id : 'tx-1',
+          applySC: raw.applySC !== false,
+          applyDiscount: raw.applyDiscount !== false,
+          discountType: raw.discountType || 'none',
+          discountValue: Number(raw.discountValue || 0),
+          totalBase: utils.round2(qty * unitPrice),
+        };
+      });
+
+      if (mappedItems.length > 0) {
+        await actions.addItemsBatchToDB(mappedItems);
+      }
+
+      utils.haptic('heavy');
+      showToast(`Extracted ${mappedItems.length} items with AI Magic Scan!`, 'success');
+      if (onScanComplete) onScanComplete();
     } catch (err: any) {
-      console.error('Scan Error:', err);
-      showToast(err.message || 'AI could not read this receipt cleanly.', 'error');
+      console.error('Magic Scan error:', err);
+      showToast(err.message || 'Failed to scan receipt. Please try again.', 'error');
     } finally {
       setIsScanning(false);
-      if (e?.target) e.target.value = '';
+    }
+  };
+
+  const handleNativeCamera = async (source: CameraSource) => {
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 85,
+        allowEditing: false,
+        resultType: CameraResultType.Uri,
+        source,
+      });
+      if (!photo.webPath) return;
+      const response = await fetch(photo.webPath);
+      const blob = await response.blob();
+      const base64 = await compressImageToBase64(blob);
+      await processBase64Receipt(base64);
+    } catch (err: any) {
+      if (err?.message?.includes('cancelled')) return;
+      showToast('Camera capture cancelled or unavailable.', 'default');
+    }
+  };
+
+  const handleWebFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const base64 = await compressImageToBase64(file);
+      await processBase64Receipt(base64);
+    } finally {
+      if (e.target) e.target.value = '';
     }
   };
 
   return (
-    <>
-      <div className="bg-surface border border-border rounded-2xl px-4 py-6 flex flex-col gap-5 shadow-sm">
-        <div className="flex flex-col items-center text-center px-4">
-          <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
-            <CameraIcon size={24} />
-          </div>
-          <h3 className="font-bold text-main text-lg tracking-tight mb-1">Magic Scan</h3>
-          <p className="text-sm text-muted">
-            Upload a receipt and let AI extract items, item/section discounts, GST/VAT, and service
-            charges automatically.
+    <div className="flex flex-col gap-4 pb-2">
+      <ProUpgradeSheet
+        isOpen={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        userId={currentUserId}
+        userEmail={userEmail}
+        reasonTitle="No Free Magic Scans Left This Month"
+      />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleWebFileSelect}
+        className="hidden"
+      />
+
+      {isScanning ? (
+        <div className="py-6 flex flex-col items-center justify-center">
+          <BrandLoader state="scan" label="AI Reading Receipt & Routing Taxes..." />
+          <p className="text-xs text-muted text-center max-w-xs mt-1">
+            Verifying item prices, GST/VAT brackets, Service Charge, and discounts...
           </p>
         </div>
-
-        <div className="grid grid-cols-2 gap-3 w-full">
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={(e) => initiateScan('CAMERA', e)}
-            className="hidden"
-            id="camera-input"
-          />
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => initiateScan('GALLERY', e)}
-            className="hidden"
-            id="gallery-input"
-          />
-
-          <button
-            type="button"
-            disabled={isScanning}
-            onClick={() =>
-              Capacitor.isNativePlatform()
-                ? initiateScan('CAMERA')
-                : document.getElementById('camera-input')?.click()
-            }
-            className="h-14 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all shadow-sm disabled:opacity-50"
-          >
-            {isScanning ? (
-              <Loader2 size={20} className="animate-spin" />
-            ) : (
-              <>
-                <CameraIcon size={20} />
-                <span className="text-[0.65rem] uppercase tracking-wider">Take Photo</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            disabled={isScanning}
-            onClick={() =>
-              Capacitor.isNativePlatform()
-                ? initiateScan('GALLERY')
-                : document.getElementById('gallery-input')?.click()
-            }
-            className="h-14 bg-primary/10 hover:bg-primary/20 active:scale-95 text-primary border border-primary/20 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all shadow-sm disabled:opacity-50"
-          >
-            {isScanning ? (
-              <Loader2 size={20} className="animate-spin" />
-            ) : (
-              <>
-                <ImageIcon size={20} />
-                <span className="text-[0.65rem] uppercase tracking-wider">Upload Image</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      <BottomSheet
-        isOpen={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-        title="Upgrade to Ekwly Pro"
-      >
-        <div className="flex flex-col items-center pb-4 text-center">
-          <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mb-4">
-            <Sparkles size={32} />
-          </div>
-          <h2 className="text-xl font-bold text-main mb-2">You&apos;re out of free scans!</h2>
-          <p className="text-[0.95rem] text-muted mb-6 leading-relaxed">
-            You&apos;ve used your 3 free Magic Scans for this month. Upgrade to Ekwly Pro to never
-            type a receipt manually again.
-          </p>
-
-          <div className="w-full bg-surface border border-primary/20 rounded-2xl p-5 mb-6 text-left shadow-sm">
-            <h3 className="font-bold text-main mb-4 flex justify-between items-center">
-              Pro Plan{' '}
-              <span className="text-primary text-xl tracking-tight">
-                ₹99 <span className="text-sm text-muted font-medium">/mo</span>
-              </span>
-            </h3>
-            <ul className="flex flex-col gap-3">
-              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium">
-                <CheckCircle2 size={18} className="text-success" /> Unlimited AI Receipt Scans
-              </li>
-              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium">
-                <CheckCircle2 size={18} className="text-success" /> Personal Analytics Dashboard
-              </li>
-              <li className="flex items-center gap-2 text-[0.95rem] text-main font-medium">
-                <CheckCircle2 size={18} className="text-success" /> Priority Email Support
-              </li>
-            </ul>
+      ) : (
+        <>
+          <div className="bg-primary/8 border border-primary/20 rounded-2xl p-4 flex items-start gap-3">
+            <Sparkles size={20} className="text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-muted leading-relaxed">
+              Take a clear photo of your restaurant bill. Ekwly&apos;s AI Vision extracts every
+              dish, routes Food GST vs. Liquor VAT, and detects Pre-Tax &amp; Post-Tax discounts
+              automatically.
+            </p>
           </div>
 
-          <a
-            href="mailto:lloy.dutta@gmail.com?subject=Ekwly Pro Subscription Request&body=Hi, I would like to upgrade my account to Ekwly Pro for ₹99/month. My registered email is: "
-            onClick={() => showToast('Redirecting to your mail client...', 'success')}
-            className="w-full h-14 bg-primary text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
-          >
-            Contact Developer for Pro Access
-          </a>
-          <button
-            onClick={() => setShowUpgradeModal(false)}
-            className="mt-4 text-sm font-bold text-muted hover:text-main"
-          >
-            Maybe Later
-          </button>
-        </div>
-      </BottomSheet>
-    </>
+          {Capacitor.isNativePlatform() ? (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => handleNativeCamera(CameraSource.Camera)}
+                className="h-24 premium-gradient-card text-white rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform"
+              >
+                <CameraIcon size={24} />
+                <span>Take Photo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNativeCamera(CameraSource.Photos)}
+                className="h-24 bg-page hover:bg-subtle text-main border border-border rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-2 shadow-2xs active:scale-95 transition-transform"
+              >
+                <ImageIcon size={24} className="text-primary" />
+                <span>Pick from Gallery</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full h-14 premium-gradient-card text-white rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-sm active:scale-98 transition-transform"
+            >
+              <CameraIcon size={20} /> Snap or Upload Receipt Photo
+            </button>
+          )}
+        </>
+      )}
+    </div>
   );
 }

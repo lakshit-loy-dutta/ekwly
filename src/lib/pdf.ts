@@ -25,22 +25,7 @@ export const exportToPDF = async (
     const doc = new jsPDF();
     const { globalSummary: gs, individualBreakdowns } = calculationResult;
 
-    const eligibleBaseAfterItemDisc = items.reduce((sum, item) => {
-      const discVal = Number(item.discountValue || 0);
-      let itemDisc = 0;
-      if (item.discountType === 'percentage' && discVal > 0) {
-        itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
-      } else if (item.discountType === 'flat' && discVal > 0) {
-        itemDisc = Math.min(item.totalBase, discVal);
-      }
-      const afterItem = Math.max(0, item.totalBase - itemDisc);
-      return item.applyDiscount !== false ? sum + afterItem : sum;
-    }, 0);
-
-    const preTaxMultiplier =
-      eligibleBaseAfterItemDisc > 0
-        ? (eligibleBaseAfterItemDisc - gs.preTaxDiscountAmount) / eligibleBaseAfterItemDisc
-        : 1;
+    const preTaxMultiplier = mathEngine.computePreTaxMultiplier(items, gs.preTaxDiscountAmount);
 
     const customTitle = receiptTitle.trim();
     const dateStr = new Date().toLocaleDateString();
