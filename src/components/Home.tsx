@@ -8,6 +8,7 @@ import type { DatabaseSession, GlobalLedgerRow } from '../lib/types';
 import QrScannerModal from './ui/QrScannerModal';
 import ConfirmSheet from './ui/ConfirmSheet';
 import BrandLoader from './ui/BrandLoader';
+import AnimatedNumber from './ui/AnimatedNumber';
 import {
   Plus,
   QrCode,
@@ -252,7 +253,7 @@ export default function Home({
                   Net Owed to You
                 </span>
                 <span className="text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums">
-                  {utils.formatMoney(owedToMe)}
+                  <AnimatedNumber value={owedToMe} />
                 </span>
               </div>
               <div className="flex items-center gap-1 text-white text-xs font-bold bg-white/20 hover:bg-white/30 px-3.5 py-2 rounded-full transition-colors shadow-sm">
@@ -263,7 +264,7 @@ export default function Home({
             <div className="flex justify-between items-center text-xs sm:text-sm">
               <span className="text-white/80 font-medium">Net You Owe Others</span>
               <span className="font-extrabold tracking-wide tabular-nums">
-                {utils.formatMoney(iOwe)}
+                <AnimatedNumber value={iOwe} />
               </span>
             </div>
           </motion.button>

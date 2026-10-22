@@ -1,267 +1,308 @@
-// src/components/AppRouter.tsx
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import QRCode from 'react-qr-code';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { motion, AnimatePresence } from 'framer-motion';
+import type { User } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
-import Home from './Home';
+import QRCode from 'react-qr-code';
+import { supabase } from '../lib/supabase';
+import { swrCache } from '../lib/swrCache';
+import { showToast, utils } from '../lib/utils';
 import Auth from './Auth';
-import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import BottomDock, { type DockTab } from './ui/BottomDock';
 import BrandLoader, { BrandWordmark } from './ui/BrandLoader';
-import { swrCache } from '../lib/swrCache';
-import { supabase } from '../lib/supabase';
-import { showToast, utils } from '../lib/utils';
+import SpotlightTour from './ui/SpotlightTour';
 import {
   ChevronLeft,
-  ChevronRight,
-  User,
-  Users,
-  LogOut,
-  BarChart3,
-  Moon,
   Sun,
+  Moon,
+  LogOut,
+  User as UserIcon,
   QrCode,
-  Edit2,
-  Wallet,
-  Shield,
-  FileText,
-  RefreshCcw,
-  ExternalLink,
+  Edit3,
+  Share,
+  Copy,
+  Sparkles,
+  WifiOff,
+  HelpCircle,
 } from 'lucide-react';
 
-const ActiveSession = lazy(() => import('./ActiveSession'));
+// Route-level code splitting
+const Home = lazy(() => import('./Home'));
 const Lobby = lazy(() => import('./Lobby'));
+const ActiveSession = lazy(() => import('./ActiveSession'));
 const Profile = lazy(() => import('./Profile'));
 const Friends = lazy(() => import('./Friends'));
 const Ledger = lazy(() => import('./Ledger'));
 const Analytics = lazy(() => import('./Analytics'));
 
-type AppView =
-  | 'auth'
-  | 'home'
-  | 'lobby'
-  | 'session'
-  | 'profile'
-  | 'friends'
-  | 'ledger'
-  | 'analytics'
-  | 'onboarding';
-
-const DOCK_VIEWS: AppView[] = ['home', 'ledger', 'friends', 'analytics', 'profile'];
+type ViewState =
+  'auth' | 'home' | 'lobby' | 'session' | 'profile' | 'friends' | 'ledger' | 'analytics';
 
 export default function AppRouter() {
-  const [currentView, setCurrentView] = useState<AppView>('auth');
-  const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('join');
-  const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [currentView, setCurrentView] = useState<ViewState>('auth');
+  const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('create');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPin, setActiveSessionPin] = useState<string | null>(null);
+  const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
-  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [isOnboarding, setIsOnboarding] = useState<boolean>(false);
+
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+  const [user, setUser] = useState<User | null>(null);
+  const [isDark, setIsDark] = useState<boolean>(false);
+
+  const viewRef = useRef(currentView);
+  viewRef.current = currentView;
+
+  const modalsRef = useRef({ isProfileOpen, showInviteModal, showTour });
+  modalsRef.current = { isProfileOpen, showInviteModal, showTour };
 
   const hasRoutedRef = useRef(false);
 
+  // Track online/offline network status for the live header indicator
   useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Auto-launch the 4-step Spotlight Tour once for first-time users on Home
+  useEffect(() => {
+    if (!isAuthChecking && currentView === 'home' && typeof window !== 'undefined') {
+      const completed = localStorage.getItem('ekwly_tour_completed_v1');
+      if (!completed) {
+        const timer = setTimeout(() => setShowTour(true), 450);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isAuthChecking, currentView]);
+
+  // Run automated database hygiene (prune_stale_data) at most once every 7 days
+  useEffect(() => {
+    if (!user || user.is_anonymous || typeof window === 'undefined') return;
+    const lastPruned = Number(localStorage.getItem('ekwly_last_prune_ts') || 0);
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    if (Date.now() - lastPruned > sevenDaysMs) {
+      localStorage.setItem('ekwly_last_prune_ts', String(Date.now()));
+      supabase.rpc('prune_stale_data').then(() => {});
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const checkUserOnboardingAndLinks = async (currentUser: User) => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const friendToAdd = urlParams.get('add_friend');
+
+      if (friendToAdd && friendToAdd !== currentUser.id) {
+        const { error } = await supabase.from('connections').insert({
+          user_id: currentUser.id,
+          friend_id: friendToAdd,
+        });
+        if (!error) showToast('Friend added to your network!', 'success');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+
+      if (currentUser.is_anonymous) {
+        setIsOnboarding(false);
+        return false;
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('upi_id')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
+      if (!profile || !profile.upi_id) {
+        setIsOnboarding(true);
+        return true;
+      }
+      setIsOnboarding(false);
+      return false;
+    };
+
+    const routeAuthenticatedSession = async (sessionUser: User) => {
+      setUser(sessionUser);
+      if (hasRoutedRef.current) {
+        setIsAuthChecking(false);
+        return;
+      }
+      hasRoutedRef.current = true;
+
+      try {
+        const needsOnboarding = await checkUserOnboardingAndLinks(sessionUser);
+        const urlParams = new URLSearchParams(window.location.search);
+        const sId = urlParams.get('s');
+        const pin = urlParams.get('p');
+
+        if (sId && pin) {
+          const { data: isValid } = await supabase.rpc('verify_session_pin', {
+            p_session_id: sId,
+            p_pin: pin,
+          });
+          if (isValid) {
+            setActiveSessionId(sId);
+            setActiveSessionPin(pin);
+            setIsHost(localStorage.getItem('ekwly_host_' + sId) === 'true');
+            setCurrentView('session');
+            window.history.replaceState({ view: 'session' }, '', window.location.search);
+            return;
+          } else {
+            showToast('Invalid Room ID or PIN.', 'error');
+            window.history.replaceState({ view: 'home' }, '', window.location.pathname);
+          }
+        }
+
+        if (needsOnboarding) {
+          setCurrentView('profile');
+          window.history.replaceState({ view: 'profile' }, '', window.location.pathname);
+        } else {
+          setCurrentView('home');
+          window.history.replaceState({ view: 'home' }, '', window.location.pathname);
+        }
+      } finally {
+        setIsAuthChecking(false);
+      }
+    };
+
+    setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
+
+    // Initial deterministic session check so the Auth screen never flashes when already logged in
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user && !hasRoutedRef.current) {
-        hasRoutedRef.current = true;
-        resolveInitialRoute(session.user);
+      if (session?.user) {
+        routeAuthenticatedSession(session.user);
+      } else {
+        setIsAuthChecking(false);
       }
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      if (event === 'SIGNED_IN' && !hasRoutedRef.current) {
-        hasRoutedRef.current = true;
-        resolveInitialRoute(session?.user);
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await routeAuthenticatedSession(session.user);
+      } else {
+        hasRoutedRef.current = false;
+        setUser(null);
+        setCurrentView('auth');
+        setIsAuthChecking(false);
+        window.history.replaceState({ view: 'auth' }, '', window.location.pathname);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const [isDark, setIsDark] = useState<boolean>(() =>
-    typeof document !== 'undefined'
-      ? document.documentElement.getAttribute('data-theme') !== 'light'
-      : true
-  );
-
-  useEffect(() => {
-    const handleBackAction = () => {
-      if (isShareModalOpen) {
-        setIsShareModalOpen(false);
-        return true;
-      }
-      if (isProfileOpen) {
+    const handlePopState = (e: PopStateEvent) => {
+      if (modalsRef.current.isProfileOpen) {
         setIsProfileOpen(false);
-        return true;
+        return;
       }
-      if (['profile', 'friends', 'ledger', 'lobby', 'analytics'].includes(currentView)) {
+      if (modalsRef.current.showInviteModal) {
+        setShowInviteModal(false);
+        return;
+      }
+      if (modalsRef.current.showTour) {
+        setShowTour(false);
+        return;
+      }
+      if (e.state && e.state.view) {
+        setCurrentView(e.state.view);
+      } else if (user) {
         setCurrentView('home');
-        return true;
+      } else {
+        setCurrentView('auth');
       }
-      if (currentView === 'session') {
-        handleLeaveSession();
-        return true;
-      }
-      return false;
     };
+    window.addEventListener('popstate', handlePopState);
 
-    const onPopState = () => {
-      handleBackAction();
-    };
-    window.addEventListener('popstate', onPopState);
-
-    let capCleanup: (() => void) | undefined;
+    let backButtonListener: any;
     if (Capacitor.isNativePlatform()) {
-      const listener = CapApp.addListener('backButton', ({ canGoBack }) => {
-        const handled = handleBackAction();
-        if (!handled && !canGoBack) {
+      backButtonListener = CapApp.addListener('backButton', () => {
+        if (modalsRef.current.isProfileOpen) {
+          setIsProfileOpen(false);
+        } else if (modalsRef.current.showInviteModal) {
+          setShowInviteModal(false);
+        } else if (modalsRef.current.showTour) {
+          setShowTour(false);
+        } else if (viewRef.current !== 'home' && viewRef.current !== 'auth') {
+          window.history.back();
+        } else {
           CapApp.exitApp();
         }
       });
-      capCleanup = () => {
-        listener.then((l) => l.remove());
-      };
     }
 
     return () => {
-      window.removeEventListener('popstate', onPopState);
-      capCleanup?.();
+      subscription.unsubscribe();
+      window.removeEventListener('popstate', handlePopState);
+      if (backButtonListener) backButtonListener.remove();
     };
-  }, [currentView, isShareModalOpen, isProfileOpen]);
+  }, []);
 
-  const toggleNativeTheme = () => {
+  const navigateTo = (view: ViewState, urlSearch = '') => {
+    const targetPath = urlSearch ? urlSearch : window.location.pathname;
+    window.history.pushState({ view }, '', targetPath);
+    setCurrentView(view);
+  };
+
+  const handleToggleTheme = () => {
+    utils.haptic('light');
     if (typeof window !== 'undefined' && window.toggleTheme) {
-      utils.haptic('light');
       window.toggleTheme();
       setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
     }
   };
 
-  const resolveInitialRoute = async (currentUser?: SupabaseUser) => {
-    if (typeof window === 'undefined') return;
+  /**
+   * Zero-Friction Instant Room Creation:
+   * Generates the room ID and 4-digit PIN immediately and opens the Split Workbench.
+   */
+  const handleInstantCreateSession = () => {
+    const newId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
+    localStorage.setItem('ekwly_host_' + newId, 'true');
+    localStorage.setItem('ekwly_pin_' + newId, generatedPin);
+    setActiveSessionId(newId);
+    setActiveSessionPin(generatedPin);
+    setActiveSessionName(null);
+    setIsHost(true);
+    navigateTo('session', `?s=${newId}&p=${generatedPin}`);
+  };
 
-    const activeUser = currentUser || user;
-    if (activeUser && !activeUser.is_anonymous) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', activeUser.id)
-        .maybeSingle();
-
-      if (!profile?.name || /^Guest\s+[0-9a-f]{5}$/i.test(profile.name)) {
-        setCurrentView('onboarding');
-        return;
-      }
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    const sId = params.get('s');
-    const pPin = params.get('p');
-    const addFriendId = params.get('add_friend');
-
-    if (addFriendId) {
-      if (activeUser && !activeUser.is_anonymous) {
-        if (activeUser.id === addFriendId) {
-          showToast("You can't add yourself as a friend.", 'default');
-        } else {
-          await supabase
-            .from('connections')
-            .insert({ user_id: activeUser.id, friend_id: addFriendId });
-          showToast('Friend added successfully!', 'success');
-        }
-      } else {
-        showToast('Sign in to add this friend.', 'error');
-      }
-      window.history.replaceState({}, '', window.location.pathname);
-      setCurrentView('friends');
+  const handleOpenLobby = (mode: 'create' | 'join') => {
+    if (mode === 'create') {
+      handleInstantCreateSession();
       return;
     }
+    setLobbyMode('join');
+    navigateTo('lobby');
+  };
 
-    if (sId) {
-      const hostCheck = localStorage.getItem(`ekwly_host_${sId}`);
-      const host = hostCheck === 'true';
-      const savedPin = pPin || localStorage.getItem(`ekwly_pin_${sId}`);
-
-      if (host) {
-        window.history.replaceState({}, '', `?s=${sId}`);
-        setActiveSessionId(sId);
-        setActiveSessionPin(savedPin || '');
-        setIsHost(true);
-        setCurrentView('session');
-      } else if (savedPin) {
-        const { data: isValid } = await supabase.rpc('verify_session_pin', {
-          p_session_id: sId,
-          p_pin: savedPin,
-        });
-        if (isValid) {
-          localStorage.setItem(`ekwly_pin_${sId}`, savedPin);
-          window.history.replaceState({}, '', `?s=${sId}`);
-          setActiveSessionId(sId);
-          setActiveSessionPin(savedPin);
-          setIsHost(false);
-          setCurrentView('session');
-        } else {
-          showToast('Invalid or expired PIN.', 'error');
-          window.history.replaceState({}, '', window.location.pathname);
-          setCurrentView('home');
-        }
-      } else {
-        window.history.replaceState({}, '', window.location.pathname);
-        setCurrentView('home');
-      }
+  const handleJoinSession = async (id: string, pin: string) => {
+    const { data: isValid } = await supabase.rpc('verify_session_pin', {
+      p_session_id: id,
+      p_pin: pin,
+    });
+    if (isValid) {
+      localStorage.setItem('ekwly_pin_' + id, pin);
+      setActiveSessionId(id);
+      setActiveSessionPin(pin);
+      setActiveSessionName(null);
+      setIsHost(localStorage.getItem('ekwly_host_' + id) === 'true');
+      navigateTo('session', `?s=${id}&p=${pin}`);
     } else {
-      setCurrentView('home');
+      showToast('Invalid Room ID or PIN!', 'error');
     }
-  };
-
-  const handleLaunchRoom = (name: string, pin: string) => {
-    const newSessionId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-    localStorage.setItem(`ekwly_host_${newSessionId}`, 'true');
-    localStorage.setItem(`ekwly_pin_${newSessionId}`, pin);
-    window.history.pushState({ view: 'session' }, '', `?s=${newSessionId}`);
-    setActiveSessionId(newSessionId);
-    setActiveSessionPin(pin);
-    setActiveSessionName(name || null);
-    setIsHost(true);
-    setCurrentView('session');
-  };
-
-  const handleQuickLaunchRoom = () => {
-    const autoPin = Math.floor(1000 + Math.random() * 9000).toString();
-    handleLaunchRoom('', autoPin);
-  };
-
-  const handleJoinSession = async (sessionId: string, pin: string) => {
-    const hostCheck = localStorage.getItem(`ekwly_host_${sessionId}`);
-    const host = hostCheck === 'true';
-
-    if (!host) {
-      const { data: isValid, error } = await supabase.rpc('verify_session_pin', {
-        p_session_id: sessionId,
-        p_pin: pin,
-      });
-      if (!isValid || error) {
-        showToast('Invalid Session ID or PIN', 'error');
-        return;
-      }
-    }
-
-    showToast('Joining session...', 'success');
-    localStorage.setItem(`ekwly_pin_${sessionId}`, pin);
-    window.history.pushState({ view: 'session' }, '', `?s=${sessionId}`);
-    setActiveSessionId(sessionId);
-    setActiveSessionPin(pin);
-    setActiveSessionName(null);
-    setIsHost(host);
-    setCurrentView('session');
   };
 
   const handleLeaveSession = () => {
@@ -276,23 +317,6 @@ export default function AppRouter() {
     setCurrentView('home');
   };
 
-  const handleSelectDockTab = (tab: DockTab) => {
-    window.history.pushState({ view: tab }, '', window.location.pathname);
-    setCurrentView(tab);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleOpenInviteQr = () => {
-    utils.haptic('light');
-    if (activeSessionId && typeof window !== 'undefined') {
-      localStorage.setItem(`ekwly_multiplayer_${activeSessionId}`, 'true');
-      window.dispatchEvent(
-        new CustomEvent('ekwly:enable-realtime', { detail: { sessionId: activeSessionId } })
-      );
-    }
-    setIsShareModalOpen(true);
-  };
-
   const handleSignOut = async () => {
     swrCache.clearAll();
     await supabase.auth.signOut();
@@ -302,39 +326,91 @@ export default function AppRouter() {
     window.history.replaceState({}, '', window.location.pathname);
   };
 
-  const shareUrl =
+  const handleSelectDockTab = (tab: DockTab) => {
+    if (tab !== currentView) {
+      navigateTo(tab);
+    }
+  };
+
+  const isSubView =
+    currentView === 'session' ||
+    currentView === 'profile' ||
+    currentView === 'friends' ||
+    currentView === 'ledger' ||
+    currentView === 'analytics';
+
+  const showBottomDock =
+    !isAuthChecking &&
+    !isOnboarding &&
+    (currentView === 'home' ||
+      currentView === 'ledger' ||
+      currentView === 'friends' ||
+      currentView === 'analytics' ||
+      currentView === 'profile');
+
+  const getHeaderTitle = () => {
+    if (currentView === 'profile') return isOnboarding ? 'Complete Setup' : 'Your Profile';
+    if (currentView === 'friends') return 'Dining Network';
+    if (currentView === 'ledger') return 'Global Ledger';
+    if (currentView === 'analytics') return 'Personal Insights';
+    return 'Split Workbench';
+  };
+
+  const inviteUrl =
     typeof window !== 'undefined'
       ? `${window.location.origin}${window.location.pathname}?s=${activeSessionId}&p=${activeSessionPin}`
       : '';
 
+  const handleShareInvite = async () => {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: 'Join my Ekwly Split!',
+          text: `Tap to join my live bill split on Ekwly (PIN: ${activeSessionPin}):`,
+          url: inviteUrl,
+        });
+      } catch (err) {
+        console.error('Error sharing:', err);
+      }
+    } else {
+      navigator.clipboard.writeText(inviteUrl);
+      showToast('Invite link copied to clipboard!', 'success');
+    }
+  };
+
+  // Hold on the animated Ekwly Lock-In Loader until initial session verification completes
+  if (isAuthChecking) {
+    return (
+      <div className="w-full max-w-2xl mx-auto bg-page min-h-dvh flex items-center justify-center">
+        <BrandLoader state="lockin" label="Starting Ekwly..." fullScreen />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-subtle md:bg-page flex flex-col items-center relative">
-      <PwaUpdater />
+    <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-x-clip no-scrollbar">
+      <SpotlightTour isOpen={showTour} onClose={() => setShowTour(false)} />
+
+      {/* STICKY GLASSMORPHIC HEADER */}
       {currentView !== 'auth' && currentView !== 'lobby' && (
-        <div className="w-full max-w-2xl bg-surface/85 backdrop-blur-xl border-b border-border h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-40 shadow-sm gpu-layer">
-          {['session', 'profile', 'friends', 'ledger', 'analytics'].includes(currentView) ? (
-            <div className="flex items-center gap-1 sm:gap-2 overflow-hidden flex-1">
-              <button
-                onClick={() => {
-                  utils.haptic('light');
-                  if (['profile', 'friends', 'ledger', 'analytics'].includes(currentView)) {
-                    setCurrentView('home');
-                  } else {
-                    handleLeaveSession();
+        <header className="w-full h-16 px-4 bg-surface/85 backdrop-blur-xl border-b border-border flex items-center justify-between sticky top-0 z-40 transition-colors duration-200 gpu-layer">
+          {isSubView ? (
+            <div className="flex items-center gap-1 min-w-0">
+              {!isOnboarding && (
+                <button
+                  type="button"
+                  onClick={
+                    currentView === 'session' ? handleLeaveSession : () => navigateTo('home')
                   }
-                }}
-                className="p-2 -ml-2 hover:bg-subtle rounded-full transition-colors shrink-0 text-primary"
-                aria-label="Go back"
-              >
-                <ChevronLeft size={24} />
-              </button>
-              <h1 className="text-[1.05rem] sm:text-[1.1rem] font-bold text-main tracking-tight truncate">
-                {currentView === 'profile' && 'Your Profile'}
-                {currentView === 'friends' && 'Dining Network'}
-                {currentView === 'ledger' && 'Global Ledger'}
-                {currentView === 'analytics' && 'Personal Analytics'}
-                {currentView === 'session' && (activeSessionName || 'Split Workbench')}
-              </h1>
+                  className="p-2 -ml-2 rounded-full text-primary hover:bg-subtle active:bg-border transition-colors shrink-0"
+                  aria-label="Go Back"
+                >
+                  <ChevronLeft size={24} />
+                </button>
+              )}
+              <span className="font-bold text-main text-[1.05rem] tracking-tight truncate">
+                {getHeaderTitle()}
+              </span>
             </div>
           ) : (
             <button
@@ -347,33 +423,128 @@ export default function AppRouter() {
             </button>
           )}
 
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            {/* LIVE OFFLINE MODE BADGE */}
+            {!isOnline && (
+              <span
+                className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-500 text-[0.65rem] font-extrabold uppercase tracking-wider flex items-center gap-1"
+                title="Offline Mode — All changes are safely queued on your device and will sync automatically when back online."
+              >
+                <WifiOff size={12} /> Offline
+              </span>
+            )}
+
             {currentView === 'session' && (
               <button
-                onClick={handleOpenInviteQr}
-                className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1.5 text-xs font-bold"
-                aria-label="Share Room QR"
+                type="button"
+                onClick={() => {
+                  utils.haptic('light');
+                  if (typeof window !== 'undefined' && activeSessionId) {
+                    window.dispatchEvent(
+                      new CustomEvent('ekwly:enable-realtime', {
+                        detail: { sessionId: activeSessionId },
+                      })
+                    );
+                  }
+                  setShowInviteModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
               >
-                <QrCode size={16} />
+                <QrCode size={15} />
                 <span>Invite QR</span>
               </button>
             )}
+
             <button
-              onClick={toggleNativeTheme}
-              className="p-2 hover:bg-subtle rounded-full text-muted transition-colors"
-              aria-label="Toggle theme"
+              type="button"
+              onClick={handleToggleTheme}
+              aria-label="Toggle Theme"
+              className="p-2 rounded-full text-muted hover:text-main hover:bg-subtle transition-colors"
             >
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
 
-            <div className="relative">
-              <button
-                onClick={() => {
-                  utils.haptic('light');
-                  setIsProfileOpen(!isProfileOpen);
-                }}
-                className="w-9 h-9 rounded-full bg-primary-light border-2 border-primary text-primary flex items-center justify-center font-bold overflow-hidden ml-1"
-              >
+            <button
+              type="button"
+              onClick={() => {
+                utils.haptic('light');
+                setIsProfileOpen(true);
+              }}
+              aria-label="Account Settings"
+              className="w-9 h-9 rounded-full bg-primary-light border border-primary/20 text-primary flex items-center justify-center font-bold overflow-hidden hover:opacity-90 transition-opacity shrink-0"
+            >
+              {user?.user_metadata?.avatar_url ? (
+                <img
+                  src={user.user_metadata.avatar_url}
+                  alt="Avatar"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <UserIcon size={18} />
+              )}
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* INVITE QR SHEET */}
+      <BottomSheet
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        title="Invite to Table"
+      >
+        <div className="flex flex-col items-center">
+          <p className="text-sm text-muted text-center mb-6">
+            Have your friends scan this QR code to join the live session, or share the direct link
+            below.
+          </p>
+
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-border mb-6">
+            <QRCode value={inviteUrl} size={200} />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleShareInvite}
+            className="w-full h-12 mb-6 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-2xs"
+          >
+            {typeof navigator !== 'undefined' && typeof navigator.share === 'function' ? (
+              <Share size={18} />
+            ) : (
+              <Copy size={18} />
+            )}
+            Share Room Link
+          </button>
+
+          <div className="flex gap-4 w-full">
+            <div className="flex-1 bg-subtle border border-border rounded-xl p-3 text-center">
+              <p className="text-[0.65rem] font-bold uppercase tracking-widest text-muted mb-1">
+                Room ID
+              </p>
+              <p className="text-base font-mono font-bold text-main truncate">{activeSessionId}</p>
+            </div>
+            <div className="flex-1 bg-subtle border border-border rounded-xl p-3 text-center">
+              <p className="text-[0.65rem] font-bold uppercase tracking-widest text-muted mb-1">
+                Room PIN
+              </p>
+              <p className="text-base font-mono font-bold text-primary tracking-widest tabular-nums">
+                {activeSessionPin}
+              </p>
+            </div>
+          </div>
+        </div>
+      </BottomSheet>
+
+      {/* ACCOUNT SETTINGS SHEET */}
+      <BottomSheet
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        title="Account Settings"
+      >
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center justify-between p-4 bg-page rounded-2xl border border-border">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold overflow-hidden shrink-0 border border-primary/20">
                 {user?.user_metadata?.avatar_url ? (
                   <img
                     src={user.user_metadata.avatar_url}
@@ -381,224 +552,236 @@ export default function AppRouter() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <User size={18} />
+                  <UserIcon size={28} />
                 )}
-              </button>
+              </div>
+              <div className="flex flex-col min-w-0 pr-2">
+                <span className="font-bold text-main text-base truncate">
+                  {user?.user_metadata?.full_name || 'Guest User'}
+                </span>
+                <span className="text-muted text-sm truncate">
+                  {user?.email || 'Anonymous Session'}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsProfileOpen(false);
+                navigateTo('profile');
+              }}
+              className="p-2.5 bg-surface text-primary border border-border rounded-xl hover:bg-subtle transition-colors shadow-2xs shrink-0"
+              aria-label="Edit Profile"
+            >
+              <Edit3 size={18} />
+            </button>
+          </div>
 
-              <BottomSheet
-                isOpen={isProfileOpen}
-                onClose={() => setIsProfileOpen(false)}
-                title="Account & Settings"
+          <div className="flex flex-col gap-2.5">
+            {user?.is_anonymous && (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full h-12 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm"
               >
-                <div className="flex flex-col gap-6 pb-4">
-                  <div className="flex items-center gap-4 bg-surface border border-border p-4 rounded-3xl shadow-sm">
-                    <div className="w-14 h-14 rounded-full bg-primary-light border-2 border-primary/20 text-primary flex items-center justify-center font-bold text-xl overflow-hidden shrink-0">
-                      {user?.user_metadata?.avatar_url ? (
-                        <img
-                          src={user.user_metadata.avatar_url}
-                          alt="Avatar"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <User size={24} />
-                      )}
-                    </div>
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <span className="font-bold text-main text-lg tracking-tight truncate">
-                        {user?.user_metadata?.full_name || 'Guest User'}
-                      </span>
-                      <span className="text-xs text-muted font-medium truncate">
-                        {user?.email || 'Anonymous Session'}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        setCurrentView('profile');
-                      }}
-                      className="p-3 text-primary bg-primary/10 hover:bg-primary/20 rounded-xl transition-colors shrink-0"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                  </div>
+                <Sparkles size={17} /> Link Google or Email Account
+              </button>
+            )}
 
-                  <div className="flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm divide-y divide-border">
-                    <button
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        setCurrentView('ledger');
-                      }}
-                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Wallet className="text-muted" size={20} />
-                        <span className="font-semibold text-main">Global Ledger</span>
-                      </div>
-                      <ChevronRight className="text-muted/50" size={18} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        setCurrentView('analytics');
-                      }}
-                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <BarChart3 className="text-muted" size={20} />
-                        <span className="font-semibold text-main">Personal Analytics</span>
-                      </div>
-                      <ChevronRight className="text-muted/50" size={18} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        setCurrentView('friends');
-                      }}
-                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Users className="text-muted" size={20} />
-                        <span className="font-semibold text-main">Dining Network</span>
-                      </div>
-                      <ChevronRight className="text-muted/50" size={18} />
-                    </button>
-                  </div>
+            <button
+              type="button"
+              onClick={() => {
+                utils.haptic('light');
+                setIsProfileOpen(false);
+                setShowTour(true);
+              }}
+              className="w-full h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-xs"
+            >
+              <HelpCircle size={16} className="text-primary" /> Replay Interactive App Tour
+            </button>
 
-                  <div className="flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm divide-y divide-border">
-                    <a
-                      href={utils.resolvePath('privacy')}
-                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Shield className="text-muted" size={20} />
-                        <span className="font-semibold text-main">Privacy Policy</span>
-                      </div>
-                      <ExternalLink className="text-muted/50" size={16} />
-                    </a>
-                    <a
-                      href={utils.resolvePath('terms')}
-                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <FileText className="text-muted" size={20} />
-                        <span className="font-semibold text-main">Terms of Service</span>
-                      </div>
-                      <ExternalLink className="text-muted/50" size={16} />
-                    </a>
-                    <a
-                      href={utils.resolvePath('refunds')}
-                      className="flex items-center justify-between p-4 hover:bg-subtle active:bg-border transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <RefreshCcw className="text-muted" size={20} />
-                        <span className="font-semibold text-main">Refund Policy</span>
-                      </div>
-                      <ExternalLink className="text-muted/50" size={16} />
-                    </a>
-                  </div>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full h-12 bg-danger/10 hover:bg-danger/20 text-danger rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm"
+            >
+              <LogOut size={18} />
+              Sign Out
+            </button>
+          </div>
 
-                  <button
-                    onClick={handleSignOut}
-                    className="h-14 w-full mt-2 bg-danger/10 text-danger border border-danger/20 rounded-2xl font-bold text-[0.95rem] flex items-center justify-center gap-2 active:bg-danger/20 transition-colors shadow-sm"
-                  >
-                    <LogOut size={18} />{' '}
-                    {user?.is_anonymous ? 'Link Account / Sign In' : 'Sign Out'}
-                  </button>
-                </div>
-              </BottomSheet>
+          <div className="pt-2 border-t border-border flex flex-col items-center gap-3">
+            <BrandWordmark height={22} />
+            <div className="flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-muted font-semibold">
+              <a
+                href={utils.resolvePath('privacy')}
+                className="hover:text-primary transition-colors"
+              >
+                Privacy Policy
+              </a>
+              <a href={utils.resolvePath('terms')} className="hover:text-primary transition-colors">
+                Terms of Service
+              </a>
+              <a
+                href={utils.resolvePath('refunds')}
+                className="hover:text-primary transition-colors"
+              >
+                Refund Policy
+              </a>
+              <a
+                href={utils.resolvePath('delete-account')}
+                className="hover:text-danger transition-colors"
+              >
+                Delete Account
+              </a>
             </div>
           </div>
         </div>
-      )}
+      </BottomSheet>
 
-      <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-x-clip no-scrollbar">
-        {currentView === 'auth' && <Auth onContinueAsGuest={resolveInitialRoute} />}
-        {currentView === 'home' && (
-          <Home
-            onOpenLobby={(mode) => {
-              if (mode === 'create') {
-                handleQuickLaunchRoom();
-              } else {
-                setLobbyMode('join');
-                setCurrentView('lobby');
-              }
-            }}
-            onJoinSession={handleJoinSession}
-            onViewLedger={() => handleSelectDockTab('ledger')}
-            onRequireSignIn={handleSignOut}
-            user={user}
-          />
-        )}
+      {/* DYNAMIC VIEW BODY */}
+      <main className="flex-1 flex flex-col relative w-full">
+        <Suspense fallback={<BrandLoader fullScreen label="Loading Workspace..." />}>
+          <AnimatePresence mode="wait" initial={false}>
+            {currentView === 'auth' && (
+              <motion.div
+                key="auth"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.16 }}
+                className="flex-1 flex flex-col"
+              >
+                <Auth onContinueAsGuest={() => navigateTo('home')} />
+              </motion.div>
+            )}
 
-        <Suspense fallback={<BrandLoader fullScreen label="Loading..." />}>
-          {currentView === 'lobby' && (
-            <Lobby
-              initialMode={lobbyMode}
-              onClose={() => setCurrentView('home')}
-              onLaunch={handleLaunchRoom}
-              onJoin={handleJoinSession}
-            />
-          )}
-          {currentView === 'onboarding' && (
-            <Profile
-              user={user}
-              onBack={() => {}}
-              isOnboarding={true}
-              onComplete={() => resolveInitialRoute()}
-            />
-          )}
-          {currentView === 'profile' && (
-            <Profile user={user} onBack={() => setCurrentView('home')} />
-          )}
-          {currentView === 'friends' && (
-            <Friends user={user} onBack={() => setCurrentView('home')} />
-          )}
-          {currentView === 'ledger' && <Ledger user={user} onBack={() => setCurrentView('home')} />}
-          {currentView === 'analytics' && (
-            <Analytics user={user} onBack={() => setCurrentView('home')} />
-          )}
-          {currentView === 'session' && (
-            <ActiveSession
-              sessionId={activeSessionId}
-              pin={activeSessionPin}
-              initialName={activeSessionName}
-              isHost={isHost}
-              onExit={handleLeaveSession}
-            />
-          )}
+            {currentView === 'home' && (
+              <motion.div
+                key="home"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12 }}
+                className="flex-1 flex flex-col"
+              >
+                <Home
+                  onOpenLobby={handleOpenLobby}
+                  onJoinSession={handleJoinSession}
+                  onViewLedger={() => navigateTo('ledger')}
+                  onRequireSignIn={handleSignOut}
+                  user={user}
+                />
+              </motion.div>
+            )}
+
+            {currentView === 'profile' && (
+              <motion.div
+                key="profile"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12 }}
+                className="flex-1 flex flex-col"
+              >
+                <Profile
+                  user={user}
+                  onBack={() => navigateTo('home')}
+                  isOnboarding={isOnboarding}
+                  onComplete={() => {
+                    setIsOnboarding(false);
+                    navigateTo('home');
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {currentView === 'friends' && (
+              <motion.div
+                key="friends"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12 }}
+                className="flex-1 flex flex-col"
+              >
+                <Friends user={user} onBack={() => navigateTo('home')} />
+              </motion.div>
+            )}
+
+            {currentView === 'ledger' && (
+              <motion.div
+                key="ledger"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12 }}
+                className="flex-1 flex flex-col"
+              >
+                <Ledger user={user} onBack={() => navigateTo('home')} />
+              </motion.div>
+            )}
+
+            {currentView === 'analytics' && (
+              <motion.div
+                key="analytics"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12 }}
+                className="flex-1 flex flex-col"
+              >
+                <Analytics user={user} onBack={() => navigateTo('home')} />
+              </motion.div>
+            )}
+
+            {currentView === 'lobby' && (
+              <motion.div
+                key="lobby"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 12 }}
+                transition={{ duration: 0.16 }}
+                className="flex-1 flex flex-col"
+              >
+                <Lobby
+                  initialMode={lobbyMode}
+                  onClose={() => navigateTo('home')}
+                  onJoin={handleJoinSession}
+                />
+              </motion.div>
+            )}
+
+            {currentView === 'session' && (
+              <motion.div
+                key="session"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.16 }}
+                className="flex-1 flex flex-col"
+              >
+                <ActiveSession
+                  sessionId={activeSessionId}
+                  pin={activeSessionPin}
+                  initialName={activeSessionName}
+                  isHost={isHost}
+                  onExit={handleLeaveSession}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </Suspense>
-      </div>
+      </main>
 
-      {DOCK_VIEWS.includes(currentView) && (
+      {/* FLOATING THUMB-ZONE BOTTOM DOCK */}
+      {showBottomDock && (
         <BottomDock
           activeTab={currentView as DockTab}
           onSelectTab={handleSelectDockTab}
-          onNewSession={handleQuickLaunchRoom}
+          onNewSession={handleInstantCreateSession}
         />
       )}
-
-      <BottomSheet
-        isOpen={isShareModalOpen}
-        onClose={() => setIsShareModalOpen(false)}
-        title="Invite to Session"
-      >
-        <div className="flex flex-col items-center">
-          <p className="text-sm text-muted text-center mb-4">
-            Scan this code to join session <strong className="text-main">{activeSessionId}</strong>.
-          </p>
-          <div className="bg-subtle border border-border rounded-xl px-6 py-3 mb-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted mb-1 text-center">
-              Room PIN
-            </p>
-            <p className="text-3xl font-mono font-bold text-primary tracking-[0.2em] tabular-nums">
-              {activeSessionPin}
-            </p>
-          </div>
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-border mb-4">
-            <QRCode value={shareUrl} size={200} />
-          </div>
-        </div>
-      </BottomSheet>
     </div>
   );
 }

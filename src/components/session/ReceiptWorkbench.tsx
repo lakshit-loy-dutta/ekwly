@@ -32,6 +32,7 @@ import type { DatabaseVenue, DatabaseItem, BillItem, SavedSquad } from '../../li
 import MagicScanner from './MagicScanner';
 import WorkbenchRuleDrawers from './WorkbenchRuleDrawers';
 import BottomSheet from '../ui/BottomSheet';
+import AnimatedNumber from '../ui/AnimatedNumber';
 
 const FRACTION_PILLS = [
   { label: 'Clear', value: '' },
@@ -719,7 +720,7 @@ export default function ReceiptWorkbench() {
               >
                 <span className="font-bold truncate max-w-28">{m.name}</span>
                 <span className="font-extrabold text-primary tabular-nums">
-                  {utils.formatMoney(owed)}
+                  <AnimatedNumber value={owed} />
                 </span>
               </div>
             );
@@ -1650,7 +1651,7 @@ export default function ReceiptWorkbench() {
                 GRAND TOTAL
               </span>
               <span className="font-mono font-extrabold text-primary text-2xl tabular-nums">
-                {utils.formatMoney(gs.grandTotal)}
+                <AnimatedNumber value={gs.grandTotal} />
               </span>
             </div>
           </div>

@@ -11,6 +11,7 @@ import Payments from './session/Payments';
 import BottomSheet from './ui/BottomSheet';
 import ConfirmSheet from './ui/ConfirmSheet';
 import BrandLoader from './ui/BrandLoader';
+import AnimatedNumber from './ui/AnimatedNumber';
 
 interface Props {
   sessionId: string | null;
@@ -351,7 +352,7 @@ function ActiveSessionContent({
                 Grand Total ({items.length} {items.length === 1 ? 'item' : 'items'})
               </span>
               <span className="text-xl font-extrabold text-main tabular-nums">
-                {utils.formatMoney(grandTotal)}
+                <AnimatedNumber value={grandTotal} />
               </span>
             </div>
 

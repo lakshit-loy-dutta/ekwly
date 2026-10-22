@@ -1,6 +1,6 @@
 # Ekwly — Architecture, Engineering Standards & Product Roadmap (`ARCHITECTURE.md`)
 
-> **Version:** 0.9.93 (Maskable Safe-Zone App Icons, Unified `[E=]kwly` Header Wordmarks, Hardened RLS & Locked-Bill Immutability, Auto-Detect Service Charge Solver, 3-Layer Discount Engine & 0ms SWR Tab Cache)
+> **Version:** 0.9.95 (Milestone 11 Complete: Zero-Flash Auth Boot Guard, Interactive `<SpotlightTour/>`, 240Hz `<AnimatedNumber/>` Counters, Live Offline Indicator, Maskable Safe-Zone App Icons & Unified `<BrandWordmark/>`)
 > **Repository Visibility:** Private Proprietary Repository
 > **Stack:** Astro 7 + React 19 + Tailwind CSS v4 + Supabase (Postgres, Auth, Realtime, Edge Functions) + Capacitor 8 (Android & iOS) + Google Gemini Vision API
 > **Package Manager:** `pnpm` (v12+ strictly enforced)
@@ -75,7 +75,7 @@
 │   │   ├── utils.ts                      # Fractions, GCD, haptics, UPI URI, WhatsApp, bilateral netting & squads
 │   │   └── utils.test.ts                 # Vitest unit suite for fractions, GST, UPI, netting & dossier stats
 │   └── components/
-│       ├── AppRouter.tsx                 # React.lazy route state machine, <BrandWordmark/> header & BottomDock
+│       ├── AppRouter.tsx                 # Zero-flash Auth Boot Guard, <BrandWordmark/> header, Offline Pill & BottomDock
 │       ├── Auth.tsx                      # <BrandWordmark/> hero, Google OAuth, Magic Link OTP & Guest CTA
 │       ├── Home.tsx                      # Dashboard, Netted Ledger hero card, Quick Action Bar & recent rooms
 │       ├── Analytics.tsx                 # Ekwly Pro Personal Analytics (Top Venues, Debtor Concentration, Quota)
@@ -91,7 +91,7 @@
 │       │   ├── DebtMatrix.tsx            # Collection Tray, Verified UPI Shields, Host UPI QR modal, PDF actions
 │       │   ├── MagicScanner.tsx          # Native/Web camera capture, <canvas> compression & batch DB insert
 │       │   └── Payments.tsx              # Multi-payer restaurant cashier input drawer
-│       └── ui/                           # Primitives (BottomDock, Portal BottomSheet, BrandLoader, ConfirmSheet, QrScannerModal)
+│       └── ui/                           # Primitives (AnimatedNumber, SpotlightTour, BottomDock, BottomSheet, BrandLoader, ConfirmSheet, QrScannerModal)
 ├── ARCHITECTURE.md                       # Authoritative system specification & roadmap
 ├── BRAND_IDENTITY.md                     # Locked v3 logo geometry, safe-zone icon rules & motion choreography
 ├── DESIGN_SYSTEM.md                      # 240Hz rendering rules, tokens & UX specification
@@ -112,34 +112,16 @@
    - **Android/iOS Maskable App Icons (`icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `ekwly-icon-1024.png`):** Generated via `scripts/generate-brand-assets.mjs` with a full-bleed `100 × 100` (`rx="0"`) background and `transform="translate(19, 19) scale(0.62)"`. This keeps the outermost point of the `E=` at `31.8` units from `(50, 50)`—well inside the W3C `40`-unit maskable safe zone so circular and adaptive phone launchers never clip the logo.
 2. **Unified Single-SVG Wordmark (`<BrandWordmark/>` on `354 × 114` Grid):**
    - Renders the `1.0x` unboxed `E=` monolith alongside custom rounded-capsule vector strokes for `kwly` (`Gap = 3`, `Scale = 109%`, `Y = -8` / `4.09`, `Stroke = 15`) inside a single `viewBox="0 0 354 114"` SVG so the `y` descender ($Y_{\max} = 109.82$) is never clipped.
-   - Deployed in `AppRouter.tsx` (top navbar), `Auth.tsx` (sign-in hero), and `LegalLayout.astro` (legal pages).
-3. **3-Mode Animated Loader (`<BrandLoader/>`):**
-   - Animates only the standalone `E=` icon mark across `lockin` (`1.0s` Magnetic Lock-In), `equalizer` (`1.0s` Counter-Phase Equalizer), `scan` (`1.2s` AI Laser Scan), and `success` states.
+3. **3-Mode Animated Loader (`<BrandLoader/>`) & 240Hz `<AnimatedNumber/>`:**
+   - `<BrandLoader/>` animates only the standalone `E=` icon mark across `lockin` (`1.0s` Magnetic Lock-In), `equalizer` (`1.0s` Counter-Phase Equalizer), `scan` (`1.2s` AI Laser Scan), and `success` states.
+   - `<AnimatedNumber/>` interpolates currency changes directly via `requestAnimationFrame` on DOM `textContent` for zero-re-render 240Hz rolling counters.
 
 ---
 
-## 4. Core Mathematical Specification (`src/lib/mathEngine.ts`)
-
-1. **Layer 1 — Per-Item & Category/Section Discounts (`item.discountType`, `item.discountValue`):**
-   - Subtracted from raw item base $B_i = \text{qty}_i \times \text{unitPrice}_i$ before Pre-Tax bill discounts.
-2. **Layer 2 — Selective Pre-Tax Restaurant Discount (`discountType`, `discountValue`, `item.applyDiscount`):**
-   - Scales only eligible items (`applyDiscount !== false`) via multiplier $M_{\text{pre}} = \frac{S_{\text{elig}} - D_{\text{pre}}}{S_{\text{elig}}}$.
-3. **Service Charge Topologies (`scTaxPresetId`) & Auto-Detection:**
-   - `inherit` (Model A): Taxes $(E_i + \text{SC}_i)$ at item tax rate $r_{\text{tax}, i}$.
-   - `<uuid>` (Model B): Taxes $E_i$ at $r_{\text{tax}, i}$ and taxes $\text{SC}_i$ at global preset rate $r_{\text{scTax}}$.
-   - `none` (Model C): Leaves $\text{SC}_i$ untaxed.
-4. **Layer 3 — Simultaneous Post-Tax Coupon/App Discount (`postTaxDiscountType`, `postTaxDiscountValue`):**
-   - Subtracted from Gross Total $G = \sum E_i + \sum \text{SC}_i + \sum \text{Taxes}$ before POS rounding.
-5. **POS Round-Off & Paisa Conservation Invariant:**
-   - $\text{GrandTotal} = \text{Math.round}(G - D_{\text{post}})$, with any `±0.01–0.05` drift absorbed by the largest share so $\sum_m \text{totalOwed}_m \equiv \text{GrandTotal}$.
-
----
-
-## 5. Master Engineering Roadmap
+## 4. Master Engineering Roadmap
 
 - [x] **Milestones 1–10 (`v0.1.0` – `v0.9.9`):** Universal Tax & 3-Layer Discount Engine, Gemini 3.5 Flash-Lite CoT OCR, 14 B-Tree/GIN DB Indexes, 2-Tab Workbench, 32-Tooth SVG Sawtooth Live Bill Split, Auto-Detect Service Charge Solver, Host UPI QR, Bilateral Netting, Social Dining Network (`Friends.tsx` 2.0), Lazy WebSockets, Portal Modals, 0ms `swrCache.ts`, Hardened RLS, Locked-Bill Immutability Trigger, and Legal Compliance Pages.
-- [x] **Milestone 11 — Part 1 (`v0.9.93` — Brand Identity, Maskable Safe-Zone Icons & Wordmark Integration):** Completed.
-- [ ] **Milestone 11 — Part 2 (`v0.9.95` — Next Up):** 4-Step Interactive `<SpotlightTour/>` for first-time users and `<AnimatedNumber/>` 240Hz rolling rupee counters.
-- [ ] **Milestone 12 (`v1.0.0-rc1`):** WhatsApp Bento Receipt Card Generator (`<canvas>`), Category Spend Audit in `Analytics.tsx`, and Self-Serve `<ProUpgradeSheet/>` (`₹49` Trip Pass, `₹99/mo`, `₹799/yr`).
+- [x] **Milestone 11 (`v0.9.95` — Current):** Locked v3 Brand Identity, Maskable Safe-Zone App Icons, Unified `<BrandWordmark/>`, Zero-Flash Auth Boot Guard, Interactive 4-Step `<SpotlightTour/>`, 240Hz `<AnimatedNumber/>` Rolling Counters, Live Offline Mode Pill, and Automated 7-Day `prune_stale_data()` Hygiene.
+- [ ] **Milestone 12 (`v1.0.0-rc1` — Next Up):** Client-side `<canvas>` **WhatsApp Bento Receipt Card Generator** (shareable dark-mode receipt infographic with embedded Host UPI QR), **Category Spend Audit (Food vs. Alcohol vs. Taxes)** in `Analytics.tsx`, and Self-Serve `<ProUpgradeSheet/>` (`₹49` 7-Day Trip Pass, `₹99/mo`, `₹799/yr`).
 - [ ] **Milestone 13 (`v1.0.0`):** Signed `.aab`/`.apk` Release Builder & Google Play Store Launch Kit.
 - [ ] **Milestone 14 (`v1.1.0` — Post-1.0):** Desktop Pro Split-Screen Workbench (`lg:grid-cols-12`).
