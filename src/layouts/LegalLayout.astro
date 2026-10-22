@@ -3,7 +3,9 @@ import '../styles/global.css';
 
 const { title, updated } = Astro.props;
 
-const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+const baseUrl = import.meta.env.BASE_URL.replace(/\/\$/, '');
+const ePath =
+  'M 23.75 7.25 L 82.25 7.25 A 6.00 6.00 0 0 1 88.25 13.25 L 88.25 15.15 A 6.00 6.00 0 0 1 82.25 21.15 L 36.13 21.15 A 7.00 7.00 0 0 0 29.13 28.15 L 29.13 36.05 A 7.00 7.00 0 0 0 36.13 43.05 L 62.15 43.05 A 6.00 6.00 0 0 1 68.15 49.05 L 68.15 50.95 A 6.00 6.00 0 0 1 62.15 56.95 L 36.13 56.95 A 7.00 7.00 0 0 0 29.13 63.95 L 29.13 71.85 A 7.00 7.00 0 0 0 36.13 78.85 L 82.25 78.85 A 6.00 6.00 0 0 1 88.25 84.85 L 88.25 86.75 A 6.00 6.00 0 0 1 82.25 92.75 L 23.75 92.75 A 12.00 12.00 0 0 1 11.75 80.75 L 11.75 19.25 A 12.00 12.00 0 0 1 23.75 7.25 Z';
 ---
 
 <html lang="en">
@@ -11,6 +13,8 @@ const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{title} | Ekwly</title>
+    <link rel="icon" type="image/svg+xml" href={`${baseUrl}/icon.svg`} />
+    <link rel="icon" href={`${baseUrl}/favicon.ico`} sizes="any" />
 
     {/* Ensure dark/light mode matches user preference */}
     <script is:inline>
@@ -71,22 +75,51 @@ const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div class="absolute inset-0 bg-grid-pattern z-0 pointer-events-none"></div>
 
     <div class="max-w-3xl mx-auto px-6 py-12 md:py-20 relative z-10">
-      <a
-        href={`${baseUrl}/`}
-        class="inline-flex items-center gap-2 text-primary font-bold mb-10 hover:opacity-80 transition-opacity active:scale-95">
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round">
-          <path d="m15 18-6-6 6-6" />
-        </svg>
-        Back to App
-      </a>
+      <div class="flex items-center justify-between mb-10 pb-5 border-b border-border">
+        <a href={`${baseUrl}/`} aria-label="Ekwly Home" class="inline-flex items-center">
+          <svg
+            width="93"
+            height="30"
+            viewBox="0 0 354 114"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg">
+            <path d={ePath} fill="var(--text-main)" />
+            <rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="#0080FF" />
+            <rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="#38BDF8" />
+            <g
+              transform="translate(91.25, 4.09) scale(1.09)"
+              stroke="var(--brand-kwly, #93C5FD)"
+              stroke-width="15"
+              stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M 14 12 L 14 74" />
+              <path d="M 46 34 L 18 53 L 48 74" />
+              <path d="M 70 34 L 83 74 L 99 44 L 115 74 L 128 34" />
+              <path d="M 152 12 L 152 65 Q 152 74 162 74" />
+              <path d="M 182 34 L 200 68" />
+              <path d="M 220 34 L 195 83 Q 190 91 179 89" />
+            </g>
+          </svg>
+        </a>
+
+        <a
+          href={`${baseUrl}/`}
+          class="inline-flex items-center gap-1.5 text-primary text-sm font-bold hover:opacity-80 transition-opacity active:scale-95">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          Back to App
+        </a>
+      </div>
+
       <h1 class="text-3xl md:text-5xl font-extrabold tracking-tight mb-4 text-main">{title}</h1>
       <p class="text-sm font-bold text-muted uppercase tracking-widest mb-12">
         Effective Date: {updated}

@@ -18,7 +18,15 @@ const KWLY_PATHS = [
   '<path d="M 220 34 L 195 83 Q 190 91 179 89" />',
 ].join('');
 
-function buildIconSvg({ eFill, eqTop, eqBot, boxed = false }) {
+function buildIconSvg({ eFill, eqTop, eqBot, boxed = false, maskableSafe = false }) {
+  // maskableSafe = true uses full-bleed (rx="0") + 0.62x scale centered at (50,50) so Android/iOS circular masks never clip the E
+  const cornerRx = maskableSafe ? '0' : '24';
+  const glyphTransform = maskableSafe
+    ? ' transform="translate(19, 19) scale(0.62)"'
+    : boxed
+      ? ' transform="translate(13, 13) scale(0.74)"'
+      : '';
+
   const bg = boxed
     ? [
         '<defs>',
@@ -27,21 +35,23 @@ function buildIconSvg({ eFill, eqTop, eqBot, boxed = false }) {
         '<stop offset="100%" stop-color="#0F2342"/>',
         '</linearGradient>',
         '</defs>',
-        '<rect x="0" y="0" width="100" height="100" rx="24" fill="url(#bgG)"/>',
+        `<rect x="0" y="0" width="100" height="100" rx="${cornerRx}" fill="url(#bgG)"/>`,
       ].join('')
     : '';
 
   return [
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1024" height="1024" fill="none">',
     bg,
+    `<g${glyphTransform}>`,
     `<path d="${E_PATH}" fill="${eFill}" />`,
     `<rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="${eqTop}" />`,
     `<rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="${eqBot}" />`,
+    '</g>',
     '</svg>',
   ].join('');
 }
 
-// ViewBox expanded to 354 x 114 (width 2124 x height 684) so the 'y' descender (Y=109.8) is never clipped
+// ViewBox 354 x 114 (width 2124 x height 684) so the 'y' descender (Y=109.8) is never clipped
 function buildWordmarkSvg({ eFill, kwlyStroke, eqTop, eqBot }) {
   return [
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 114" width="2124" height="684" fill="none">',
@@ -55,7 +65,7 @@ function buildWordmarkSvg({ eFill, kwlyStroke, eqTop, eqBot }) {
   ].join('');
 }
 
-// All 3 Studio v3 Animated SVGs (with transform-box: fill-box; transform-origin: left center;)
+// All 3 Studio v3 Animated SVGs
 const animatedLockInSvg = [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" fill="none">',
   '<style>',
@@ -65,9 +75,11 @@ const animatedLockInSvg = [
   '.eq-bar-bot { transform-origin: left center; transform-box: fill-box; animation: animLockInBot 1s cubic-bezier(0.22, 1, 0.36, 1) infinite; }',
   '</style>',
   '<rect width="100" height="100" rx="24" fill="#071226" />',
+  '<g transform="translate(13, 13) scale(0.74)">',
   `<path d="${E_PATH}" fill="#FFFFFF" />`,
   '<rect class="eq-bar-top" x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="#0080FF" />',
   '<rect class="eq-bar-bot" x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="#38BDF8" />',
+  '</g>',
   '</svg>',
 ].join('');
 
@@ -80,33 +92,49 @@ const animatedEqualizerSvg = [
   '.eq-bar-bot { transform-origin: left center; transform-box: fill-box; animation: animEqualizerBot 1s cubic-bezier(0.45, 0, 0.55, 1) infinite; }',
   '</style>',
   '<rect width="100" height="100" rx="24" fill="#071226" />',
+  '<g transform="translate(13, 13) scale(0.74)">',
   `<path d="${E_PATH}" fill="#FFFFFF" />`,
   '<rect class="eq-bar-top" x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="#0080FF" />',
   '<rect class="eq-bar-bot" x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="#38BDF8" />',
+  '</g>',
   '</svg>',
 ].join('');
 
 const animatedScanSvg = [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" fill="none">',
   '<style>',
-  '@keyframes animLaser { 0%, 100% { transform: translateY(12px); opacity: 0.2; } 50% { transform: translateY(86px); opacity: 1; } }',
+  '@keyframes animLaser { 0%, 100% { transform: translateY(16px); opacity: 0.2; } 50% { transform: translateY(82px); opacity: 1; } }',
   '.laser-beam { animation: animLaser 1.2s ease-in-out infinite; }',
   '</style>',
   '<rect width="100" height="100" rx="24" fill="#071226" />',
+  '<g transform="translate(13, 13) scale(0.74)">',
   `<path d="${E_PATH}" fill="#FFFFFF" />`,
   '<rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="#0080FF" />',
   '<rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="#38BDF8" />',
-  '<rect class="laser-beam" x="8" y="0" width="84" height="3.5" rx="1.75" fill="#38BDF8" />',
+  '</g>',
+  '<rect class="laser-beam" x="12" y="0" width="76" height="3.5" rx="1.75" fill="#38BDF8" />',
   '</svg>',
 ].join('');
 
 // 1. Generate all Static & Animated SVG Variants
+// Rounded squircle badge for desktop browser tab favicons (0.74x inset)
+const faviconBadgeSvg = buildIconSvg({
+  eFill: '#FFFFFF',
+  eqTop: '#0080FF',
+  eqBot: '#38BDF8',
+  boxed: true,
+  maskableSafe: false,
+});
+
+// Maskable safe-zone full-bleed icon for Android/iOS home screens (0.62x inset — never cropped by circle masks)
 const appBadgeSvg = buildIconSvg({
   eFill: '#FFFFFF',
   eqTop: '#0080FF',
   eqBot: '#38BDF8',
   boxed: true,
+  maskableSafe: true,
 });
+
 const iconDarkSvg = buildIconSvg({
   eFill: '#FFFFFF',
   eqTop: '#0080FF',
@@ -156,9 +184,10 @@ const wordmarkMonoBlackSvg = buildWordmarkSvg({
   eqBot: '#050914',
 });
 
-// Write all 12 SVGs to disk
-fs.writeFileSync(path.join(rootDir, 'public', 'icon.svg'), appBadgeSvg, 'utf8');
-fs.writeFileSync(path.join(svgDir, 'ekwly-icon-app-badge.svg'), appBadgeSvg, 'utf8');
+// Write all 13 SVGs to disk
+fs.writeFileSync(path.join(rootDir, 'public', 'icon.svg'), faviconBadgeSvg, 'utf8');
+fs.writeFileSync(path.join(svgDir, 'ekwly-icon-favicon-squircle.svg'), faviconBadgeSvg, 'utf8');
+fs.writeFileSync(path.join(svgDir, 'ekwly-icon-app-maskable.svg'), appBadgeSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-dark.svg'), iconDarkSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-light.svg'), iconLightSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-mono-white.svg'), monoWhiteSvg, 'utf8');
@@ -174,32 +203,32 @@ fs.writeFileSync(path.join(svgDir, 'ekwly-loader-scan.svg'), animatedScanSvg, 'u
 // 2. Build JSON payload for the Browser PNG, Multi-Size .ICO & 3-Animation WebM Exporter
 const exportPayload = {
   ePath: E_PATH,
-  badgeSvg: appBadgeSvg,
+  badgeSvg: faviconBadgeSvg,
   assets: [
     {
       name: 'icon-192.png',
-      label: 'PWA Icon (192x192 -> public/)',
+      label: 'PWA Home Screen Icon (192x192 Safe-Zone -> public/)',
       w: 192,
       h: 192,
       svg: appBadgeSvg,
     },
     {
       name: 'icon-512.png',
-      label: 'PWA & Play Store Icon (512x512 -> public/)',
+      label: 'PWA & Play Store Icon (512x512 Safe-Zone -> public/)',
       w: 512,
       h: 512,
       svg: appBadgeSvg,
     },
     {
       name: 'apple-touch-icon.png',
-      label: 'iOS Home Screen Icon (180x180 -> public/)',
+      label: 'iOS Home Screen Icon (180x180 Safe-Zone -> public/)',
       w: 180,
       h: 180,
       svg: appBadgeSvg,
     },
     {
       name: 'ekwly-icon-1024.png',
-      label: 'Master App Icon (1024x1024)',
+      label: 'Master App Store Icon (1024x1024 Safe-Zone)',
       w: 1024,
       h: 1024,
       svg: appBadgeSvg,
@@ -239,7 +268,7 @@ const exporterHtml = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Ekwly Brand Asset Exporter (ICO, PNGs & All 3 Studio Animations)</title>
+  <title>Ekwly Brand Asset Exporter (ICO, Safe-Zone PNGs & All 3 Studio Animations)</title>
   <style>
     body { background: #050914; color: #f8fafc; font-family: system-ui, sans-serif; padding: 32px; max-width: 1180px; margin: 0 auto; }
     h1 { font-size: 1.5rem; margin-bottom: 4px; }
@@ -259,8 +288,8 @@ const exporterHtml = `<!doctype html>
   </style>
 </head>
 <body>
-  <h1>Ekwly Brand Identity & PWA Icon Exporter</h1>
-  <p>Generate your multi-resolution <code>favicon.ico</code> (16x16, 32x32, 48x48 packed), PWA PNGs, and 60fps animations.</p>
+  <h1>Ekwly Brand Identity & Maskable-Safe PWA Icon Exporter</h1>
+  <p>All mobile app icons include the W3C 0.62x maskable safe zone so Android/iOS circular masks never clip the 'E'.</p>
 
   <div class="hero-bar">
     <div>
@@ -286,7 +315,6 @@ const exporterHtml = `<!doctype html>
     const grid = document.getElementById('export-grid');
     const animGrid = document.getElementById('anim-grid');
 
-    // Helper: Render SVG string to a PNG Uint8Array at a given size
     function renderSvgToPngBytes(svgString, size) {
       return new Promise((resolve) => {
         const canvas = document.createElement('canvas');
@@ -308,7 +336,6 @@ const exporterHtml = `<!doctype html>
       });
     }
 
-    // Packs multiple PNG byte arrays (16x16, 32x32, 48x48) into a binary Windows .ICO container
     async function generateMultiSizeFaviconIco() {
       const sizes = [16, 32, 48];
       const pngBuffers = await Promise.all(
@@ -321,10 +348,9 @@ const exporterHtml = `<!doctype html>
       const ico = new Uint8Array(totalSize);
       const view = new DataView(ico.buffer);
 
-      // ICONDIR Header (6 bytes)
-      view.setUint16(0, 0, true);     // Reserved (0)
-      view.setUint16(2, 1, true);     // Type (1 = ICO)
-      view.setUint16(4, count, true); // Number of images (3)
+      view.setUint16(0, 0, true);
+      view.setUint16(2, 1, true);
+      view.setUint16(4, count, true);
 
       let dataOffset = headerSize;
       for (let i = 0; i < count; i++) {
@@ -332,14 +358,14 @@ const exporterHtml = `<!doctype html>
         const png = pngBuffers[i];
         const dirOffset = 6 + i * 16;
 
-        ico[dirOffset + 0] = size === 256 ? 0 : size; // Width
-        ico[dirOffset + 1] = size === 256 ? 0 : size; // Height
-        ico[dirOffset + 2] = 0;                       // Color palette (0)
-        ico[dirOffset + 3] = 0;                       // Reserved (0)
-        view.setUint16(dirOffset + 4, 1, true);       // Color planes (1)
-        view.setUint16(dirOffset + 6, 32, true);      // Bits per pixel (32-bit RGBA)
-        view.setUint32(dirOffset + 8, png.byteLength, true); // Image byte size
-        view.setUint32(dirOffset + 12, dataOffset, true);    // Offset to PNG data
+        ico[dirOffset + 0] = size === 256 ? 0 : size;
+        ico[dirOffset + 1] = size === 256 ? 0 : size;
+        ico[dirOffset + 2] = 0;
+        ico[dirOffset + 3] = 0;
+        view.setUint16(dirOffset + 4, 1, true);
+        view.setUint16(dirOffset + 6, 32, true);
+        view.setUint32(dirOffset + 8, png.byteLength, true);
+        view.setUint32(dirOffset + 12, dataOffset, true);
 
         ico.set(png, dataOffset);
         dataOffset += png.byteLength;
@@ -356,7 +382,6 @@ const exporterHtml = `<!doctype html>
 
     const canvasMap = {};
 
-    // 1. Render Static PNG Cards
     EXPORT_DATA.assets.forEach((asset) => {
       const card = document.createElement('div');
       card.className = 'card';
@@ -404,7 +429,6 @@ const exporterHtml = `<!doctype html>
       });
     };
 
-    // 2. Exact Cubic-Bezier & Multi-Keyframe Solver Matching CSS @keyframes in Studio v3
     function cubicBezier(x1, y1, x2, y2, t) {
       if (t <= 0) return 0;
       if (t >= 1) return 1;
@@ -513,6 +537,10 @@ const exporterHtml = `<!doctype html>
         ctx.roundRect(0, 0, 100, 100, 24);
         ctx.fill();
 
+        ctx.save();
+        ctx.translate(13, 13);
+        ctx.scale(0.74, 0.74);
+
         ctx.fillStyle = '#FFFFFF';
         ctx.fill(ePath2D);
 
@@ -539,6 +567,7 @@ const exporterHtml = `<!doctype html>
           ctx.restore();
         }
 
+        ctx.restore();
         ctx.restore();
         requestAnimationFrame(renderFrame);
       }
@@ -573,7 +602,7 @@ const exporterHtml = `<!doctype html>
 </html>`.replace('__EXPORT_PAYLOAD__', JSON.stringify(exportPayload));
 
 fs.writeFileSync(path.join(rootDir, 'brand-kit', 'export-png-and-gif.html'), exporterHtml, 'utf8');
-console.log('✅ Generated 13 SVG brand files (including all 3 animations & unclipped wordmarks)');
+console.log('✅ Generated 14 SVG brand files (including safe-zone maskable & squircle icons)');
 console.log(
-  '✅ Generated ICO + PNG + 3-Animation WebM exporter at brand-kit/export-png-and-gif.html'
+  '✅ Generated ICO + Safe-Zone PNG + 3-Animation WebM exporter at brand-kit/export-png-and-gif.html'
 );

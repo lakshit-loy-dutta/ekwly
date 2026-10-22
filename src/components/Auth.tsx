@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, type Variants } from 'framer-motion';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
-import { BrandLogo } from './ui/BrandLoader';
+import { BrandWordmark } from './ui/BrandLoader';
 import {
   Mail,
   Loader2,
@@ -103,18 +103,16 @@ export default function Auth({ onContinueAsGuest }: Props) {
         animate="show"
         className="flex flex-col flex-1 px-6 justify-center items-center py-8 w-full max-w-sm mx-auto relative z-10"
       >
-        {/* BRAND HERO & VALUE PROP PILLS */}
+        {/* UNIFIED BRAND WORDMARK HERO & VALUE PROP PILLS */}
         <motion.div
           variants={item}
           className="flex flex-col items-center justify-center mb-8 mt-auto w-full text-center"
         >
-          <div className="p-3 bg-surface border border-border shadow-xl rounded-3xl flex items-center justify-center mb-5 relative overflow-hidden">
-            <div className="absolute inset-0 bg-primary/10" />
-            <BrandLogo size={52} className="relative z-10 rounded-2xl" />
+          <div className="mb-4">
+            <BrandWordmark height={52} />
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-main mb-1.5">Ekwly</h1>
           <p className="text-muted text-sm font-medium max-w-xs leading-relaxed mb-4">
-            Split restaurant bills, route GST & liquor taxes, and settle via UPI in under 20
+            Split restaurant bills, route GST &amp; liquor taxes, and settle via UPI in under 20
             seconds.
           </p>
 
@@ -123,7 +121,7 @@ export default function Auth({ onContinueAsGuest }: Props) {
               <Sparkles size={11} className="text-primary" /> AI Bill Scan
             </span>
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border text-[0.7rem] font-bold text-main shadow-2xs">
-              <Receipt size={11} className="text-emerald-500" /> GST & VAT Routing
+              <Receipt size={11} className="text-emerald-500" /> GST &amp; VAT Routing
             </span>
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border text-[0.7rem] font-bold text-main shadow-2xs">
               <QrCode size={11} className="text-amber-500" /> Instant UPI QR
@@ -242,7 +240,7 @@ export default function Auth({ onContinueAsGuest }: Props) {
             <a href={utils.resolvePath('terms')} className="text-primary hover:underline">
               Terms of Service
             </a>{' '}
-            &{' '}
+            &amp;{' '}
             <a href={utils.resolvePath('privacy')} className="text-primary hover:underline">
               Privacy Policy
             </a>

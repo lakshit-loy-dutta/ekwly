@@ -9,7 +9,7 @@ import Auth from './Auth';
 import PwaUpdater from './PwaUpdater';
 import BottomSheet from './ui/BottomSheet';
 import BottomDock, { type DockTab } from './ui/BottomDock';
-import BrandLoader, { BrandLogo } from './ui/BrandLoader';
+import BrandLoader, { BrandWordmark } from './ui/BrandLoader';
 import { swrCache } from '../lib/swrCache';
 import { supabase } from '../lib/supabase';
 import { showToast, utils } from '../lib/utils';
@@ -337,10 +337,14 @@ export default function AppRouter() {
               </h1>
             </div>
           ) : (
-            <div className="flex items-center gap-3">
-              <BrandLogo className="shadow-sm" size={32} />
-              <h1 className="font-extrabold text-xl text-main tracking-tight">Ekwly</h1>
-            </div>
+            <button
+              type="button"
+              onClick={() => handleSelectDockTab('home')}
+              className="flex items-center py-1 active:scale-95 transition-transform"
+              aria-label="Ekwly Home"
+            >
+              <BrandWordmark height={28} />
+            </button>
           )}
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">

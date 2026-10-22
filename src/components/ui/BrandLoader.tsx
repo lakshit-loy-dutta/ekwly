@@ -41,7 +41,8 @@ interface LogoProps {
 }
 
 /**
- * Standalone Icon Mark (<BrandLogo />) — App Icon, Favicon & Auth Hero Badge
+ * Standalone Icon Mark (<BrandLogo />)
+ * Applies a 0.76x inset transform when boxed={true} so the E= glyph has balanced padding inside the squircle.
  */
 export function BrandLogo({
   size = 32,
@@ -58,7 +59,7 @@ export function BrandLogo({
       viewBox="0 0 100 100"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={`shrink-0 select-none \${className}`}
+      className={`shrink-0 select-none ${className}`}
       aria-label="Ekwly Logo"
     >
       {boxed && (
@@ -88,9 +89,11 @@ export function BrandLogo({
           />
         </>
       )}
-      <path d={EKWLY_E_PATH} fill={colors.eFill} />
-      <rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill={colors.eqTop} />
-      <rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill={colors.eqBot} />
+      <g transform={boxed ? 'translate(12, 12) scale(0.76)' : undefined}>
+        <path d={EKWLY_E_PATH} fill={colors.eFill} />
+        <rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill={colors.eqTop} />
+        <rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill={colors.eqBot} />
+      </g>
     </svg>
   );
 }
@@ -105,7 +108,7 @@ interface WordmarkProps {
  * Unified Single-SVG Wordmark (<BrandWordmark />) — "[E=]kwly"
  * Uses viewBox="0 0 354 114" so the descender of 'y' (reaching Y=109.8) is never clipped.
  */
-export function BrandWordmark({ height = 32, surface = 'auto', className = '' }: WordmarkProps) {
+export function BrandWordmark({ height = 30, surface = 'auto', className = '' }: WordmarkProps) {
   const colors = resolveColors(surface, false);
   const widthPx = Math.round(height * (354 / 114));
 
@@ -116,7 +119,7 @@ export function BrandWordmark({ height = 32, surface = 'auto', className = '' }:
       viewBox="0 0 354 114"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={`shrink-0 select-none \${className}`}
+      className={`shrink-0 select-none ${className}`}
       aria-label="Ekwly"
     >
       {/* Capital E= Monolith & Negative-Space '=' Bars */}
@@ -170,7 +173,7 @@ export default function BrandLoader({
 
   return (
     <div
-      className={`flex flex-col items-center justify-center gap-4 select-none \${
+      className={`flex flex-col items-center justify-center gap-4 select-none ${
         fullScreen ? 'min-h-[70vh] w-full' : 'py-12 w-full flex-1'
       }`}
     >
@@ -178,8 +181,8 @@ export default function BrandLoader({
         <div className="absolute inset-0 bg-primary/8" />
 
         <svg
-          width="48"
-          height="48"
+          width="44"
+          height="44"
           viewBox="0 0 100 100"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
@@ -209,7 +212,6 @@ export default function BrandLoader({
                   : normalizedMode === 'scan'
                     ? { x: 0, scaleX: 1, opacity: 1 }
                     : {
-                        // 'lockin' (Studio v3 exact keyframes)
                         x: [26, -2.5, 1.5, 0, 0],
                         scaleX: [0.5, 1.06, 0.97, 1, 1],
                         opacity: [0, 1, 1, 1, 1],
@@ -257,7 +259,6 @@ export default function BrandLoader({
                   : normalizedMode === 'scan'
                     ? { x: 0, scaleX: 1, opacity: 1 }
                     : {
-                        // 'lockin' (Studio v3 exact staggered keyframes)
                         x: [26, 26, -2.5, 1.5, 0, 0],
                         scaleX: [0.5, 0.5, 1.06, 0.97, 1, 1],
                         opacity: [0, 0, 1, 1, 1, 1],

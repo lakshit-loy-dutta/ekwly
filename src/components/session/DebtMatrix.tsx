@@ -435,7 +435,7 @@ export default function DebtMatrix(props: Props) {
         <div className="flex justify-between py-2.5 text-sm">
           <span className="text-muted">Total Items</span>
           <span className="font-semibold text-main tabular-nums">
-            {gs.totalQty.toFixed(2).replace(/\.00\$/, '')}
+            {gs.totalQty.toFixed(2).replace(/\.00$/, '')}
           </span>
         </div>
 
