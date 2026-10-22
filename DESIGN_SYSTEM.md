@@ -1,137 +1,91 @@
-# Ekwly — Design System, Motion Language & High-FPS Engineering Spec
+# Ekwly — Design System, Motion Language & High-FPS Engineering Spec (`DESIGN_SYSTEM.md`)
 
-> **Version:** 1.0.0
-> **Design Philosophy:** "Tactile Financial Equilibrium" — Precision dark-slate fintech aesthetics (inspired by Linear, Wise, and Cred) paired with multiplayer social warmth and 240Hz-ready spring physics.
-> **Target Platforms:** Web PWA, iOS Native (Capacitor), Android Native (Capacitor) — 100% Feature & Visual Parity.
+> **Version:** 1.0.1 (Synchronized with v3 Brand Identity, Skeuomorphic Thermal Receipt, `<AnimatedNumber/>` & `<SpotlightTour/>`)  
+> **Design Philosophy:** "Tactile Financial Equilibrium" — Precision dark-slate fintech aesthetics (inspired by Linear, Wise, and CRED) paired with skeuomorphic thermal receipt tactility and 240Hz-ready spring physics.  
+> **Target Platforms:** Web PWA, iOS Native (Capacitor 8), Android Native (Capacitor 8) — 100% Feature & Visual Parity.
 
 ---
 
 ## 1. High-Refresh-Rate Rendering Rules (60Hz / 90Hz / 120Hz / 144Hz / 240Hz)
 
-To guarantee zero dropped frames on ProMotion (120Hz), LTPO Android (120Hz–144Hz), and high-refresh desktop monitors (240Hz), all UI code must obey a **< 4.1ms per-frame budget**:
+To guarantee zero dropped frames on ProMotion (120Hz), LTPO Android (120Hz–144Hz), and high-refresh desktop monitors (240Hz), all UI code must obey a **`< 4.1ms` per-frame budget**:
 
 ### 1.1 Strictly Composited Animations Only
 
-- **ALLOWED (GPU Compositor Thread):** `transform` (`translate3d`, `translateX`, `translateY`, `scale`, `rotate`) and `opacity`.
+- **ALLOWED (GPU Compositor Thread):** `transform` (`translate3d`, `translateX`, `translateY`, `scale`, `scaleX`, `rotate`) and `opacity`.
 - **FORBIDDEN (CPU Main-Thread Layout Thrashing):** Never animate `height`, `width`, `top`, `left`, `margin`, or `padding` on list rows or cards.
-- **List Additions/Removals:** Use Framer Motion `layout="position"` with `opacity` and `y` transforms (`initial={{ opacity: 0, y: 12 }}`, `animate={{ opacity: 1, y: 0 }}`, `exit={{ opacity: 0, scale: 0.96 }}`) instead of `height: 0 -> 'auto'`.
+- **List Additions/Removals:** Use Framer Motion `layout="position"` with `opacity` and `y` transforms (`initial={{ opacity: 0, y: 8 }}`, `animate={{ opacity: 1, y: 0 }}`, `exit={{ opacity: 0, scale: 0.96 }}`).
 
-### 1.2 Backdrop Blur (`backdrop-filter`) Budget
+### 1.2 Backdrop Blur (`backdrop-filter`) & `.gpu-layer` Budget
 
 - **ALLOWED:** Fixed, non-scrolling viewport chrome (maximum 3 active blur layers at any time):
-  1. Sticky Top Header (`bg-surface/80 backdrop-blur-xl`)
-  2. Floating Bottom Dock / Action Bar (`bg-surface/85 backdrop-blur-xl`)
-  3. Active Modal / BottomSheet Overlay (`bg-black/50 backdrop-blur-sm`)
-- **FORBIDDEN:** Never place `backdrop-blur-*` on repeating cards inside a scrolling list (`.map()`), as Nblur passes per frame saturate mobile GPU memory bandwidth at 120Hz+. Use solid or subtle gradient surfaces (`bg-surface`) with crisp `1px` borders instead.
+  1. Sticky Top Header (`bg-surface/85 backdrop-blur-xl`) & Sticky 2-Tab Switcher (`bg-surface/75 backdrop-blur-xl`)
+  2. Floating Bottom Dock / Action Bar (`bg-surface/90 backdrop-blur-xl`)
+  3. Active Portal Modal / BottomSheet / SpotlightTour Overlay (`bg-black/50 backdrop-blur-sm`)
+- **FORBIDDEN:** Never place `backdrop-blur-*` or `.gpu-layer` (`will-change: transform, opacity`) on repeating cards inside a scrolling list (`.map()`), as allocating dedicated GPU texture tiles per card throttles touch-scroll frame pacing on mobile Chrome/WebView.
 
-### 1.3 CSS Transition Discipline
+### 1.3 Zero-Re-Render Rolling Currency Counters (`<AnimatedNumber/>`)
 
-- Never apply global `transition: ... !important` rules to utility classes in `base.css`.
-- Use explicit, narrow Tailwind transition classes (`transition-transform`, `transition-colors duration-150`) only on interactive controls.
+- All high-frequency currency totals (Hero Ledger balances, "At the Table" member chips, and Live Receipt Grand Totals) use `src/components/ui/AnimatedNumber.tsx`.
+- `<AnimatedNumber/>` interpolates numeric changes over `360ms` (cubic ease-out) using `requestAnimationFrame` and writes directly to `spanRef.current.textContent` with `tabular-nums`, achieving 240fps number rolling with **zero React component re-renders**.
 
 ---
 
-## 2. Color System & Surface Hierarchy (`src/styles/theme.css`)
+## 2. Color System & Surface Hierarchy (`src/styles/theme.css` & `components.css`)
 
-Ekwly uses a high-contrast, dual-theme palette where neutral slate typography ensures that **Azure (`#0080ff`)**, **Emerald (`#10b981`)**, **Amber (`#f59e0b`)**, and **Rose (`#df1b41`)** carry immediate financial meaning.
-
-| Semantic Token    | Light Mode (Crisp Daylight) | Dark Mode (OLED Deep Slate) | Usage                                                      |
-| :---------------- | :-------------------------- | :-------------------------- | :--------------------------------------------------------- |
-| `--bg-page`       | `#f4f7fb`                   | `#050914`                   | Root viewport canvas                                       |
-| `--bg-surface`    | `#ffffff`                   | `#0f1724`                   | Primary Bento cards, sheets & inputs                       |
-| `--bg-subtle`     | `#e6f0fa`                   | `#162235`                   | Secondary pills, hover states & badges                     |
-| `--text-main`     | `#001e3b`                   | `#f8fafc`                   | Primary headings, item names & rupee amounts               |
-| `--text-muted`    | `#475569`                   | `#94a3b8`                   | Subheaders, timestamps, metadata & labels                  |
-| `--border`        | `#dbe7f4`                   | `#1c2738`                   | Card hairlines & dividers                                  |
-| `--border-hover`  | `#89c4ff`                   | `#2e4361`                   | Interactive card hover/focus borders                       |
-| `--color-primary` | `#0080ff`                   | `#0080ff`                   | Primary CTAs, active selections, host accents              |
-| `--color-success` | `#10b981`                   | `#10b981`                   | Settled badges, incoming money, balanced totals            |
-| `--color-warning` | `#f59e0b`                   | `#f59e0b`                   | Partial claims, guest mode banners, pending states         |
-| `--color-danger`  | `#df1b41`                   | `#df1b41`                   | Outgoing debts, over-claimed warnings, destructive actions |
+| Semantic Token     | Light Mode (Crisp Daylight) | Dark Mode (OLED Deep Slate) | Usage                                                 |
+| :----------------- | :-------------------------- | :-------------------------- | :---------------------------------------------------- |
+| `--bg-page`        | `#f2f8ff`                   | `#050914`                   | Root viewport canvas                                  |
+| `--bg-surface`     | `#ffffff`                   | `#0f1724`                   | Primary Bento cards, sheets & inputs                  |
+| `--bg-subtle`      | `#d8ebff`                   | `#001e3b`                   | Secondary pills, hover states & badges                |
+| `--text-main`      | `#001e3b`                   | `#ffffff`                   | Primary headings, item names & rupee amounts          |
+| `--text-muted`     | `#475569`                   | `#94a3b8`                   | Subheaders, timestamps, metadata & labels             |
+| `--border`         | `#d8ebff`                   | `#1c2738`                   | Card hairlines & dividers                             |
+| `--border-hover`   | `#89c4ff`                   | `#0080ff`                   | Interactive card hover/focus borders                  |
+| `--brand-kwly`     | `#0284c7`                   | `#93c5fd`                   | Dynamic stroke color for `kwly` in `<BrandWordmark/>` |
+| `--receipt-bg`     | `#fffdf8`                   | `#152238`                   | Skeuomorphic `.pos-receipt` thermal paper surface     |
+| `--receipt-border` | `#cbd5e1`                   | `#2c4263`                   | Thermal receipt border & sawtooth blade stroke        |
+| `--color-primary`  | `#0080ff`                   | `#0080ff`                   | Primary CTAs, active selections, host accents         |
+| `--color-success`  | `#10b981`                   | `#10b981`                   | Settled badges, incoming money, active discounts      |
+| `--color-warning`  | `#f59e0b`                   | `#f59e0b`                   | Partial claims, offline mode pill, pending states     |
+| `--color-danger`   | `#df1b41`                   | `#df1b41`                   | Outgoing debts, over-claimed warnings, delete actions |
 
 ---
 
 ## 3. Typography & Financial Scannability
 
-- **Font Family:** `Inter` (`400`, `500`, `600`, `700`, `800`).
-- **Tabular Numerals Invariant:** Every rupee amount (`₹3,419.00`), quantity badge (`x2`), fraction (`1/3`), percentage (`5%`), and room PIN (`4829`) **must** apply `tabular-nums` (`font-variant-numeric: tabular-nums`). Digits must never shift horizontally when values update in real time.
-- **Type Scale:**
-  - **Hero Display (Grand Total / Net Balance):** `text-3xl` to `text-4xl` (`font-extrabold tracking-tight tabular-nums`)
-  - **Screen Title:** `text-xl` to `text-2xl` (`font-extrabold tracking-tight`)
-  - **Card Title / Dish Name:** `text-[0.95rem]` (`font-semibold text-main`)
-  - **Micro Label / Section Overline:** `text-[0.7rem]` (`font-bold uppercase tracking-widest text-muted`)
+- **Font Family:** `Inter` (`400`, `500`, `600`, `700`, `800`, `900`) + system monospace for receipt accounting lines, UPI VPAs, and room PINs.
+- **Tabular Numerals Invariant:** Every rupee amount (`₹3,419.00`), quantity badge (`x2`), fraction (`1/3`), percentage (`5%`), and room PIN (`4829`) **must** apply `tabular-nums` (`font-variant-numeric: tabular-nums`).
+- **CSS Cascade Layer Discipline (`src/styles/base.css`):** Base element rules for `input` and `select` are wrapped inside `@layer base { ... }` so Tailwind v4 utility classes (`pl-10`, `h-7`, `w-auto`, `px-2`) always win without `!important` modifiers.
 
 ---
 
-## 4. Spatial Geometry & Bento Card Language
+## 4. Spatial Geometry, Bento Cards & Skeuomorphic Live Receipt
 
 ### 4.1 Inset Bento Cards (No Full-Bleed Strips)
 
 - Never use edge-to-edge `border-y` strips that touch the left/right screen bezels.
-- All content groups must sit inside inset containers (`mx-4 rounded-2xl bg-surface border border-border shadow-sm`).
-- Internal list rows within a Bento card use `divide-y divide-border/60` with `p-4` touch padding.
+- All content groups sit inside inset containers (`mx-4` or parent `px-4` with `rounded-2xl bg-surface border border-border shadow-sm`).
 
-### 4.2 Touch Targets & Thumb-Zone Ergonomics
+### 4.2 Skeuomorphic Thermal POS Receipt (`★ LIVE BILL SPLIT ★`)
 
-- **Minimum Touch Target:** `44px × 44px` (`h-11` minimum for primary inputs and action buttons).
-- **Scoped Input Utility (`.input-field`):** Raw `<input>` and `<select>` tags in `base.css` must remain un-opinionated in width/height so custom inline controls (like stepper inputs) require zero `!important` overrides. Standard form inputs use the `.input-field` class.
-- **Safe Area Insets:** All fixed bottom docks, steppers, and bottom sheets must include `pb-safe` (`env(safe-area-inset-bottom)`) to clear the iOS Home Indicator and Android gesture bar.
+- In `ReceiptWorkbench.tsx`, the item list and live accounting breakdown are unified into a single tactile thermal receipt (`.pos-receipt`):
+  - **Top & Bottom 32-Tooth SVG Sawtooth Edges (`<ThermalReceiptSawtooth/>`):** Mimics a paper bill torn against a serrated metal POS printer blade.
+  - **Perforated Ticket Notches (`.pos-notch-left`, `.pos-notch-right`, `.pos-dashed-line`):** Separates the itemized dishes from the monospace tax/discount/SC summary footer.
+  - **Inline Expandable Autocomplete Trays:** Venue and menu price suggestions expand in-flow inside their parent card rather than floating as absolute overlays.
 
----
+### 4.3 Root Portal Modals (`<BottomSheet/>`, `<ConfirmSheet/>`, `<SpotlightTour/>`)
 
-## 5. Motion & Micro-Interaction Specification
-
-All animations use **Framer Motion Spring Physics** so velocity scales naturally across 60Hz, 120Hz, 144Hz, and 240Hz displays:
-
-### 5.1 Canonical Spring Presets
-
-- **Snappy UI Spring (Buttons, Pills, Toggles, Avatar Badges):**
-  `{ type: 'spring', stiffness: 500, damping: 32, mass: 0.8 }`
-- **Fluid Sheet / Page Transition Spring (BottomSheets, Stepper Slides, Drawers):**
-  `{ type: 'spring', stiffness: 340, damping: 30, mass: 1 }`
-- **Bouncy Feedback Spring (Claim Completion Checkmarks, Quota Badges):**
-  `{ type: 'spring', stiffness: 600, damping: 22 }`
-
-### 5.2 Required Micro-Interactions
-
-1. **Tactile Press (`whileTap`):** Interactive cards and primary buttons compress to `scale: 0.97` on pointer down and spring back on release, accompanied by a subtle haptic tap (`triggerHaptic('light')`).
-2. **Shared Layout Indicators (`layoutId`):** Active navigation dock tabs, segmented mode toggles (`Host` vs `Join`, `Pre-Tax` vs `Post-Tax`), and member filter pills use Framer Motion `layoutId` so the active highlight glides smoothly between options.
-3. **Staggered List Cascades:** Lists of sessions, dishes, or friends stagger their entrance by `0.035s` per item (`staggerChildren: 0.035`), capped at 10 items so long lists never feel sluggish.
+- All modal sheets and tours render via `createPortal(..., document.body)` so `position: fixed` is never trapped inside a parent header or container with `backdrop-filter` or `transform`.
 
 ---
 
-## 6. Brand Identity, Logo & `<BrandLoader/>` Specification
+## 5. Brand Identity & Motion Suite (`src/components/ui/BrandLoader.tsx`)
 
-### 6.1 Visual Concept ("The Equilibrium Mark")
-
-The Ekwly mark represents **fairness, division, and financial balance**:
-
-- Constructed as a multi-path inline SVG (`viewBox="0 0 64 64"`) with three precision geometric bars forming both an abstract **"E"** and an **Equal/Split symbol** (`=`).
-- Because the mark is a native multi-path SVG:
-  - **Static Mode (`<BrandLogo size="{32}"/>`):** Renders with zero rasterization blur at any DPI.
-  - **Animated Loader Mode (`<BrandLoader label="Syncing Room..."/>`):** The three geometric bars oscillate horizontally with phase-shifted spring physics and a gradient shimmer, visually depicting "splitting and balancing" while data loads.
-- **Replacement Contract:** All loading states across the entire app must use `<BrandLoader/>` (never raw `<Loader2/>` spinners for page loads). When updating brand artwork, editing `src/components/ui/BrandLoader.tsx` updates every loader and logo instance app-wide.
-
----
-
-## 7. Cross-Platform Parity Contract (PWA = iOS = Android)
-
-1. **Zero Native Browser Popups:** `window.alert`, `window.confirm`, and `window.prompt` are strictly forbidden. Destructive or critical actions must use `<ConfirmSheet/>` (`src/components/ui/ConfirmSheet.tsx`).
-2. **Browser & Hardware Back Parity:** Navigating between views or wizard steps must push/pop state cleanly so both the Android hardware back gesture (`@capacitor/app`), iOS edge swipe, and Web Browser Back button behave identically.
-3. **Universal Haptic Utility (`utils.haptic`):** Calls Capacitor Haptics on native builds or `navigator.vibrate` on web with a silent no-op fallback on unsupported desktop browsers.
-4. **Universal UPI Settlement:** Always provide both the `upi://pay` deep-link button (for mobile devices with UPI apps installed) **and** a 1-tap **"Show UPI QR"** modal (so users on iOS Safari, desktop PWA, or across the restaurant table can scan to pay with GPay/PhonePe).
-
----
-
-## 8. The 2-Tab Live Receipt Workbench (Solo-Host-First UX Spec)
-
-To optimize for the primary real-world workflow (one person logging and splitting the bill for their group) while preserving 100% of Ekwly's accounting power and multiplayer support:
-
-1. **Zero-Friction Room Entry:** Tapping the center `+` button in `<BottomDock/>` launches a workspace immediately with a 4-digit PIN generated silently in the background. Multiplayer QR sharing remains 1 tap away in the header (`[QR Invite]`).
-2. **2-Mode Segmented Header (`[1. Receipt & Split]` | `[2. Settle & Collect]`):**
-   - Replaces the 6-step linear wizard so users never have to click Back/Next 5 times to adjust a tax, discount, or service charge setting.
-3. **1-Tap Friend & Squad Population:** The top Member Bar surfaces connected Ekwly Friends and Saved Squads as 1-tap chips alongside guest text entry.
-4. **Item-Centric Dish Cards:**
-   - Each dish card displays inline `[All]` and `[Member]` avatar pills for 1-tap even assignment, plus an expandable fractional bar (`1/4`, `1/3`, `1/2`, `1`, `-`/`+`) when uneven quantities are needed.
-   - Per-item tax bracket selection and `+S.C.` applicability toggles live directly on the dish card.
-5. **Interactive Receipt Footer:** Pre/Post-Tax Discounts, Service Charge rate & tax inheritance (`Inherit` vs `Global` vs `None`), and Tax Bracket management sit directly in the live Master Bill Summary at the bottom of the canvas so every rule change reflects in the Grand Total instantaneously.
+1. **Equilibrium Monolith Icon (`<BrandLogo/>` on `100 × 100` Grid):**
+   - All 3 horizontal arms of the `E` and both bars of the negative-space `=` share identical thickness $T = 13.90$ units ($H = 85.50$, $W = 76.50$, $g = 4.00$, $s = 8.50$, $R_{\text{out}} = 12.00$, $R_{\text{in}} = 7.00$, $r_{\text{tip}} = 6.00$).
+   - Boxed in-app badges (`boxed={true}`) apply `transform="translate(12, 12) scale(0.76)"`; maskable mobile app icons apply `transform="translate(19, 19) scale(0.62)"` on a full-bleed `rx="0"` canvas.
+2. **Unified Single-SVG Wordmark (`<BrandWordmark/>` on `354 × 114` Grid):**
+   - Renders the unboxed `E=` monolith + custom rounded-capsule vector strokes for `kwly` inside a single `<svg viewBox="0 0 354 114">` so Hero (`52px`), Navbar (`28px`), and Legal (`30px`) headers scale identically without clipping the `y` descender.
+3. **3-Mode Animated Loader (`<BrandLoader/>`):**
+   - Supports `state="lockin"` (`1.0s` Magnetic Lock-In), `state="equalizer"` (`1.0s` Counter-Phase Equalizer), `state="scan"` (`1.2s` AI Laser Scan), and `state="success"`.

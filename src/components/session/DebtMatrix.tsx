@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { exportBentoReceiptImage } from '../../lib/bentoReceipt';
 import QRCode from 'react-qr-code';
 import type { CalculationResult } from '../../lib/types';
 import { utils, showToast } from '../../lib/utils';
@@ -14,6 +15,7 @@ import {
   Copy,
   CreditCard,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import ToggleSwitch from '../ui/ToggleSwitch';
@@ -42,6 +44,7 @@ export default function DebtMatrix(props: Props) {
   const [activeQrLedgerRow, setActiveQrLedgerRow] = useState<any | null>(null);
   const [inlineUpiInput, setInlineUpiInput] = useState('');
   const [isSavingUpi, setIsSavingUpi] = useState(false);
+  const hiddenBentoQrRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const fetchUpis = async () => {
@@ -262,6 +265,49 @@ export default function DebtMatrix(props: Props) {
             );
           })}
         </div>
+
+        {/* Hidden QR SVG source used by bentoReceipt.ts to embed the creditor's scannable UPI QR */}
+        {(() => {
+          const primaryCreditorRow = props.ledger[0];
+          const primaryKey = primaryCreditorRow
+            ? primaryCreditorRow.creditor_id || `fallback:${primaryCreditorRow.creditor_name}`
+            : '';
+          const primaryUpi = primaryKey ? upiMap[primaryKey] : null;
+          if (!primaryUpi || !primaryCreditorRow) return null;
+          const genericUpiUri = `upi://pay?pa=${encodeURIComponent(primaryUpi)}&pn=${encodeURIComponent(primaryCreditorRow.creditor_name)}&cu=INR`;
+          return (
+            <div ref={hiddenBentoQrRef} className="hidden" aria-hidden="true">
+              <QRCode value={genericUpiUri} size={200} />
+            </div>
+          );
+        })()}
+
+        <button
+          type="button"
+          onClick={() => {
+            utils.haptic('medium');
+            const primaryCreditorRow = props.ledger[0];
+            const primaryKey = primaryCreditorRow
+              ? primaryCreditorRow.creditor_id || `fallback:${primaryCreditorRow.creditor_name}`
+              : '';
+            const primaryUpi = primaryKey ? upiMap[primaryKey] : null;
+            const svgEl = hiddenBentoQrRef.current?.querySelector('svg') || null;
+
+            exportBentoReceiptImage({
+              calculationResult: props.calculationResult,
+              venueName: props.venueName,
+              receiptTitle: props.receiptTitle,
+              ledger: props.ledger,
+              creditorUpi: primaryUpi,
+              creditorName: primaryCreditorRow?.creditor_name || null,
+              qrSvgElement: svgEl,
+              mode: 'share',
+            });
+          }}
+          className="h-12 w-full premium-gradient-card text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform"
+        >
+          <Sparkles size={16} /> Share WhatsApp Bento Receipt Card
+        </button>
 
         <div className="px-4 mt-6 flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2.5">
