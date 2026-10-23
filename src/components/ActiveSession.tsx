@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Receipt, CreditCard, ArrowRight, Wallet, Trash2, Check, Users } from 'lucide-react';
 import { SessionProvider, useSessionContext } from '../lib/SessionContext';
 import { mathEngine } from '../lib/mathEngine';
-import { exportToPDF } from '../lib/pdf';
 import { utils, showToast } from '../lib/utils';
 import ReceiptWorkbench from './session/ReceiptWorkbench';
 import DebtMatrix from './session/DebtMatrix';
@@ -37,7 +36,6 @@ function ActiveSessionContent({
     isHost,
     items,
     members,
-    taxPresets,
     sessionRules,
     sessionStatus,
     ledger,
@@ -48,7 +46,6 @@ function ActiveSessionContent({
   } = useSessionContext();
 
   const [activeTab, setActiveTab] = useState<'workbench' | 'settle'>('workbench');
-  const [receiptTitle, setReceiptTitle] = useState('');
   const [showPayerSheet, setShowPayerSheet] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -70,6 +67,7 @@ function ActiveSessionContent({
 
   const grandTotal = liveCalculation.globalSummary.grandTotal;
   const totalPaid = members.reduce((sum, m) => sum + (m.paid_amount || 0), 0);
+  const resolvedReceiptTitle = initialName || sessionRules.venueName || 'Dining Bill Split';
 
   const assignSinglePayer = async (targetMemberId: string) => {
     if (!isHost || grandTotal <= 0) return;
@@ -147,21 +145,6 @@ function ActiveSessionContent({
     showToast('Bill unlocked for editing.', 'default');
   };
 
-  const handleExportPDF = (mode: 'download' | 'share' = 'download') => {
-    utils.haptic('light');
-    exportToPDF(
-      liveCalculation,
-      receiptTitle || initialName || sessionRules.venueName || 'Settlement Receipt',
-      items,
-      taxPresets,
-      sessionRules.scTaxPresetId,
-      sessionRules.serviceChargeRate,
-      members,
-      ledger,
-      mode
-    );
-  };
-
   const handleDeleteRoom = async () => {
     await actions.deleteActiveSessionInDB();
     showToast('Session deleted.', 'success');
@@ -182,8 +165,8 @@ function ActiveSessionContent({
         variant="danger"
       />
 
-      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Matches Translucent Top Navbar) */}
-      <div className="sticky top-16 z-30 bg-surface/75 backdrop-blur-xl border-b border-border/80 px-4 py-2 gpu-layer">
+      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Glassmorphic Chrome) */}
+      <div className="sticky top-16 z-30 glass-chrome border-b border-border/80 px-4 py-2 gpu-layer">
         <div className="bg-page/55 backdrop-blur-md border border-border/80 rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
           <button
             type="button"
@@ -257,9 +240,9 @@ function ActiveSessionContent({
             transition={{ duration: 0.15 }}
             className="flex flex-col flex-1 pt-4 relative z-10"
           >
-            {/* UPGRADED "WHO PAID THE RESTAURANT BILL?" CARD WITH 1-TAP PAYER CHIPS */}
+            {/* "WHO PAID THE RESTAURANT BILL?" GLASS CARD WITH 1-TAP PAYER CHIPS */}
             {sessionStatus !== 'locked' && (
-              <div className="mx-4 mb-4 bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+              <div className="mx-4 mb-4 glass-card rounded-3xl p-5 flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Wallet size={15} className="text-primary" />
@@ -272,12 +255,12 @@ function ActiveSessionContent({
                   </span>
                 </div>
 
-                <p className="text-[0.72rem] text-muted leading-relaxed -mt-1">
-                  Tap the person who paid the waiter/cashier so everyone else&apos;s UPI links route
-                  to them:
+                <p className="text-xs text-muted leading-relaxed -mt-1">
+                  Tap the person who paid the waiter/cashier so everyone else&apos;s settlements
+                  route to them:
                 </p>
 
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
                   {members.map((m) => {
                     const isSolePayer =
                       activePayers.length === 1 &&
@@ -289,7 +272,7 @@ function ActiveSessionContent({
                         type="button"
                         disabled={!isHost}
                         onClick={() => assignSinglePayer(m.id)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 ${
+                        className={`min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 ${
                           isSolePayer
                             ? 'bg-primary text-white border-primary shadow-2xs'
                             : 'bg-page text-main border-border hover:border-primary/40'
@@ -307,7 +290,7 @@ function ActiveSessionContent({
                       utils.haptic('light');
                       setShowPayerSheet(true);
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
+                    className={`min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
                       activePayers.length > 1
                         ? 'bg-primary/15 text-primary border-primary/40'
                         : 'bg-page text-muted border-border hover:text-main'
@@ -325,29 +308,26 @@ function ActiveSessionContent({
             )}
 
             <DebtMatrix
-              calculationResult={liveCalculation}
-              receiptTitle={receiptTitle}
-              setReceiptTitle={setReceiptTitle}
+              isHost={isHost}
               sessionStatus={sessionStatus}
               ledger={ledger}
-              isHost={isHost}
-              currentUserId={currentUserId}
-              handleLockSession={handleLockSession}
-              handleToggleSettled={actions.toggleLedgerSettledInDB}
-              handleExportPDF={handleExportPDF}
-              handleUnlockSession={handleUnlockSession}
-              handleGoHome={onExit}
+              members={members}
+              calculationResult={liveCalculation}
               venueName={sessionRules.venueName}
+              receiptTitle={resolvedReceiptTitle}
+              onFinalize={handleLockSession}
+              onUnlock={handleUnlockSession}
+              onToggleSettle={actions.toggleLedgerSettledInDB}
             />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* FLOATING BOTTOM SUMMARY & CTA BAR (ON TAB 1) */}
+      {/* FLOATING GLASSMORPHIC BOTTOM SUMMARY & CTA BAR (ON TAB 1) */}
       {activeTab === 'workbench' && (
         <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none flex justify-center px-4 pb-4 pb-safe">
-          <div className="pointer-events-auto w-full max-w-xl bg-surface/92 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] flex items-center justify-between gap-3 gpu-layer">
-            <div className="flex flex-col pl-1">
+          <div className="pointer-events-auto w-full max-w-xl glass-dock rounded-3xl p-3.5 flex items-center justify-between gap-3 gpu-layer">
+            <div className="flex flex-col pl-1.5">
               <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
                 Grand Total ({items.length} {items.length === 1 ? 'item' : 'items'})
               </span>
@@ -359,7 +339,7 @@ function ActiveSessionContent({
             <button
               type="button"
               onClick={() => handleSwitchTab('settle')}
-              className="h-11 px-5 premium-gradient-card text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm active:scale-95 transition-transform"
+              className="h-11 px-5 premium-gradient-card text-white rounded-2xl font-bold text-sm flex items-center gap-2 shadow-sm active:scale-95 transition-transform"
             >
               Review &amp; Settle <ArrowRight size={17} />
             </button>

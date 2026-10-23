@@ -43,7 +43,7 @@ export default function BottomDock({ activeTab, onSelectTab, onNewSession }: Pro
           <motion.div
             layoutId="ekwly-dock-pill"
             transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
-            className="absolute inset-x-1.5 inset-y-1 bg-primary/12 rounded-xl z-0"
+            className="absolute inset-x-1.5 inset-y-1 glass-pill rounded-xl z-0"
           />
         )}
         <Icon className="relative z-10" size={20} strokeWidth={isActive ? 2.5 : 2} />
@@ -58,7 +58,7 @@ export default function BottomDock({ activeTab, onSelectTab, onNewSession }: Pro
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none flex justify-center px-4 pb-4 pb-safe">
       <nav
         aria-label="Primary Navigation"
-        className="pointer-events-auto w-full max-w-md bg-surface/90 backdrop-blur-xl border border-border rounded-3xl px-2 py-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.18)] flex items-center justify-between gap-1 gpu-layer"
+        className="pointer-events-auto w-full max-w-md glass-dock rounded-3xl px-2.5 py-2 flex items-center justify-between gap-1 gpu-layer"
       >
         {LEFT_TABS.map(renderTab)}
 

@@ -14,7 +14,7 @@ interface Props {
 }
 
 export default function MagicScanner({ onScanComplete }: Props) {
-  const { isHost, taxPresets, currentUserId, actions } = useSessionContext();
+  const { isHost, taxPresets, sessionRules, currentUserId, actions } = useSessionContext();
   const [isScanning, setIsScanning] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [userEmail, setUserEmail] = useState('');
@@ -59,7 +59,7 @@ export default function MagicScanner({ onScanComplete }: Props) {
     });
   };
 
-  const processBase64Receipt = async (base64Image: string) => {
+  const processBase64Receipt = async (imageBase64: string) => {
     setIsScanning(true);
     try {
       const {
@@ -75,14 +75,23 @@ export default function MagicScanner({ onScanComplete }: Props) {
       if (session.user?.email) setUserEmail(session.user.email);
 
       const { data, error } = await supabase.functions.invoke('scan-receipt', {
-        body: { base64Image },
+        body: {
+          imageBase64,
+          mimeType: 'image/jpeg',
+          currentRules: sessionRules,
+          currentTaxes: taxPresets,
+        },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
       });
 
       if (error) {
-        if (error.message?.includes('QUOTA_EXCEEDED') || (error as any)?.status === 402) {
+        if (
+          error.message?.includes('RATE_LIMIT_REACHED') ||
+          error.message?.includes('QUOTA_EXCEEDED') ||
+          (error as any)?.status === 402
+        ) {
           setShowPaywall(true);
           setIsScanning(false);
           return;
@@ -90,28 +99,37 @@ export default function MagicScanner({ onScanComplete }: Props) {
         throw error;
       }
 
-      if (data?.error === 'QUOTA_EXCEEDED') {
-        setShowPaywall(true);
-        setIsScanning(false);
-        return;
+      if (data?.error) {
+        if (
+          String(data.error).includes('RATE_LIMIT_REACHED') ||
+          String(data.error).includes('QUOTA_EXCEEDED')
+        ) {
+          setShowPaywall(true);
+          setIsScanning(false);
+          return;
+        }
+        throw new Error(String(data.error));
       }
 
       if (!data || !Array.isArray(data.items)) {
         throw new Error('Could not read items from this image. Try a clearer photo.');
       }
 
-      // 1. Reconcile & batch-save any new tax brackets detected by Gemini
+      // 1. Reconcile & batch-save any new tax brackets detected by Gemini (mapping tempId -> real UUID)
       const updatedPresets: TaxPreset[] = [...taxPresets];
+      const tempIdToRealId = new Map<string, string>();
       let hasNewPresets = false;
 
       if (Array.isArray(data.newTaxPresets)) {
         for (const tp of data.newTaxPresets) {
-          const exists = updatedPresets.some(
-            (existing) => Math.abs(existing.rate - Number(tp.rate)) < 0.1
-          );
-          if (!exists && Number(tp.rate) >= 0) {
+          const existing = updatedPresets.find((p) => Math.abs(p.rate - Number(tp.rate)) < 0.1);
+          if (existing) {
+            if (tp.tempId) tempIdToRealId.set(tp.tempId, existing.id);
+          } else if (Number(tp.rate) >= 0) {
+            const newRealId = utils.generateId();
+            if (tp.tempId) tempIdToRealId.set(tp.tempId, newRealId);
             updatedPresets.push({
-              id: utils.generateId(),
+              id: newRealId,
               name: tp.name || `Tax ${tp.rate}%`,
               rate: Number(tp.rate),
               split: tp.split !== false,
@@ -125,35 +143,41 @@ export default function MagicScanner({ onScanComplete }: Props) {
         await actions.replaceTaxPresetsInDB(updatedPresets);
       }
 
-      // 2. Apply venue, service charge & 3-layer discounts if detected
-      const scRate = Number(data.serviceChargeRate || 0);
-      const normScRate = scRate > 1 ? scRate / 100 : scRate;
+      // 2. Apply extracted sessionRules (Service Charge & 3-Layer Discounts)
+      const rules = data.sessionRules || data;
+      const scRateRaw = Number(rules.serviceChargeRate ?? 0);
+      const normScRate = scRateRaw > 1 ? scRateRaw / 100 : scRateRaw;
+      const isScOn =
+        rules.isScApplicable !== undefined ? Boolean(rules.isScApplicable) : normScRate > 0;
 
-      let resolvedScTaxPresetId = 'inherit';
-      if (data.scTaxMode === 'none') {
-        resolvedScTaxPresetId = 'none';
-      } else if (data.scTaxMode === 'global') {
+      let resolvedScTaxPresetId = rules.scTaxPresetId || 'inherit';
+      if (tempIdToRealId.has(resolvedScTaxPresetId)) {
+        resolvedScTaxPresetId = tempIdToRealId.get(resolvedScTaxPresetId)!;
+      } else if (
+        resolvedScTaxPresetId !== 'inherit' &&
+        resolvedScTaxPresetId !== 'none' &&
+        !updatedPresets.some((p) => p.id === resolvedScTaxPresetId)
+      ) {
         const foodPreset =
           updatedPresets.find((t) => Math.abs(t.rate - 5) < 0.5) || updatedPresets[0];
-        if (foodPreset) resolvedScTaxPresetId = foodPreset.id;
+        resolvedScTaxPresetId = foodPreset ? foodPreset.id : 'inherit';
       }
 
       await actions.updateSessionRulesInDB({
-        ...(data.venueName ? { venueName: data.venueName } : {}),
-        isScApplicable: normScRate > 0,
-        serviceChargeRate: normScRate,
-        scTaxPresetId: resolvedScTaxPresetId,
-        ...(data.discountType && data.discountType !== 'none'
+        isScApplicable: isScOn,
+        serviceChargeRate: isScOn ? normScRate : 0,
+        scTaxPresetId: isScOn ? resolvedScTaxPresetId : 'none',
+        ...(rules.discountType && rules.discountType !== 'none'
           ? {
-              discountType: data.discountType,
-              discountValue: String(data.discountValue || ''),
-              discountMode: data.discountMode || 'pre-tax',
+              discountType: rules.discountType,
+              discountValue: String(rules.discountValue || ''),
+              discountMode: rules.discountMode || 'pre-tax',
             }
           : {}),
-        ...(data.postTaxDiscountType && data.postTaxDiscountType !== 'none'
+        ...(rules.postTaxDiscountType && rules.postTaxDiscountType !== 'none'
           ? {
-              postTaxDiscountType: data.postTaxDiscountType,
-              postTaxDiscountValue: String(data.postTaxDiscountValue || ''),
+              postTaxDiscountType: rules.postTaxDiscountType,
+              postTaxDiscountValue: String(rules.postTaxDiscountValue || ''),
             }
           : {}),
       });
@@ -161,10 +185,16 @@ export default function MagicScanner({ onScanComplete }: Props) {
       // 3. Map & batch-insert all extracted line items in one single DB call
       const mappedItems: BillItem[] = data.items.map((raw: any) => {
         const qty = Math.max(0.01, Number(raw.qty) || 1);
-        const unitPrice = Math.max(0, Number(raw.unitPrice) || 0);
-        const itemRate = Number(raw.taxRate || 0);
+        const unitPrice = Math.max(0, Number(raw.price ?? raw.unitPrice ?? 0));
+        const rawPresetId = String(raw.taxPresetId || '');
+        const mappedPresetId = tempIdToRealId.get(rawPresetId) || rawPresetId;
+
         const matchedPreset =
-          updatedPresets.find((p) => Math.abs(p.rate - itemRate) < 0.5) || updatedPresets[0];
+          updatedPresets.find((p) => p.id === mappedPresetId) ||
+          (raw.taxRate !== undefined
+            ? updatedPresets.find((p) => Math.abs(p.rate - Number(raw.taxRate)) < 0.5)
+            : undefined) ||
+          updatedPresets[0];
 
         return {
           id: utils.generateId(),
@@ -175,7 +205,10 @@ export default function MagicScanner({ onScanComplete }: Props) {
           taxPresetId: matchedPreset ? matchedPreset.id : 'tx-1',
           applySC: raw.applySC !== false,
           applyDiscount: raw.applyDiscount !== false,
-          discountType: raw.discountType || 'none',
+          discountType:
+            raw.discountType === 'percentage' || raw.discountType === 'flat'
+              ? raw.discountType
+              : 'none',
           discountValue: Number(raw.discountValue || 0),
           totalBase: utils.round2(qty * unitPrice),
         };
