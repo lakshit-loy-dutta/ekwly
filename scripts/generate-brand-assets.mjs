@@ -3,7 +3,9 @@ import path from 'node:path';
 
 const rootDir = process.cwd();
 const svgDir = path.join(rootDir, 'brand-kit', 'svg');
+const resourcesDir = path.join(rootDir, 'resources');
 fs.mkdirSync(svgDir, { recursive: true });
+fs.mkdirSync(resourcesDir, { recursive: true });
 
 // Locked v3 Geometry Path (T = 13.90, H = 85.50, W = 76.50, g = 4.00, s = 8.50, R_out = 12, R_in = 7, rTip = 6)
 const E_PATH =
@@ -18,14 +20,12 @@ const KWLY_PATHS = [
   '<path d="M 220 34 L 195 83 Q 190 91 179 89" />',
 ].join('');
 
-function buildIconSvg({ eFill, eqTop, eqBot, boxed = false, maskableSafe = false }) {
-  // maskableSafe = true uses full-bleed (rx="0") + 0.62x scale centered at (50,50) so Android/iOS circular masks never clip the E
+function buildIconSvg({ eFill, eqTop, eqBot, boxed = false, maskableSafe = false, customScale }) {
   const cornerRx = maskableSafe ? '0' : '24';
-  const glyphTransform = maskableSafe
-    ? ' transform="translate(19, 19) scale(0.62)"'
-    : boxed
-      ? ' transform="translate(13, 13) scale(0.74)"'
-      : '';
+  const scaleVal = customScale || (maskableSafe ? 0.62 : boxed ? 0.74 : 1);
+  const offsetVal = ((100 - 100 * scaleVal) / 2).toFixed(2);
+  const glyphTransform =
+    scaleVal !== 1 ? ` transform="translate(${offsetVal}, ${offsetVal}) scale(${scaleVal})"` : '';
 
   const bg = boxed
     ? [
@@ -51,7 +51,166 @@ function buildIconSvg({ eFill, eqTop, eqBot, boxed = false, maskableSafe = false
   ].join('');
 }
 
-// ViewBox 354 x 114 (width 2124 x height 684) so the 'y' descender (Y=109.8) is never clipped
+// Android Adaptive Background Only (1024x1024)
+const adaptiveBgSvg = [
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1024" height="1024" fill="none">',
+  '<defs>',
+  '<linearGradient id="bgG" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">',
+  '<stop offset="0%" stop-color="#071226"/>',
+  '<stop offset="100%" stop-color="#0F2342"/>',
+  '</linearGradient>',
+  '</defs>',
+  '<rect x="0" y="0" width="100" height="100" fill="url(#bgG)"/>',
+  '</svg>',
+].join('');
+
+// Android Adaptive Foreground Only (1024x1024 transparent with 0.56x safe-zone inset for Android 108dp viewport)
+const adaptiveFgSvg = buildIconSvg({
+  eFill: '#FFFFFF',
+  eqTop: '#0080FF',
+  eqBot: '#38BDF8',
+  boxed: false,
+  customScale: 0.56,
+});
+
+// Universal 2732x2732 Capacitor Splash Screen SVG (Dark & Light)
+function buildSplashSvg(isDark = true) {
+  const bgHex = isDark ? '#050914' : '#F2F8FF';
+  const eFill = isDark ? '#FFFFFF' : '#050914';
+  const kwlyStroke = isDark ? '#93C5FD' : '#0284C7';
+  return [
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2732 2732" width="2732" height="2732" fill="none">',
+    `<rect width="2732" height="2732" fill="${bgHex}"/>`,
+    '<g transform="translate(970, 1230) scale(2.24)">',
+    `<path d="${E_PATH}" fill="${eFill}" />`,
+    '<rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="#0080FF" />',
+    '<rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="#38BDF8" />',
+    `<g transform="translate(91.25, 4.09) scale(1.09)" stroke="${kwlyStroke}" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">`,
+    KWLY_PATHS,
+    '</g>',
+    '</g>',
+    '</svg>',
+  ].join('');
+}
+
+// Helper to generate serrated sawtooth receipt path for the 1024x500 Feature Graphic
+function buildFeatureReceiptPath(x, yTop, w, h, teeth = 18) {
+  const toothW = w / teeth;
+  const toothH = 8;
+  const yBot = yTop + h;
+  const cmds = [`M ${x} ${yTop + toothH}`];
+  for (let i = 0; i < teeth; i++) {
+    const tx = x + i * toothW;
+    cmds.push(`L ${(tx + toothW / 2).toFixed(2)} ${yTop}`);
+    cmds.push(`L ${(tx + toothW).toFixed(2)} ${yTop + toothH}`);
+  }
+  cmds.push(`L ${x + w} ${yBot - toothH}`);
+  for (let i = teeth - 1; i >= 0; i--) {
+    const tx = x + i * toothW;
+    cmds.push(`L ${(tx + toothW / 2).toFixed(2)} ${yBot}`);
+    cmds.push(`L ${tx.toFixed(2)} ${yBot - toothH}`);
+  }
+  cmds.push('Z');
+  return cmds.join(' ');
+}
+
+const FEATURE_RECEIPT_PATH = buildFeatureReceiptPath(636, 46, 328, 408, 18);
+
+// Google Play Store 1024x500 Feature Graphic SVG (Zero Brand Names, Flush 64px Grid & Exact Math)
+const playStoreFeatureSvg = [
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 500" width="1024" height="500" fill="none">',
+  '<defs>',
+  '<linearGradient id="featBg" x1="0" y1="0" x2="1024" y2="500" gradientUnits="userSpaceOnUse">',
+  '<stop offset="0%" stop-color="#050914"/>',
+  '<stop offset="55%" stop-color="#09152B"/>',
+  '<stop offset="100%" stop-color="#071F42"/>',
+  '</linearGradient>',
+  '<linearGradient id="cardGrad" x1="636" y1="46" x2="964" y2="454" gradientUnits="userSpaceOnUse">',
+  '<stop offset="0%" stop-color="#152238"/>',
+  '<stop offset="100%" stop-color="#0F1724"/>',
+  '</linearGradient>',
+  '<linearGradient id="totalGrad" x1="662" y1="350" x2="938" y2="432" gradientUnits="userSpaceOnUse">',
+  '<stop offset="0%" stop-color="#0080FF"/>',
+  '<stop offset="100%" stop-color="#0055B3"/>',
+  '</linearGradient>',
+  '</defs>',
+
+  // 1. Background Canvas + Subtle Radial Glow Behind Receipt
+  '<rect width="1024" height="500" fill="url(#featBg)"/>',
+  '<circle cx="800" cy="250" r="230" fill="#0080FF" fill-opacity="0.08"/>',
+
+  // 2. Left Column: [E=]kwly Wordmark (Compensated so left spine of E sits at exact x = 64.0)
+  '<g transform="translate(53.9, 68) scale(0.86)">',
+  `<path d="${E_PATH}" fill="#FFFFFF" />`,
+  '<rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="#0080FF" />',
+  '<rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="#38BDF8" />',
+  '<g transform="translate(91.25, 4.09) scale(1.09)" stroke="#93C5FD" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">',
+  KWLY_PATHS,
+  '</g>',
+  '</g>',
+
+  // 3. Left Column: 2-Line Universal Headline (Flush at x = 64, well clear of right card)
+  '<text x="64" y="224" fill="#FFFFFF" font-family="Inter, system-ui, sans-serif" font-weight="900" font-size="36" letter-spacing="-0.5">Split Group Bills in Seconds.</text>',
+  '<text x="64" y="268" fill="#38BDF8" font-family="Inter, system-ui, sans-serif" font-weight="900" font-size="36" letter-spacing="-0.5">Fair to the Last Rupee.</text>',
+
+  // 4. Left Column: Subheadline (Flush at x = 64)
+  '<text x="64" y="314" fill="#94A3B8" font-family="Inter, system-ui, sans-serif" font-weight="600" font-size="19">AI receipt scanning, multi-rate GST &amp; VAT routing,</text>',
+  '<text x="64" y="342" fill="#94A3B8" font-family="Inter, system-ui, sans-serif" font-weight="600" font-size="19">and instant UPI QR settlement — 100% free.</text>',
+
+  // 5. Left Column: 3 Geometrically Aligned Feature Pills (y = 378, h = 40)
+  // Pill 1: AI Magic Scan
+  '<rect x="64" y="378" width="152" height="40" rx="20" fill="#0F2342" stroke="#0080FF" stroke-width="1.5"/>',
+  '<circle cx="84" cy="398" r="4.5" fill="#38BDF8"/>',
+  '<text x="97" y="403" fill="#E0F2FE" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="14">AI Magic Scan</text>',
+
+  // Pill 2: Exact GST & VAT
+  '<rect x="228" y="378" width="164" height="40" rx="20" fill="#0F2342" stroke="#10B981" stroke-width="1.5"/>',
+  '<circle cx="248" cy="398" r="4.5" fill="#10B981"/>',
+  '<text x="261" y="403" fill="#D1FAE5" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="14">Exact GST &amp; VAT</text>',
+
+  // Pill 3: Instant UPI QR
+  '<rect x="404" y="378" width="158" height="40" rx="20" fill="#0F2342" stroke="#38BDF8" stroke-width="1.5"/>',
+  '<circle cx="424" cy="398" r="4.5" fill="#38BDF8"/>',
+  '<text x="437" y="403" fill="#E0F2FE" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="14">Instant UPI QR</text>',
+
+  // 6. Right Column: Skeuomorphic Sawtooth Thermal Receipt Card (x = 636, w = 328)
+  `<path d="${FEATURE_RECEIPT_PATH}" fill="url(#cardGrad)" stroke="#2C4263" stroke-width="2" stroke-linejoin="round"/>`,
+
+  // Receipt Header (100% Generic Title)
+  '<text x="800" y="84" text-anchor="middle" fill="#38BDF8" font-family="monospace" font-weight="800" font-size="12" letter-spacing="1.5">★ LIVE BILL SPLIT ★</text>',
+  '<text x="800" y="110" text-anchor="middle" fill="#FFFFFF" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="19">Friday Night Dinner</text>',
+  '<text x="800" y="130" text-anchor="middle" fill="#94A3B8" font-family="monospace" font-weight="600" font-size="12">4 People  •  3 Items</text>',
+  '<line x1="662" y1="146" x2="938" y2="146" stroke="#2C4263" stroke-width="1.5" stroke-dasharray="5 5"/>',
+
+  // Item 01: Paneer Tikka (Rs. 525.00)
+  '<text x="662" y="174" fill="#F8FAFC" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="15">01. Paneer Tikka</text>',
+  '<text x="938" y="174" text-anchor="end" fill="#F8FAFC" font-family="monospace" font-weight="800" font-size="15">₹525.00</text>',
+  '<text x="662" y="194" fill="#10B981" font-family="monospace" font-weight="700" font-size="11.5">x2  •  Food GST 5%  •  ✓ Split</text>',
+
+  // Item 02: Butter Chicken & Naan (Rs. 735.00)
+  '<text x="662" y="232" fill="#F8FAFC" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="15">02. Butter Chicken &amp; Naan</text>',
+  '<text x="938" y="232" text-anchor="end" fill="#F8FAFC" font-family="monospace" font-weight="800" font-size="15">₹735.00</text>',
+  '<text x="662" y="252" fill="#10B981" font-family="monospace" font-weight="700" font-size="11.5">x2  •  Food GST 5%  •  ✓ Split</text>',
+
+  // Item 03: Draft Beer Pitcher (Rs. 1,210.00)
+  '<text x="662" y="290" fill="#F8FAFC" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="15">03. Draft Beer Pitcher</text>',
+  '<text x="938" y="290" text-anchor="end" fill="#F8FAFC" font-family="monospace" font-weight="800" font-size="15">₹1,210.00</text>',
+  '<text x="662" y="310" fill="#F59E0B" font-family="monospace" font-weight="700" font-size="11.5">x1  •  Bar Tax 10%  •  3 Shared</text>',
+
+  // Perforated Ticket Tear Line & Side Notches (y = 332)
+  '<line x1="650" y1="332" x2="950" y2="332" stroke="#3B557D" stroke-width="1.5" stroke-dasharray="6 6"/>',
+  '<circle cx="636" cy="332" r="9" fill="#071B3A" stroke="#2C4263" stroke-width="1.5"/>',
+  '<circle cx="964" cy="332" r="9" fill="#071F42" stroke="#2C4263" stroke-width="1.5"/>',
+
+  // Grand Total Box (525 + 735 + 1210 = 2,470.00 Exact)
+  '<rect x="662" y="348" width="276" height="82" rx="16" fill="url(#totalGrad)"/>',
+  '<text x="682" y="374" fill="#E0F2FE" font-family="monospace" font-weight="800" font-size="11.5" letter-spacing="0.5">GRAND TOTAL (EXACT PAISA)</text>',
+  '<text x="682" y="412" fill="#FFFFFF" font-family="Inter, system-ui, sans-serif" font-weight="900" font-size="31">₹2,470.00</text>',
+  '<rect x="852" y="388" width="68" height="26" rx="8" fill="#FFFFFF" fill-opacity="0.2"/>',
+  '<text x="886" y="405" text-anchor="middle" fill="#FFFFFF" font-family="Inter, system-ui, sans-serif" font-weight="800" font-size="11">UPI QR</text>',
+  '</svg>',
+].join('');
+
 function buildWordmarkSvg({ eFill, kwlyStroke, eqTop, eqBot }) {
   return [
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 114" width="2124" height="684" fill="none">',
@@ -116,8 +275,7 @@ const animatedScanSvg = [
   '</svg>',
 ].join('');
 
-// 1. Generate all Static & Animated SVG Variants
-// Rounded squircle badge for desktop browser tab favicons (0.74x inset)
+// Generate all Static & Animated SVG Variants
 const faviconBadgeSvg = buildIconSvg({
   eFill: '#FFFFFF',
   eqTop: '#0080FF',
@@ -126,7 +284,6 @@ const faviconBadgeSvg = buildIconSvg({
   maskableSafe: false,
 });
 
-// Maskable safe-zone full-bleed icon for Android/iOS home screens (0.62x inset — never cropped by circle masks)
 const appBadgeSvg = buildIconSvg({
   eFill: '#FFFFFF',
   eqTop: '#0080FF',
@@ -184,10 +341,17 @@ const wordmarkMonoBlackSvg = buildWordmarkSvg({
   eqBot: '#050914',
 });
 
-// Write all 13 SVGs to disk
+const splashDarkSvg = buildSplashSvg(true);
+const splashLightSvg = buildSplashSvg(false);
+
+// Write all SVGs to disk
 fs.writeFileSync(path.join(rootDir, 'public', 'icon.svg'), faviconBadgeSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-favicon-squircle.svg'), faviconBadgeSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-app-maskable.svg'), appBadgeSvg, 'utf8');
+fs.writeFileSync(path.join(svgDir, 'ekwly-icon-adaptive-fg.svg'), adaptiveFgSvg, 'utf8');
+fs.writeFileSync(path.join(svgDir, 'ekwly-icon-adaptive-bg.svg'), adaptiveBgSvg, 'utf8');
+fs.writeFileSync(path.join(svgDir, 'ekwly-splash-dark.svg'), splashDarkSvg, 'utf8');
+fs.writeFileSync(path.join(svgDir, 'ekwly-play-feature-graphic.svg'), playStoreFeatureSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-dark.svg'), iconDarkSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-light.svg'), iconLightSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-icon-mono-white.svg'), monoWhiteSvg, 'utf8');
@@ -200,38 +364,72 @@ fs.writeFileSync(path.join(svgDir, 'ekwly-loader-lockin.svg'), animatedLockInSvg
 fs.writeFileSync(path.join(svgDir, 'ekwly-loader-equalizer.svg'), animatedEqualizerSvg, 'utf8');
 fs.writeFileSync(path.join(svgDir, 'ekwly-loader-scan.svg'), animatedScanSvg, 'utf8');
 
-// 2. Build JSON payload for the Browser PNG, Multi-Size .ICO & 3-Animation WebM Exporter
 const exportPayload = {
   ePath: E_PATH,
   badgeSvg: faviconBadgeSvg,
   assets: [
     {
       name: 'icon-192.png',
-      label: 'PWA Home Screen Icon (192x192 Safe-Zone -> public/)',
+      label: 'PWA Home Screen Icon (192x192 -> public/)',
       w: 192,
       h: 192,
       svg: appBadgeSvg,
     },
     {
       name: 'icon-512.png',
-      label: 'PWA & Play Store Icon (512x512 Safe-Zone -> public/)',
+      label: 'PWA & Play Store Icon (512x512 -> public/)',
       w: 512,
       h: 512,
       svg: appBadgeSvg,
     },
     {
       name: 'apple-touch-icon.png',
-      label: 'iOS Home Screen Icon (180x180 Safe-Zone -> public/)',
+      label: 'iOS Home Screen Icon (180x180 -> public/)',
       w: 180,
       h: 180,
       svg: appBadgeSvg,
     },
     {
-      name: 'ekwly-icon-1024.png',
-      label: 'Master App Store Icon (1024x1024 Safe-Zone)',
+      name: 'icon-only.png',
+      label: 'Capacitor Master Icon (1024x1024 -> resources/)',
       w: 1024,
       h: 1024,
       svg: appBadgeSvg,
+    },
+    {
+      name: 'icon-foreground.png',
+      label: 'Android Adaptive Foreground (1024x1024 -> resources/)',
+      w: 1024,
+      h: 1024,
+      svg: adaptiveFgSvg,
+    },
+    {
+      name: 'icon-background.png',
+      label: 'Android Adaptive Background (1024x1024 -> resources/)',
+      w: 1024,
+      h: 1024,
+      svg: adaptiveBgSvg,
+    },
+    {
+      name: 'splash-dark.png',
+      label: 'Capacitor Dark Splash (2732x2732 -> resources/)',
+      w: 2732,
+      h: 2732,
+      svg: splashDarkSvg,
+    },
+    {
+      name: 'splash.png',
+      label: 'Capacitor Light Splash (2732x2732 -> resources/)',
+      w: 2732,
+      h: 2732,
+      svg: splashLightSvg,
+    },
+    {
+      name: 'play-store-feature-graphic.png',
+      label: 'Google Play Feature Graphic (1024x500)',
+      w: 1024,
+      h: 500,
+      svg: playStoreFeatureSvg,
     },
     {
       name: 'ekwly-wordmark-dark.png',
@@ -247,20 +445,6 @@ const exportPayload = {
       h: 684,
       svg: wordmarkLightSvg,
     },
-    {
-      name: 'ekwly-mono-white.png',
-      label: 'Monochrome White Stamp (1024x1024)',
-      w: 1024,
-      h: 1024,
-      svg: monoWhiteSvg,
-    },
-    {
-      name: 'ekwly-mono-black.png',
-      label: 'Monochrome Black Stamp (1024x1024)',
-      w: 1024,
-      h: 1024,
-      svg: monoBlackSvg,
-    },
   ],
 };
 
@@ -268,17 +452,19 @@ const exporterHtml = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Ekwly Brand Asset Exporter (ICO, Safe-Zone PNGs & All 3 Studio Animations)</title>
+  <title>Ekwly Brand, Native Capacitor & Play Store Asset Exporter</title>
   <style>
-    body { background: #050914; color: #f8fafc; font-family: system-ui, sans-serif; padding: 32px; max-width: 1180px; margin: 0 auto; }
+    body { background: #050914; color: #f8fafc; font-family: system-ui, sans-serif; padding: 32px; max-width: 1200px; margin: 0 auto; }
     h1 { font-size: 1.5rem; margin-bottom: 4px; }
     h2 { font-size: 1.1rem; color: #38bdf8; margin: 32px 0 12px 0; border-bottom: 1px solid #1e2d44; padding-bottom: 8px; }
     p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; }
-    .hero-bar { background: #0f1724; border: 1px solid #0080ff; border-radius: 16px; padding: 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+    .hero-bar { background: #0f1724; border: 1px solid #0080ff; border-radius: 16px; padding: 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
     .hero-btns { display: flex; gap: 12px; flex-wrap: wrap; }
-    .hero-btns button { width: auto; padding: 12px 20px; font-size: 0.85rem; }
+    .hero-btns button { width: auto; padding: 12px 18px; font-size: 0.82rem; }
     .btn-emerald { background: #10b981; }
     .btn-emerald:hover { background: #059669; }
+    .btn-amber { background: #f59e0b; color: #050914; }
+    .btn-amber:hover { background: #d97706; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
     .card { background: #0f1724; border: 1px solid #1e2d44; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
     button { width: 100%; padding: 11px 16px; border-radius: 10px; border: none; background: #0080ff; color: #fff; font-weight: 700; cursor: pointer; font-size: 0.82rem; }
@@ -288,23 +474,35 @@ const exporterHtml = `<!doctype html>
   </style>
 </head>
 <body>
-  <h1>Ekwly Brand Identity & Maskable-Safe PWA Icon Exporter</h1>
-  <p>All mobile app icons include the W3C 0.62x maskable safe zone so Android/iOS circular masks never clip the 'E'.</p>
+  <h1>Ekwly Brand, Native Capacitor &amp; Play Store Exporter</h1>
+  <p>One-click export for your PWA <code>public/</code> icons, Native Android/iOS <code>resources/</code> pack, and Google Play Store <code>1024x500</code> Feature Graphic.</p>
 
   <div class="hero-bar">
     <div>
-      <strong style="font-size: 1rem; color: #fff;">Quick PWA Public Folder Export</strong>
+      <strong style="font-size: 1rem; color: #fff;">1. Web PWA Icons (Drop into <code>public/</code>)</strong>
       <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">
-        Downloads <code>favicon.ico</code> (16+32+48 packed), <code>icon-192.png</code>, <code>icon-512.png</code>, and <code>apple-touch-icon.png</code> to drop into your <code>public/</code> folder.
+        Downloads <code>favicon.ico</code> (16+32+48), <code>icon-192.png</code>, <code>icon-512.png</code>, and <code>apple-touch-icon.png</code>.
       </div>
     </div>
     <div class="hero-btns">
-      <button id="btn-ico" class="btn-emerald">Download favicon.ico (16+32+48)</button>
+      <button id="btn-ico" class="btn-emerald">Download favicon.ico</button>
       <button id="btn-all-pwa">Download All 4 public/ Icons</button>
     </div>
   </div>
 
-  <h2>1. Static PNG Logos & Wordmarks</h2>
+  <div class="hero-bar" style="border-color: #f59e0b;">
+    <div>
+      <strong style="font-size: 1rem; color: #fff;">2. Native Android &amp; iOS Capacitor Pack (Drop into <code>resources/</code>)</strong>
+      <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">
+        Downloads <code>icon-only.png</code>, <code>icon-foreground.png</code>, <code>icon-background.png</code>, <code>splash.png</code>, and <code>splash-dark.png</code> for <code>@capacitor/assets</code>.
+      </div>
+    </div>
+    <div class="hero-btns">
+      <button id="btn-all-native" class="btn-amber">Download All 5 resources/ PNGs</button>
+    </div>
+  </div>
+
+  <h2>1. Static PNG Logos, Adaptive Layers, Splash Screens &amp; Play Store Banner</h2>
   <div class="grid" id="export-grid"></div>
 
   <h2>2. Studio v3 Animated Loaders (Exact Keyframe Physics — 512x512 60fps)</h2>
@@ -426,6 +624,19 @@ const exporterHtml = `<!doctype html>
           a.href = c.toDataURL('image/png');
           a.click();
         }, (idx + 1) * 250);
+      });
+    };
+
+    document.getElementById('btn-all-native').onclick = () => {
+      ['icon-only.png', 'icon-foreground.png', 'icon-background.png', 'splash.png', 'splash-dark.png'].forEach((name, idx) => {
+        setTimeout(() => {
+          const c = canvasMap[name];
+          if (!c) return;
+          const a = document.createElement('a');
+          a.download = name;
+          a.href = c.toDataURL('image/png');
+          a.click();
+        }, idx * 300);
       });
     };
 
@@ -602,7 +813,7 @@ const exporterHtml = `<!doctype html>
 </html>`.replace('__EXPORT_PAYLOAD__', JSON.stringify(exportPayload));
 
 fs.writeFileSync(path.join(rootDir, 'brand-kit', 'export-png-and-gif.html'), exporterHtml, 'utf8');
-console.log('✅ Generated 14 SVG brand files (including safe-zone maskable & squircle icons)');
 console.log(
-  '✅ Generated ICO + Safe-Zone PNG + 3-Animation WebM exporter at brand-kit/export-png-and-gif.html'
+  '✅ Generated 18 SVG brand files (including Adaptive Icon Layers, Splash & Play Feature Graphic)'
 );
+console.log('✅ Updated 1-click Exporter at brand-kit/export-png-and-gif.html');

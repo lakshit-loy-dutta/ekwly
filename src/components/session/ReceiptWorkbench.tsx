@@ -666,7 +666,7 @@ export default function ReceiptWorkbench() {
                   setLocalVenue(e.target.value);
                   setLoadedVenueBadge(null);
                 }}
-                placeholder="Search known restaurant (e.g. Toit, Chin Lung)..."
+                placeholder="Search restaurant or pub name..."
                 className="w-full min-h-12 bg-page/90 border border-border rounded-xl pl-11 pr-4 text-sm sm:text-base font-semibold text-main"
               />
             </div>
@@ -984,7 +984,7 @@ export default function ReceiptWorkbench() {
               type="text"
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
-              placeholder="Item Name (e.g. Crispy Corn, LIIT Pitcher)"
+              placeholder="Item Name (e.g. Paneer Tikka, Draft Beer)"
               className="w-full min-h-12 bg-page/90 border border-border rounded-xl px-4 text-sm sm:text-base font-semibold text-main"
             />
             {showItemDropdown && itemResults.length > 0 && (
