@@ -7,11 +7,13 @@ import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
 import { swrCache } from '../lib/swrCache';
 import { showToast, utils } from '../lib/utils';
+import type { SavedSquad } from '../lib/types';
 import Auth from './Auth';
 import BottomSheet from './ui/BottomSheet';
 import BottomDock, { type DockTab } from './ui/BottomDock';
 import BrandLoader, { BrandWordmark } from './ui/BrandLoader';
 import SpotlightTour from './ui/SpotlightTour';
+import ProUpgradeSheet from './ui/ProUpgradeSheet';
 import {
   ChevronLeft,
   Sun,
@@ -27,7 +29,6 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
-// Route-level code splitting
 const Home = lazy(() => import('./Home'));
 const Lobby = lazy(() => import('./Lobby'));
 const ActiveSession = lazy(() => import('./ActiveSession'));
@@ -52,6 +53,7 @@ export default function AppRouter() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showTour, setShowTour] = useState(false);
+  const [showProSheet, setShowProSheet] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -61,12 +63,13 @@ export default function AppRouter() {
   const viewRef = useRef(currentView);
   viewRef.current = currentView;
 
-  const modalsRef = useRef({ isProfileOpen, showInviteModal, showTour });
-  modalsRef.current = { isProfileOpen, showInviteModal, showTour };
+  const modalsRef = useRef({ isProfileOpen, showInviteModal, showTour, showProSheet });
+  modalsRef.current = { isProfileOpen, showInviteModal, showTour, showProSheet };
 
-  const hasRoutedRef = useRef(false);
+  // Synchronizes concurrent getSession() and onAuthStateChange() calls so isAuthChecking
+  // never flips to false before the initial routing promise resolves.
+  const routingPromiseRef = useRef<Promise<void> | null>(null);
 
-  // Track online/offline network status for the live header indicator
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -78,18 +81,16 @@ export default function AppRouter() {
     };
   }, []);
 
-  // Auto-launch the 4-step Spotlight Tour once for first-time users on Home
   useEffect(() => {
     if (!isAuthChecking && currentView === 'home' && typeof window !== 'undefined') {
       const completed = localStorage.getItem('ekwly_tour_completed_v1');
       if (!completed) {
-        const timer = setTimeout(() => setShowTour(true), 450);
+        const timer = setTimeout(() => setShowTour(true), 400);
         return () => clearTimeout(timer);
       }
     }
   }, [isAuthChecking, currentView]);
 
-  // Run automated database hygiene (prune_stale_data) at most once every 7 days
   useEffect(() => {
     if (!user || user.is_anonymous || typeof window === 'undefined') return;
     const lastPruned = Number(localStorage.getItem('ekwly_last_prune_ts') || 0);
@@ -135,51 +136,55 @@ export default function AppRouter() {
 
     const routeAuthenticatedSession = async (sessionUser: User) => {
       setUser(sessionUser);
-      if (hasRoutedRef.current) {
+
+      if (routingPromiseRef.current) {
+        await routingPromiseRef.current;
         setIsAuthChecking(false);
         return;
       }
-      hasRoutedRef.current = true;
 
-      try {
-        const needsOnboarding = await checkUserOnboardingAndLinks(sessionUser);
-        const urlParams = new URLSearchParams(window.location.search);
-        const sId = urlParams.get('s');
-        const pin = urlParams.get('p');
+      routingPromiseRef.current = (async () => {
+        try {
+          const needsOnboarding = await checkUserOnboardingAndLinks(sessionUser);
+          const urlParams = new URLSearchParams(window.location.search);
+          const sId = urlParams.get('s');
+          const pin = urlParams.get('p');
 
-        if (sId && pin) {
-          const { data: isValid } = await supabase.rpc('verify_session_pin', {
-            p_session_id: sId,
-            p_pin: pin,
-          });
-          if (isValid) {
-            setActiveSessionId(sId);
-            setActiveSessionPin(pin);
-            setIsHost(localStorage.getItem('ekwly_host_' + sId) === 'true');
-            setCurrentView('session');
-            window.history.replaceState({ view: 'session' }, '', window.location.search);
-            return;
+          if (sId && pin) {
+            const { data: isValid } = await supabase.rpc('verify_session_pin', {
+              p_session_id: sId,
+              p_pin: pin,
+            });
+            if (isValid) {
+              setActiveSessionId(sId);
+              setActiveSessionPin(pin);
+              setIsHost(localStorage.getItem('ekwly_host_' + sId) === 'true');
+              setCurrentView('session');
+              window.history.replaceState({ view: 'session' }, '', window.location.search);
+              return;
+            } else {
+              showToast('Invalid Room ID or PIN.', 'error');
+              window.history.replaceState({ view: 'home' }, '', window.location.pathname);
+            }
+          }
+
+          if (needsOnboarding) {
+            setCurrentView('profile');
+            window.history.replaceState({ view: 'profile' }, '', window.location.pathname);
           } else {
-            showToast('Invalid Room ID or PIN.', 'error');
+            setCurrentView('home');
             window.history.replaceState({ view: 'home' }, '', window.location.pathname);
           }
+        } finally {
+          setIsAuthChecking(false);
         }
+      })();
 
-        if (needsOnboarding) {
-          setCurrentView('profile');
-          window.history.replaceState({ view: 'profile' }, '', window.location.pathname);
-        } else {
-          setCurrentView('home');
-          window.history.replaceState({ view: 'home' }, '', window.location.pathname);
-        }
-      } finally {
-        setIsAuthChecking(false);
-      }
+      await routingPromiseRef.current;
     };
 
     setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
 
-    // Initial deterministic session check so the Auth screen never flashes when already logged in
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         routeAuthenticatedSession(session.user);
@@ -194,7 +199,7 @@ export default function AppRouter() {
       if (session?.user) {
         await routeAuthenticatedSession(session.user);
       } else {
-        hasRoutedRef.current = false;
+        routingPromiseRef.current = null;
         setUser(null);
         setCurrentView('auth');
         setIsAuthChecking(false);
@@ -213,6 +218,10 @@ export default function AppRouter() {
       }
       if (modalsRef.current.showTour) {
         setShowTour(false);
+        return;
+      }
+      if (modalsRef.current.showProSheet) {
+        setShowProSheet(false);
         return;
       }
       if (e.state && e.state.view) {
@@ -234,6 +243,8 @@ export default function AppRouter() {
           setShowInviteModal(false);
         } else if (modalsRef.current.showTour) {
           setShowTour(false);
+        } else if (modalsRef.current.showProSheet) {
+          setShowProSheet(false);
         } else if (viewRef.current !== 'home' && viewRef.current !== 'auth') {
           window.history.back();
         } else {
@@ -263,25 +274,28 @@ export default function AppRouter() {
     }
   };
 
-  /**
-   * Zero-Friction Instant Room Creation:
-   * Generates the room ID and 4-digit PIN immediately and opens the Split Workbench.
-   */
-  const handleInstantCreateSession = () => {
+  const handleInstantCreateSession = (customInitialName?: string | null) => {
     const newId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     localStorage.setItem('ekwly_host_' + newId, 'true');
     localStorage.setItem('ekwly_pin_' + newId, generatedPin);
     setActiveSessionId(newId);
     setActiveSessionPin(generatedPin);
-    setActiveSessionName(null);
+    setActiveSessionName(customInitialName || null);
     setIsHost(true);
     navigateTo('session', `?s=${newId}&p=${generatedPin}`);
+    return newId;
   };
 
-  const handleOpenLobby = (mode: 'create' | 'join') => {
+  // 1-Tap Launch with a Saved Squad directly from the Home Dashboard
+  const handleLaunchSquadSession = (squad: SavedSquad) => {
+    const newId = handleInstantCreateSession(`${squad.name} Split`);
+    localStorage.setItem(`ekwly_pending_squad_${newId}`, JSON.stringify(squad.members));
+  };
+
+  const handleOpenLobby = (mode: 'create' | 'join', customTitle?: string) => {
     if (mode === 'create') {
-      handleInstantCreateSession();
+      handleInstantCreateSession(customTitle || null);
       return;
     }
     setLobbyMode('join');
@@ -319,8 +333,8 @@ export default function AppRouter() {
 
   const handleSignOut = async () => {
     swrCache.clearAll();
+    routingPromiseRef.current = null;
     await supabase.auth.signOut();
-    hasRoutedRef.current = false;
     setIsProfileOpen(false);
     setCurrentView('auth');
     window.history.replaceState({}, '', window.location.pathname);
@@ -378,8 +392,8 @@ export default function AppRouter() {
     }
   };
 
-  // Hold on the animated Ekwly Lock-In Loader until initial session verification completes
-  if (isAuthChecking) {
+  // Strict Boot Guard: Never allow <Auth /> to flash if auth is checking OR if a user object is present
+  if (isAuthChecking || (user && currentView === 'auth')) {
     return (
       <div className="w-full max-w-2xl mx-auto bg-page min-h-dvh flex items-center justify-center">
         <BrandLoader state="lockin" label="Starting Ekwly..." fullScreen />
@@ -389,11 +403,23 @@ export default function AppRouter() {
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-x-clip no-scrollbar">
-      <SpotlightTour isOpen={showTour} onClose={() => setShowTour(false)} />
+      <SpotlightTour
+        isOpen={showTour}
+        onClose={() => setShowTour(false)}
+        onOpenProPlans={() => setShowProSheet(true)}
+      />
+
+      <ProUpgradeSheet
+        isOpen={showProSheet}
+        onClose={() => setShowProSheet(false)}
+        userId={user?.id}
+        userEmail={user?.email}
+        userName={user?.user_metadata?.full_name}
+      />
 
       {/* STICKY GLASSMORPHIC HEADER */}
       {currentView !== 'auth' && currentView !== 'lobby' && (
-        <header className="w-full h-16 px-4 bg-surface/85 backdrop-blur-xl border-b border-border flex items-center justify-between sticky top-0 z-40 transition-colors duration-200 gpu-layer">
+        <header className="w-full h-16 px-4 glass-chrome border-b border-border flex items-center justify-between sticky top-0 z-40 transition-colors duration-200 gpu-layer">
           {isSubView ? (
             <div className="flex items-center gap-1 min-w-0">
               {!isOnboarding && (
@@ -424,7 +450,6 @@ export default function AppRouter() {
           )}
 
           <div className="flex items-center gap-2">
-            {/* LIVE OFFLINE MODE BADGE */}
             {!isOnline && (
               <span
                 className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-500 text-[0.65rem] font-extrabold uppercase tracking-wider flex items-center gap-1"
@@ -432,6 +457,21 @@ export default function AppRouter() {
               >
                 <WifiOff size={12} /> Offline
               </span>
+            )}
+
+            {currentView === 'home' && (
+              <button
+                type="button"
+                onClick={() => {
+                  utils.haptic('light');
+                  setShowTour(true);
+                }}
+                className="px-2.5 py-1.5 rounded-full glass-pill text-primary text-xs font-bold flex items-center gap-1 hover:bg-primary/15 transition-colors"
+                title="Open App Guide & Tutorial"
+              >
+                <HelpCircle size={14} />
+                <span className="hidden xs:inline">Guide</span>
+              </button>
             )}
 
             {currentView === 'session' && (
@@ -448,7 +488,7 @@ export default function AppRouter() {
                   }
                   setShowInviteModal(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 glass-pill text-primary hover:bg-primary/20 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
               >
                 <QrCode size={15} />
                 <span>Invite QR</span>
@@ -506,7 +546,7 @@ export default function AppRouter() {
           <button
             type="button"
             onClick={handleShareInvite}
-            className="w-full h-12 mb-6 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-2xs"
+            className="w-full min-h-12 mb-6 bg-primary/10 active:bg-primary/20 text-primary border border-primary/20 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-2xs"
           >
             {typeof navigator !== 'undefined' && typeof navigator.share === 'function' ? (
               <Share size={18} />
@@ -518,13 +558,11 @@ export default function AppRouter() {
 
           <div className="flex gap-4 w-full">
             <div className="flex-1 bg-subtle border border-border rounded-xl p-3 text-center">
-              <p className="text-[0.65rem] font-bold uppercase tracking-widest text-muted mb-1">
-                Room ID
-              </p>
+              <p className="text-xs font-bold uppercase tracking-widest text-muted mb-1">Room ID</p>
               <p className="text-base font-mono font-bold text-main truncate">{activeSessionId}</p>
             </div>
             <div className="flex-1 bg-subtle border border-border rounded-xl p-3 text-center">
-              <p className="text-[0.65rem] font-bold uppercase tracking-widest text-muted mb-1">
+              <p className="text-xs font-bold uppercase tracking-widest text-muted mb-1">
                 Room PIN
               </p>
               <p className="text-base font-mono font-bold text-primary tracking-widest tabular-nums">
@@ -582,7 +620,7 @@ export default function AppRouter() {
               <button
                 type="button"
                 onClick={handleSignOut}
-                className="w-full h-12 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm"
+                className="w-full min-h-12 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm"
               >
                 <Sparkles size={17} /> Link Google or Email Account
               </button>
@@ -595,15 +633,15 @@ export default function AppRouter() {
                 setIsProfileOpen(false);
                 setShowTour(true);
               }}
-              className="w-full h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-xs"
+              className="w-full min-h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-xs"
             >
-              <HelpCircle size={16} className="text-primary" /> Replay Interactive App Tour
+              <HelpCircle size={16} className="text-primary" /> Replay Interactive App Guide
             </button>
 
             <button
               type="button"
               onClick={handleSignOut}
-              className="w-full h-12 bg-danger/10 hover:bg-danger/20 text-danger rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm"
+              className="w-full min-h-12 bg-danger/10 hover:bg-danger/20 text-danger rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-sm"
             >
               <LogOut size={18} />
               Sign Out
@@ -668,7 +706,9 @@ export default function AppRouter() {
                 <Home
                   onOpenLobby={handleOpenLobby}
                   onJoinSession={handleJoinSession}
+                  onLaunchSquadSession={handleLaunchSquadSession}
                   onViewLedger={() => navigateTo('ledger')}
+                  onOpenProPlans={() => setShowProSheet(true)}
                   onRequireSignIn={handleSignOut}
                   user={user}
                 />
@@ -774,12 +814,11 @@ export default function AppRouter() {
         </Suspense>
       </main>
 
-      {/* FLOATING THUMB-ZONE BOTTOM DOCK */}
       {showBottomDock && (
         <BottomDock
           activeTab={currentView as DockTab}
           onSelectTab={handleSelectDockTab}
-          onNewSession={handleInstantCreateSession}
+          onNewSession={() => handleInstantCreateSession()}
         />
       )}
     </div>

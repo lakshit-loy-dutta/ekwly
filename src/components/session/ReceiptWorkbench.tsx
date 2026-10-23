@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -28,12 +28,18 @@ import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
 import { mathEngine } from '../../lib/mathEngine';
 import { utils, showToast } from '../../lib/utils';
-import type { DatabaseVenue, DatabaseItem, BillItem, SavedSquad } from '../../lib/types';
+import type {
+  DatabaseVenue,
+  DatabaseItem,
+  BillItem,
+  SavedSquad,
+  SquadMember,
+} from '../../lib/types';
 import MagicScanner from './MagicScanner';
 import WorkbenchRuleDrawers from './WorkbenchRuleDrawers';
 import BottomSheet from '../ui/BottomSheet';
-import AnimatedNumber from '../ui/AnimatedNumber';
 import ProUpgradeSheet from '../ui/ProUpgradeSheet';
+import AnimatedNumber from '../ui/AnimatedNumber';
 
 const FRACTION_PILLS = [
   { label: 'Clear', value: '' },
@@ -123,12 +129,15 @@ export default function ReceiptWorkbench() {
     typeof window !== 'undefined' ? !localStorage.getItem('ekwly_hide_magic_promo') : true
   );
 
-  // --- VENUE AUTOCOMPLETE STATE ---
+  // --- VENUE AUTOCOMPLETE STATE (With Remount Guard so Popup Never Re-Triggers Uninvited) ---
   const [localVenue, setLocalVenue] = useState<string>(sessionRules.venueName);
   const [venueResults, setVenueResults] = useState<DatabaseVenue[]>([]);
   const [isSearchingVenue, setIsSearchingVenue] = useState(false);
   const [showVenueDropdown, setShowVenueDropdown] = useState(false);
-  const [loadedVenueBadge, setLoadedVenueBadge] = useState<string | null>(null);
+  const [loadedVenueBadge, setLoadedVenueBadge] = useState<string | null>(
+    sessionRules.venueName || null
+  );
+  const isVenueEditedByUserRef = useRef<boolean>(false);
   const [showScannerDrawer, setShowScannerDrawer] = useState(false);
 
   // --- COLLAPSIBLE BILL RULES & TAXES STATE ---
@@ -189,8 +198,35 @@ export default function ReceiptWorkbench() {
     fetchQuota();
   }, [currentUserId, items.length]);
 
+  // Auto-populate pending Saved Squad if launched via 1-Tap Squad Split from Home
+  useEffect(() => {
+    if (!isHost || typeof window === 'undefined') return;
+    const sId = new URLSearchParams(window.location.search).get('s');
+    if (!sId) return;
+    const pendingKey = `ekwly_pending_squad_${sId}`;
+    const rawPending = localStorage.getItem(pendingKey);
+    if (!rawPending) return;
+
+    localStorage.removeItem(pendingKey);
+    try {
+      const parsedMembers = JSON.parse(rawPending) as SquadMember[];
+      if (Array.isArray(parsedMembers) && parsedMembers.length > 0) {
+        actions.addMembersBatchToDB(parsedMembers).then((count) => {
+          if (count > 0) showToast(`Added ${count} squad members to the table!`, 'success');
+        });
+      }
+    } catch {
+      // Ignore malformed storage entry
+    }
+  }, [isHost, actions]);
+
+  // Sync venue name from DB without opening the dropdown tray
   useEffect(() => {
     setLocalVenue(sessionRules.venueName);
+    if (sessionRules.venueName && !isVenueEditedByUserRef.current) {
+      setLoadedVenueBadge(sessionRules.venueName);
+      setShowVenueDropdown(false);
+    }
   }, [sessionRules.venueName]);
 
   useEffect(() => {
@@ -199,8 +235,9 @@ export default function ReceiptWorkbench() {
     }
   }, [taxPresets, newItemTaxId]);
 
-  // Debounce venue name updates
+  // Debounce venue name updates only when edited by user
   useEffect(() => {
+    if (!isVenueEditedByUserRef.current) return;
     const timer = setTimeout(() => {
       if (localVenue !== sessionRules.venueName) {
         actions.updateSessionRulesInDB({ venueName: localVenue });
@@ -209,9 +246,9 @@ export default function ReceiptWorkbench() {
     return () => clearTimeout(timer);
   }, [localVenue, sessionRules.venueName, actions]);
 
-  // Search known crowdsourced venues
+  // Search known crowdsourced venues ONLY when the user is actively typing
   useEffect(() => {
-    if (localVenue.trim().length < 2 || !isHost) {
+    if (!isVenueEditedByUserRef.current || localVenue.trim().length < 2 || !isHost) {
       setVenueResults([]);
       setShowVenueDropdown(false);
       return;
@@ -220,7 +257,10 @@ export default function ReceiptWorkbench() {
       setIsSearchingVenue(true);
       const { data } = await supabase.rpc('search_venues', { search_term: localVenue.trim() });
       if (data && data.length > 0) {
-        if (data[0].name.toLowerCase() === localVenue.trim().toLowerCase() && loadedVenueBadge) {
+        if (
+          loadedVenueBadge &&
+          data[0].name.toLowerCase() === loadedVenueBadge.trim().toLowerCase()
+        ) {
           setShowVenueDropdown(false);
         } else {
           setVenueResults(data);
@@ -347,6 +387,7 @@ export default function ReceiptWorkbench() {
 
   const handleSelectVenue = async (venue: DatabaseVenue) => {
     utils.haptic('medium');
+    isVenueEditedByUserRef.current = false;
     setLocalVenue(venue.name);
     setLoadedVenueBadge(venue.name);
     setShowVenueDropdown(false);
@@ -490,30 +531,46 @@ export default function ReceiptWorkbench() {
   const computedGrossTotal =
     gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
 
-  const preTaxMultiplier = mathEngine.computePreTaxMultiplier(items, gs.preTaxDiscountAmount);
+  const preTaxMultiplier =
+    typeof (mathEngine as any).computePreTaxMultiplier === 'function'
+      ? (mathEngine as any).computePreTaxMultiplier(items, gs.preTaxDiscountAmount)
+      : (() => {
+          const elig = items.reduce((sum, item) => {
+            const discVal = Number(item.discountValue || 0);
+            let itemDisc = 0;
+            if (item.discountType === 'percentage' && discVal > 0) {
+              itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
+            } else if (item.discountType === 'flat' && discVal > 0) {
+              itemDisc = Math.min(item.totalBase, discVal);
+            }
+            const afterItem = Math.max(0, item.totalBase - itemDisc);
+            return item.applyDiscount !== false ? sum + afterItem : sum;
+          }, 0);
+          return elig > 0 ? (elig - gs.preTaxDiscountAmount) / elig : 1;
+        })();
 
   const hasActivePreTaxBillDiscount = gs.preTaxDiscountAmount > 0;
   const scPercent = Math.round(sessionRules.serviceChargeRate * 100);
   const canUseMagicScan = isProUser || scansRemaining > 0;
 
   return (
-    <div className="w-full flex flex-col gap-3.5 px-4 pt-4 pb-6 relative z-10">
+    <div className="w-full flex flex-col gap-5 px-4 sm:px-6 pt-5 pb-8 relative z-10">
       {/* ZONE 1: FRONT-AND-CENTER AI MAGIC SCANNER HERO & CROWDSOURCED VENUE AUTOCOMPLETE */}
       {isHost && (
-        <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3 relative z-20">
+        <div className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-4 relative z-20">
           {/* AI Magic Scanner Hero Banner */}
           {canUseMagicScan ? (
-            <div className="premium-gradient-card rounded-2xl p-4 text-white flex flex-col gap-2.5 shadow-sm">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                    <Sparkles size={17} />
+            <div className="premium-gradient-card rounded-2xl p-5 text-white flex flex-col gap-3.5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                    <Sparkles size={19} />
                   </div>
                   <div className="flex flex-col">
-                    <span className="font-extrabold text-sm tracking-tight">
+                    <span className="font-extrabold text-base tracking-tight">
                       AI Magic Bill Scanner
                     </span>
-                    <span className="text-[0.68rem] text-white/85 font-semibold tabular-nums">
+                    <span className="text-xs text-white/90 font-semibold tabular-nums mt-0.5">
                       {isProUser
                         ? 'PRO • Unlimited AI Scans Active'
                         : `${scansRemaining} of 3 Free Scans Available This Month`}
@@ -527,16 +584,16 @@ export default function ReceiptWorkbench() {
                       localStorage.setItem('ekwly_hide_magic_promo', 'true');
                       setShowMagicPromoBanner(false);
                     }}
-                    className="p-1 text-white/70 hover:text-white rounded-lg"
+                    className="p-1.5 text-white/75 hover:text-white rounded-lg"
                     aria-label="Dismiss tip"
                   >
-                    <X size={14} />
+                    <X size={16} />
                   </button>
                 )}
               </div>
 
               {showMagicPromoBanner && (
-                <p className="text-xs text-white/90 leading-relaxed">
+                <p className="text-xs sm:text-sm text-white/92 leading-relaxed">
                   Skip the tedious task of typing items and figuring out taxes, service charges, and
                   discounts yourself—snap your paper bill and let AI do it in 5 seconds!
                 </p>
@@ -545,56 +602,56 @@ export default function ReceiptWorkbench() {
               <button
                 type="button"
                 onClick={handleMagicScanClick}
-                className="w-full h-11 bg-white text-primary hover:bg-white/95 active:scale-[0.98] rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-transform"
+                className="w-full min-h-12 py-3 px-4 bg-white text-primary hover:bg-white/95 active:scale-[0.98] rounded-xl font-extrabold text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-transform"
               >
-                <Sparkles size={15} /> Scan Receipt with AI Magic
+                <Sparkles size={16} /> Scan Receipt with AI Magic
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={handleMagicScanClick}
-              className="w-full p-3.5 rounded-2xl bg-page border border-border text-muted flex items-center justify-between gap-3 opacity-80 hover:opacity-100 transition-opacity text-left"
+              className="w-full p-4 rounded-2xl bg-page/90 border border-border text-muted flex items-center justify-between gap-3.5 hover:border-primary/40 transition-colors text-left"
             >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-subtle text-muted flex items-center justify-center shrink-0">
-                  <Lock size={16} />
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-subtle text-muted flex items-center justify-center shrink-0">
+                  <Lock size={18} />
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="font-bold text-xs text-main truncate">
+                  <span className="font-bold text-xs sm:text-sm text-main truncate">
                     AI Magic Scan (0 / 3 Free Scans Left)
                   </span>
-                  <span className="text-[0.68rem] text-muted truncate">
+                  <span className="text-xs text-muted truncate mt-0.5">
                     Tap to unlock unlimited AI receipt scans with Ekwly Pro
                   </span>
                 </div>
               </div>
-              <span className="px-2.5 py-1 rounded-lg bg-primary/15 text-primary text-[0.68rem] font-extrabold shrink-0">
+              <span className="px-3 py-1.5 rounded-xl bg-primary/15 text-primary text-xs font-extrabold shrink-0">
                 Upgrade
               </span>
             </button>
           )}
 
-          {/* Crowdsourced Restaurant / Venue Search (Inline Expandable Tray — Never Overlaps Below) */}
-          <div className="flex flex-col gap-2 pt-1">
-            <div className="flex items-center justify-between px-0.5">
-              <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
-                <Store size={12} className="text-primary" /> Restaurant / Venue (Auto-Loads Menu
-                &amp; Taxes)
+          {/* Crowdsourced Restaurant / Venue Search (Inline Expandable Tray — Never Re-Triggers on Remount) */}
+          <div className="flex flex-col gap-2.5 pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+              <label className="text-xs font-extrabold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                <Store size={14} className="text-primary shrink-0" /> Restaurant / Venue (Auto-Loads
+                Menu &amp; Taxes)
               </label>
               {loadedVenueBadge && (
-                <span className="text-[0.62rem] font-bold text-emerald-500 bg-emerald-500/12 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <CheckCircle2 size={10} /> Rules Loaded
+                <span className="text-xs font-bold text-emerald-500 bg-emerald-500/12 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Rules Loaded
                 </span>
               )}
             </div>
 
             <div className="relative w-full">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted">
                 {isSearchingVenue ? (
-                  <Loader2 size={15} className="animate-spin text-primary" />
+                  <Loader2 size={16} className="animate-spin text-primary" />
                 ) : (
-                  <Search size={15} />
+                  <Search size={16} />
                 )}
               </div>
               <input
@@ -602,27 +659,31 @@ export default function ReceiptWorkbench() {
                 disabled={!isHost}
                 value={localVenue}
                 onChange={(e) => {
+                  isVenueEditedByUserRef.current = true;
                   setLocalVenue(e.target.value);
                   setLoadedVenueBadge(null);
                 }}
                 placeholder="Search known restaurant (e.g. Toit, Chin Lung)..."
-                className="w-full h-11 bg-page border border-border rounded-xl pl-10 pr-3 text-sm font-semibold text-main"
+                className="w-full min-h-12 bg-page/90 border border-border rounded-xl pl-11 pr-4 text-sm sm:text-base font-semibold text-main"
               />
             </div>
 
             {showVenueDropdown && venueResults.length > 0 && (
-              <div className="bg-page border border-primary/35 rounded-xl overflow-hidden flex flex-col divide-y divide-border/60 shadow-inner">
-                <div className="px-3 py-1.5 bg-primary/10 flex items-center justify-between">
-                  <span className="text-[0.62rem] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1">
-                    <Sparkles size={11} /> Found in Community Venue Database
+              <div className="bg-page/95 border border-primary/35 rounded-2xl overflow-hidden flex flex-col divide-y divide-border/60 shadow-inner">
+                <div className="px-4 py-2 bg-primary/10 flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Sparkles size={12} /> Found in Community Venue Database
                   </span>
                   <button
                     type="button"
-                    onClick={() => setShowVenueDropdown(false)}
-                    className="p-0.5 text-muted hover:text-main rounded"
+                    onClick={() => {
+                      isVenueEditedByUserRef.current = false;
+                      setShowVenueDropdown(false);
+                    }}
+                    className="p-1 text-muted hover:text-main rounded-lg"
                     aria-label="Dismiss suggestions"
                   >
-                    <X size={13} />
+                    <X size={15} />
                   </button>
                 </div>
                 {venueResults.map((v) => (
@@ -630,18 +691,18 @@ export default function ReceiptWorkbench() {
                     key={v.id}
                     type="button"
                     onClick={() => handleSelectVenue(v)}
-                    className="flex items-center justify-between px-3 py-2.5 hover:bg-subtle/60 text-left gap-2 transition-colors"
+                    className="min-h-13 flex items-center justify-between px-4 py-3 hover:bg-subtle/60 text-left gap-3 transition-colors"
                   >
                     <div className="flex flex-col min-w-0">
-                      <span className="font-bold text-main text-xs truncate">{v.name}</span>
-                      <span className="text-[0.68rem] text-muted truncate">
+                      <span className="font-bold text-main text-sm truncate">{v.name}</span>
+                      <span className="text-xs text-muted truncate mt-0.5">
                         {v.tax_presets ? v.tax_presets.length : 0} Tax Brackets •{' '}
                         {v.service_charge_rate > 0
                           ? `${v.service_charge_rate * 100}% Service Charge`
                           : 'No Service Charge'}
                       </span>
                     </div>
-                    <span className="px-2.5 py-1 rounded-lg bg-primary text-white text-[0.68rem] font-extrabold shrink-0 shadow-2xs">
+                    <span className="px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-extrabold shrink-0 shadow-2xs">
                       Load Rules
                     </span>
                   </button>
@@ -652,12 +713,12 @@ export default function ReceiptWorkbench() {
         </div>
       )}
 
-      {/* ZONE 2: "AT THE TABLE" MEMBER BAR + 1-TAP FRIEND & SAVED SQUAD CHIPS */}
-      <div className="bg-surface border border-border rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5">
-        <div className="flex items-center justify-between px-0.5">
-          <div className="flex items-center gap-2">
-            <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5">
-              <Users size={13} className="text-primary" /> At the Table ({members.length})
+      {/* ZONE 2: SPACIOUS "AT THE TABLE" MEMBER BAR + 1-TAP FRIEND & SAVED SQUAD CHIPS */}
+      <div className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-muted flex items-center gap-1.5">
+              <Users size={15} className="text-primary" /> At the Table ({members.length})
             </span>
             <button
               type="button"
@@ -668,13 +729,13 @@ export default function ReceiptWorkbench() {
                   showToast('Live Multiplayer Sync activated!', 'success');
                 }
               }}
-              className={`px-2 py-0.5 rounded-full text-[0.6rem] font-bold uppercase tracking-wider flex items-center gap-1 border ${
+              className={`min-h-7 px-2.5 py-1 rounded-full text-[0.68rem] font-bold uppercase tracking-wider flex items-center gap-1.5 border ${
                 isRealtimeActive
-                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+                  ? 'bg-emerald-500/12 text-emerald-500 border-emerald-500/30'
                   : 'bg-page text-muted border-border hover:text-main'
               }`}
             >
-              <Radio size={10} className={isRealtimeActive ? 'animate-pulse' : ''} />
+              <Radio size={11} className={isRealtimeActive ? 'animate-pulse' : ''} />
               {isRealtimeActive ? 'Live Sync' : 'Solo Mode'}
             </button>
           </div>
@@ -684,13 +745,13 @@ export default function ReceiptWorkbench() {
               utils.haptic('light');
               setShowMemberSheet(true);
             }}
-            className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+            className="min-h-8 px-2.5 py-1 rounded-lg text-xs font-extrabold text-primary hover:bg-primary/10 flex items-center gap-1.5 transition-colors"
           >
-            <UserPlus size={14} /> Add / Squads
+            <UserPlus size={15} /> Add / Squads
           </button>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
+        <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-0.5">
           {members.map((m) => {
             const owed = liveCalculation.individualBreakdowns[m.id]?.totalOwed || 0;
             const isMe = m.user_id === currentUserId;
@@ -698,13 +759,13 @@ export default function ReceiptWorkbench() {
               <div
                 key={m.id}
                 onClick={() => setShowMemberSheet(true)}
-                className={`shrink-0 px-3 py-1.5 rounded-xl border text-xs flex items-center gap-2 cursor-pointer transition-colors ${
+                className={`shrink-0 min-h-10 px-3.5 py-2 rounded-xl border text-xs sm:text-sm flex items-center gap-2.5 cursor-pointer transition-colors ${
                   isMe
-                    ? 'bg-primary/10 border-primary/30 text-main'
-                    : 'bg-page border-border text-main'
+                    ? 'bg-primary/12 border-primary/35 text-main'
+                    : 'bg-page/90 border-border text-main'
                 }`}
               >
-                <span className="font-bold truncate max-w-28">{m.name}</span>
+                <span className="font-bold truncate max-w-32">{m.name}</span>
                 <span className="font-extrabold text-primary tabular-nums">
                   <AnimatedNumber value={owed} />
                 </span>
@@ -714,23 +775,23 @@ export default function ReceiptWorkbench() {
           <button
             type="button"
             onClick={() => setShowMemberSheet(true)}
-            className="shrink-0 h-8 px-3 rounded-xl border border-dashed border-primary/40 text-primary text-xs font-bold flex items-center gap-1 hover:bg-primary/5"
+            className="shrink-0 min-h-10 px-3.5 py-2 rounded-xl border border-dashed border-primary/45 text-primary text-xs sm:text-sm font-bold flex items-center gap-1.5 hover:bg-primary/5"
           >
-            <Plus size={14} /> Person
+            <Plus size={15} /> Person
           </button>
         </div>
 
         {isHost && members.length <= 1 && savedSquads.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-border/50">
-            <span className="text-[0.65rem] font-bold text-muted shrink-0 pr-1">Squads:</span>
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-2.5 border-t border-border/50">
+            <span className="text-xs font-bold text-muted shrink-0 pr-1">Squads:</span>
             {savedSquads.map((squad) => (
               <button
                 key={squad.id}
                 type="button"
                 onClick={() => handleApplySquad(squad)}
-                className="shrink-0 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-[0.7rem] font-bold flex items-center gap-1 active:scale-95 transition-transform"
+                className="shrink-0 min-h-9 px-3 py-1.5 rounded-xl bg-primary/12 hover:bg-primary/20 text-primary border border-primary/25 text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-transform"
               >
-                <Sparkles size={11} /> + {squad.name} ({squad.members.length})
+                <Sparkles size={12} /> + {squad.name} ({squad.members.length})
               </button>
             ))}
           </div>
@@ -738,7 +799,7 @@ export default function ReceiptWorkbench() {
       </div>
 
       {/* ZONE 2.5: SPACIOUS, IDIOT-PROOF & COLLAPSIBLE "BILL TAXES, SERVICE CHARGE & OFFERS" CARD */}
-      <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
+      <div className="glass-card rounded-3xl overflow-hidden">
         {isRulesCollapsed ? (
           <button
             type="button"
@@ -746,33 +807,33 @@ export default function ReceiptWorkbench() {
               utils.haptic('light');
               setIsRulesCollapsed(false);
             }}
-            className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left hover:bg-subtle/40 transition-colors"
+            className="w-full px-5 py-4 flex items-center justify-between gap-3 text-left hover:bg-subtle/40 transition-colors"
           >
-            <div className="flex items-center gap-2 min-w-0">
-              <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+            <div className="flex items-center gap-3 min-w-0">
+              <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
               <div className="flex flex-col min-w-0">
-                <span className="text-xs font-extrabold text-main truncate">
+                <span className="text-xs sm:text-sm font-extrabold text-main truncate">
                   Bill Taxes &amp; Charges Configured
                 </span>
-                <span className="text-[0.68rem] text-muted truncate tabular-nums">
+                <span className="text-xs text-muted truncate tabular-nums mt-0.5">
                   {taxPresets.map((t) => `${t.name} ${t.rate}%`).join(' • ')} •{' '}
                   {sessionRules.isScApplicable && scPercent > 0 ? `S.C. ${scPercent}%` : 'No S.C.'}
                   {gs.discountAmount > 0 ? ` • -${utils.formatMoney(gs.discountAmount)} Off` : ''}
                 </span>
               </div>
             </div>
-            <span className="px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-bold shrink-0 flex items-center gap-1">
-              Edit <ChevronDown size={13} />
+            <span className="min-h-9 px-3 py-1.5 rounded-xl bg-primary/12 text-primary text-xs font-extrabold shrink-0 flex items-center gap-1">
+              Edit <ChevronDown size={14} />
             </span>
           </button>
         ) : (
-          <div className="p-4 flex flex-col gap-3.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                  <Layers size={14} /> Step 1: Check the Bottom of Your Bill
+          <div className="p-5 sm:p-6 flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                  <Layers size={15} /> Step 1: Check the Bottom of Your Bill
                 </span>
-                <p className="text-xs text-muted leading-relaxed">
+                <p className="text-xs sm:text-sm text-muted leading-relaxed">
                   Setting your bill&apos;s taxes &amp; charges first ensures every item you add
                   automatically calculates the exact Food GST, Liquor VAT, and Service Charge.
                 </p>
@@ -780,17 +841,17 @@ export default function ReceiptWorkbench() {
               <button
                 type="button"
                 onClick={() => setIsRulesCollapsed(true)}
-                className="p-1.5 text-muted hover:text-main rounded-lg shrink-0"
+                className="p-2 text-muted hover:text-main rounded-xl shrink-0"
                 title="Collapse section"
               >
-                <ChevronUp size={16} />
+                <ChevronUp size={18} />
               </button>
             </div>
 
             {/* 1. Taxes Section */}
-            <div className="bg-page border border-border rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-main">
+            <div className="bg-page/85 border border-border rounded-2xl p-4 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs sm:text-sm font-bold text-main">
                   1. Which taxes are printed on your bill?
                 </span>
                 <button
@@ -801,13 +862,13 @@ export default function ReceiptWorkbench() {
                   + Add / Pick Taxes
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {taxPresets.map((t) => (
                   <button
                     key={t.id}
                     type="button"
                     onClick={() => setActiveRuleSheet('taxes')}
-                    className="px-3 py-1.5 rounded-xl bg-surface border border-border text-xs font-bold text-main flex items-center gap-1.5 tabular-nums shadow-2xs"
+                    className="min-h-10 px-3.5 py-2 rounded-xl bg-surface border border-border text-xs sm:text-sm font-bold text-main flex items-center gap-2 tabular-nums shadow-2xs"
                   >
                     <span>{t.name}</span>
                     <span className="text-primary font-extrabold">{t.rate}%</span>
@@ -816,33 +877,33 @@ export default function ReceiptWorkbench() {
                 <button
                   type="button"
                   onClick={() => setActiveRuleSheet('taxes')}
-                  className="px-3 py-1.5 rounded-xl border border-dashed border-primary/40 text-primary text-xs font-bold flex items-center gap-1"
+                  className="min-h-10 px-3.5 py-2 rounded-xl border border-dashed border-primary/45 text-primary text-xs sm:text-sm font-bold flex items-center gap-1.5"
                 >
-                  <Plus size={13} /> Custom Tax
+                  <Plus size={14} /> Custom Tax
                 </button>
               </div>
             </div>
 
             {/* 2. Service Charge & Discounts Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setActiveRuleSheet('sc')}
-                className={`p-3 rounded-xl border text-left flex items-center justify-between gap-2 transition-all ${
+                className={`p-4 rounded-2xl border text-left flex items-center justify-between gap-3 transition-all ${
                   sessionRules.isScApplicable && scPercent > 0
                     ? 'bg-primary/10 border-primary/35'
-                    : 'bg-page border-border'
+                    : 'bg-page/85 border-border'
                 }`}
               >
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-main">2. Service Charge</span>
-                  <span className="text-[0.7rem] text-muted">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs sm:text-sm font-bold text-main">2. Service Charge</span>
+                  <span className="text-xs text-muted leading-relaxed">
                     {sessionRules.isScApplicable && scPercent > 0
                       ? `${scPercent}% Active on Bill`
                       : 'None (Tap if bill has 5%–10% S.C.)'}
                   </span>
                 </div>
-                <span className="px-2.5 py-1 rounded-lg bg-surface border border-border text-xs font-extrabold text-primary shrink-0">
+                <span className="min-h-9 px-3 py-1.5 rounded-xl bg-surface border border-border text-xs font-extrabold text-primary shrink-0 flex items-center">
                   {sessionRules.isScApplicable && scPercent > 0 ? `${scPercent}%` : 'Set'}
                 </span>
               </button>
@@ -850,22 +911,24 @@ export default function ReceiptWorkbench() {
               <button
                 type="button"
                 onClick={() => setActiveRuleSheet('discount')}
-                className={`p-3 rounded-xl border text-left flex items-center justify-between gap-2 transition-all ${
+                className={`p-4 rounded-2xl border text-left flex items-center justify-between gap-3 transition-all ${
                   gs.discountAmount > 0
                     ? 'bg-emerald-500/10 border-emerald-500/35'
-                    : 'bg-page border-border'
+                    : 'bg-page/85 border-border'
                 }`}
               >
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-main">3. Discounts &amp; Coupons</span>
-                  <span className="text-[0.7rem] text-muted">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs sm:text-sm font-bold text-main">
+                    3. Discounts &amp; Coupons
+                  </span>
+                  <span className="text-xs text-muted leading-relaxed">
                     {gs.discountAmount > 0
                       ? `Saving ${utils.formatMoney(gs.discountAmount)}`
                       : 'Pre-Tax, Zomato/Swiggy or Item Offers'}
                   </span>
                 </div>
-                <span className="px-2.5 py-1 rounded-lg bg-surface border border-border text-xs font-extrabold text-emerald-500 shrink-0 flex items-center gap-1">
-                  <Percent size={11} /> {gs.discountAmount > 0 ? 'Edit' : 'Add'}
+                <span className="min-h-9 px-3 py-1.5 rounded-xl bg-surface border border-border text-xs font-extrabold text-emerald-500 shrink-0 flex items-center gap-1">
+                  <Percent size={12} /> {gs.discountAmount > 0 ? 'Edit' : 'Add'}
                 </span>
               </button>
             </div>
@@ -876,22 +939,22 @@ export default function ReceiptWorkbench() {
                 utils.haptic('light');
                 setIsRulesCollapsed(true);
               }}
-              className="w-full h-10 bg-emerald-500/15 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              className="w-full min-h-11 py-2.5 px-4 bg-emerald-500/15 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors"
             >
-              <CheckCircle2 size={15} /> Everything Looks Right — Hide &amp; Add Items
+              <CheckCircle2 size={16} /> Everything Looks Right — Hide &amp; Add Items
             </button>
           </div>
         )}
       </div>
 
-      {/* ZONE 3: ADD / EDIT ITEM BAR (WITH LABELED +/- QUANTITY STEPPER & CLEAR TAX PILLS) */}
+      {/* ZONE 3: SPACIOUS ADD / EDIT ITEM BAR (FONT-SCALE SAFE STEPPER & CLEAR TAX PILLS) */}
       {isHost && (
         <form
           onSubmit={handleSaveItem}
-          className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3 relative z-15"
+          className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-4 relative z-15"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-muted">
               {editingItemId ? 'Editing Item on Bill' : 'Add Item to Bill'}
             </span>
             {editingItemId && (
@@ -913,26 +976,26 @@ export default function ReceiptWorkbench() {
           </div>
 
           {/* Item Name Input with Inline Crowdsourced Menu Price Tray */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             <input
               type="text"
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
               placeholder="Item Name (e.g. Crispy Corn, LIIT Pitcher)"
-              className="w-full h-11 bg-page border border-border rounded-xl px-3.5 text-sm font-semibold text-main"
+              className="w-full min-h-12 bg-page/90 border border-border rounded-xl px-4 text-sm sm:text-base font-semibold text-main"
             />
             {showItemDropdown && itemResults.length > 0 && (
-              <div className="bg-page border border-primary/30 rounded-xl overflow-hidden flex flex-col divide-y divide-border/60">
-                <div className="px-3 py-1 bg-primary/10 flex items-center justify-between">
-                  <span className="text-[0.62rem] font-bold uppercase tracking-widest text-primary">
+              <div className="bg-page/95 border border-primary/35 rounded-2xl overflow-hidden flex flex-col divide-y divide-border/60">
+                <div className="px-4 py-2 bg-primary/10 flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary">
                     Menu Prices at {sessionRules.venueName}
                   </span>
                   <button
                     type="button"
                     onClick={() => setShowItemDropdown(false)}
-                    className="p-0.5 text-muted hover:text-main"
+                    className="p-1 text-muted hover:text-main"
                   >
-                    <X size={12} />
+                    <X size={14} />
                   </button>
                 </div>
                 {itemResults.map((item, idx) => (
@@ -944,12 +1007,12 @@ export default function ReceiptWorkbench() {
                       setNewItemPrice(item.price.toString());
                       setShowItemDropdown(false);
                     }}
-                    className="flex items-center justify-between px-3 py-2 hover:bg-subtle/60 text-left"
+                    className="min-h-11 flex items-center justify-between px-4 py-2.5 hover:bg-subtle/60 text-left"
                   >
-                    <span className="font-semibold text-main text-xs truncate pr-3">
+                    <span className="font-semibold text-main text-xs sm:text-sm truncate pr-3">
                       {item.name}
                     </span>
-                    <span className="text-xs font-extrabold text-primary tabular-nums shrink-0">
+                    <span className="text-xs sm:text-sm font-extrabold text-primary tabular-nums shrink-0">
                       {utils.formatMoney(item.price)}
                     </span>
                   </button>
@@ -958,20 +1021,20 @@ export default function ReceiptWorkbench() {
             )}
           </div>
 
-          {/* Flush Segmented Quantity Stepper & Labeled Unit Price Input */}
-          <div className="grid grid-cols-12 gap-3">
-            <div className="col-span-6 sm:col-span-5 flex flex-col gap-1">
-              <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted pl-0.5">
+          {/* Spacious Quantity Stepper & Labeled Unit Price Input (Stacks cleanly on narrow/zoomed screens) */}
+          <div className="grid grid-cols-12 gap-3.5">
+            <div className="col-span-12 sm:col-span-5 flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-muted pl-0.5">
                 Quantity (No. of Items)
               </label>
-              <div className="h-11 bg-page border border-border rounded-xl overflow-hidden grid grid-cols-[42px_1fr_42px] divide-x divide-border">
+              <div className="h-12 bg-page/90 border border-border rounded-xl overflow-hidden grid grid-cols-[48px_1fr_48px] divide-x divide-border">
                 <button
                   type="button"
                   onClick={() => adjustNewItemQty(-1)}
-                  className="h-full w-full bg-surface/50 hover:bg-subtle active:bg-border text-muted hover:text-main flex items-center justify-center transition-colors"
+                  className="h-full w-full bg-surface/60 hover:bg-subtle active:bg-border text-muted hover:text-main flex items-center justify-center transition-colors"
                   aria-label="Decrease quantity"
                 >
-                  <Minus size={15} strokeWidth={2.5} />
+                  <Minus size={16} strokeWidth={2.5} />
                 </button>
                 <input
                   type="number"
@@ -980,25 +1043,25 @@ export default function ReceiptWorkbench() {
                   onChange={(e) => setNewItemQty(e.target.value)}
                   min="0.01"
                   step="any"
-                  className="w-full h-full bg-transparent border-0 rounded-none px-1 text-center text-sm font-extrabold text-main tabular-nums focus:ring-0 focus:shadow-none"
+                  className="w-full h-full bg-transparent border-0 rounded-none px-2 text-center text-base font-extrabold text-main tabular-nums focus:ring-0 focus:shadow-none"
                 />
                 <button
                   type="button"
                   onClick={() => adjustNewItemQty(1)}
-                  className="h-full w-full bg-surface/50 hover:bg-subtle active:bg-border text-muted hover:text-main flex items-center justify-center transition-colors"
+                  className="h-full w-full bg-surface/60 hover:bg-subtle active:bg-border text-muted hover:text-main flex items-center justify-center transition-colors"
                   aria-label="Increase quantity"
                 >
-                  <Plus size={15} strokeWidth={2.5} />
+                  <Plus size={16} strokeWidth={2.5} />
                 </button>
               </div>
             </div>
 
-            <div className="col-span-6 sm:col-span-7 flex flex-col gap-1">
-              <label className="text-[0.65rem] font-bold uppercase tracking-widest text-muted pl-0.5">
+            <div className="col-span-12 sm:col-span-7 flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-muted pl-0.5">
                 Unit Price (₹ per item)
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted font-bold text-sm">
+                <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted font-bold text-base">
                   ₹
                 </div>
                 <input
@@ -1009,27 +1072,27 @@ export default function ReceiptWorkbench() {
                   placeholder="0.00"
                   min="0"
                   step="any"
-                  className="w-full h-11 bg-page border border-border rounded-xl pl-8 pr-3 text-sm font-bold tabular-nums"
+                  className="w-full h-12 bg-page/90 border border-border rounded-xl pl-9 pr-4 text-base font-bold tabular-nums"
                 />
               </div>
             </div>
           </div>
 
           {/* 1-Tap Tax Bracket Pills */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted">
                 Item Tax Bracket
               </span>
               <button
                 type="button"
                 onClick={() => setActiveRuleSheet('taxes')}
-                className="text-[0.68rem] font-bold text-primary hover:underline"
+                className="text-xs font-extrabold text-primary hover:underline"
               >
                 + Custom Tax
               </button>
             </div>
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
               {taxPresets.map((t) => {
                 const isSelected = newItemTaxId === t.id;
                 return (
@@ -1040,10 +1103,10 @@ export default function ReceiptWorkbench() {
                       utils.haptic('light');
                       setNewItemTaxId(t.id);
                     }}
-                    className={`shrink-0 h-8 px-3 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 tabular-nums ${
+                    className={`shrink-0 min-h-10 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold border transition-all flex items-center gap-2 tabular-nums ${
                       isSelected
                         ? 'bg-primary text-white border-primary shadow-2xs'
-                        : 'bg-page text-muted border-border hover:text-main'
+                        : 'bg-page/90 text-muted border-border hover:text-main'
                     }`}
                   >
                     <span>{t.name}</span>
@@ -1054,16 +1117,16 @@ export default function ReceiptWorkbench() {
             </div>
           </div>
 
-          {/* Bottom Action Row: Compact Toggle Chips (+S.C., + Item Discount) + Submit Button */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/50">
-            <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Bottom Action Row: Spacious Toggle Chips (+S.C., + Item Discount) + Submit Button */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-border/50">
+            <div className="flex items-center gap-2 flex-wrap">
               {sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && (
                 <button
                   type="button"
                   onClick={() => setNewItemApplySC(!newItemApplySC)}
-                  className={`h-8 px-2.5 rounded-xl text-xs font-bold border transition-colors ${
+                  className={`min-h-10 px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors ${
                     newItemApplySC
-                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      ? 'bg-primary/12 border-primary/35 text-primary'
                       : 'bg-page border-border text-muted line-through'
                   }`}
                 >
@@ -1077,34 +1140,34 @@ export default function ReceiptWorkbench() {
                   utils.haptic('light');
                   setHasNewItemOffer(!hasNewItemOffer);
                 }}
-                className={`h-8 px-2.5 rounded-xl text-xs font-bold border flex items-center gap-1 transition-colors ${
+                className={`min-h-10 px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-colors ${
                   hasNewItemOffer
                     ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
-                    : 'bg-page border-border text-muted hover:text-main'
+                    : 'bg-page/90 border-border text-muted hover:text-main'
                 }`}
               >
-                <Tag size={12} />
+                <Tag size={13} />
                 <span>{hasNewItemOffer ? 'Item Discounted' : '+ Item Discount'}</span>
-                {hasNewItemOffer && <X size={12} className="ml-0.5" />}
+                {hasNewItemOffer && <X size={13} className="ml-0.5" />}
               </button>
             </div>
 
             <button
               type="submit"
-              className="h-9 px-4 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-transform ml-auto shrink-0"
+              className="min-h-11 px-5 py-2.5 bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-sm transition-transform ml-auto shrink-0"
             >
-              <Plus size={14} /> {editingItemId ? 'Update Item' : 'Add Item'}
+              <Plus size={16} /> {editingItemId ? 'Update Item' : 'Add Item'}
             </button>
           </div>
 
           {/* Conditional Inline Item Discount Input */}
           {hasNewItemOffer && (
-            <div className="flex items-center gap-2 bg-page border border-emerald-500/30 p-2.5 rounded-xl">
-              <div className="flex bg-surface p-0.5 rounded-lg border border-border shrink-0">
+            <div className="flex flex-wrap items-center gap-2.5 bg-page/90 border border-emerald-500/35 p-3 rounded-2xl">
+              <div className="flex bg-surface p-1 rounded-xl border border-border shrink-0">
                 <button
                   type="button"
                   onClick={() => setNewItemDiscType('percentage')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
                     newItemDiscType === 'percentage' ? 'bg-emerald-500 text-white' : 'text-muted'
                   }`}
                 >
@@ -1113,7 +1176,7 @@ export default function ReceiptWorkbench() {
                 <button
                   type="button"
                   onClick={() => setNewItemDiscType('flat')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
                     newItemDiscType === 'flat' ? 'bg-emerald-500 text-white' : 'text-muted'
                   }`}
                 >
@@ -1131,7 +1194,7 @@ export default function ReceiptWorkbench() {
                     ? 'Enter % off this item (e.g. 20)'
                     : 'Enter ₹ off this item (e.g. 100)'
                 }
-                className="flex-1 h-8 bg-surface border border-border rounded-lg px-2.5 text-xs font-bold tabular-nums"
+                className="flex-1 min-w-44 min-h-10 bg-surface border border-border rounded-xl px-3.5 text-sm font-bold tabular-nums"
               />
             </div>
           )}
@@ -1141,16 +1204,16 @@ export default function ReceiptWorkbench() {
       {/* ZONE 4: SKEUOMORPHIC LIVE BILL SPLIT RECEIPT (WITH TRUE SVG JAGGED THERMAL BLADE EDGES) */}
       <div className="mt-1 relative z-10">
         <ThermalReceiptSawtooth position="top" />
-        <div className="pos-receipt px-4 py-5 flex flex-col gap-3">
+        <div className="pos-receipt px-4 sm:px-6 py-6 flex flex-col gap-4">
           {/* RECEIPT PAPER HEADER */}
-          <div className="flex flex-col items-center text-center pb-3 pos-double-line pt-1">
-            <span className="text-[0.65rem] font-mono font-extrabold uppercase tracking-[0.22em] text-primary">
+          <div className="flex flex-col items-center text-center pb-4 pos-double-line pt-1">
+            <span className="text-xs font-mono font-extrabold uppercase tracking-[0.2em] text-primary">
               ★ LIVE BILL SPLIT ★
             </span>
-            <h3 className="text-base font-extrabold text-main tracking-tight mt-0.5">
+            <h3 className="text-lg font-extrabold text-main tracking-tight mt-1">
               {sessionRules.venueName || 'Dining Table Bill'}
             </h3>
-            <span className="text-[0.68rem] font-mono text-muted tabular-nums mt-0.5">
+            <span className="text-xs font-mono text-muted tabular-nums mt-0.5">
               {new Date().toLocaleDateString(undefined, {
                 weekday: 'short',
                 month: 'short',
@@ -1163,10 +1226,10 @@ export default function ReceiptWorkbench() {
 
           {/* RECEIPT LINE ITEMS */}
           {items.length === 0 ? (
-            <div className="py-8 text-center flex flex-col items-center gap-2">
-              <Receipt size={26} className="text-muted/40" />
-              <p className="text-sm font-bold text-main">No items on the bill yet</p>
-              <p className="text-xs text-muted max-w-xs">
+            <div className="py-10 text-center flex flex-col items-center gap-2.5">
+              <Receipt size={28} className="text-muted/40" />
+              <p className="text-base font-bold text-main">No items on the bill yet</p>
+              <p className="text-xs sm:text-sm text-muted max-w-xs leading-relaxed">
                 Use <strong>AI Magic Scan</strong> at the top to extract your paper receipt, or add
                 items manually above.
               </p>
@@ -1201,23 +1264,23 @@ export default function ReceiptWorkbench() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.96 }}
                       transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      className="py-3.5 first:pt-1 flex flex-col gap-2.5"
+                      className="py-4 first:pt-1 flex flex-col gap-3"
                     >
                       {/* Receipt Line 1: Item Number, Name, Qty, Status & Line Total */}
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2.5">
                         <div className="flex flex-col min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[0.7rem] font-mono font-bold text-muted tabular-nums">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-mono font-bold text-muted tabular-nums">
                               {String(idx + 1).padStart(2, '0')}.
                             </span>
-                            <span className="font-bold text-main text-[0.95rem] leading-snug">
+                            <span className="font-bold text-main text-base leading-snug">
                               {item.name}
                             </span>
-                            <span className="text-[0.68rem] font-mono font-bold text-muted bg-page px-1.5 py-0.5 rounded border border-border tabular-nums">
+                            <span className="text-xs font-mono font-bold text-muted bg-page px-2 py-0.5 rounded-md border border-border tabular-nums">
                               x{item.qty}
                             </span>
                             {hasItemDisc && (
-                              <span className="text-[0.62rem] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 tabular-nums">
+                              <span className="text-xs font-extrabold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 tabular-nums">
                                 -
                                 {item.discountType === 'percentage'
                                   ? `${item.discountValue}%`
@@ -1225,7 +1288,7 @@ export default function ReceiptWorkbench() {
                               </span>
                             )}
                             <span
-                              className={`text-[0.62rem] font-bold px-2 py-0.5 rounded-full tabular-nums ${
+                              className={`text-xs font-bold px-2.5 py-0.5 rounded-full tabular-nums ${
                                 isFullyClaimed
                                   ? 'bg-emerald-500/15 text-emerald-500'
                                   : isOverClaimed
@@ -1241,9 +1304,9 @@ export default function ReceiptWorkbench() {
                             </span>
                           </div>
 
-                          {/* Receipt Sub-Line: Unit Price + Compact Tax Pill + S.C. Pill */}
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap pl-5">
-                            <span className="text-[0.72rem] font-mono text-muted tabular-nums">
+                          {/* Receipt Sub-Line: Unit Price + Tax Pill + S.C. Pill */}
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap pl-6">
+                            <span className="text-xs font-mono text-muted tabular-nums">
                               {utils.formatMoney(item.unitPrice)}/ea
                             </span>
                             <span className="text-muted text-xs">•</span>
@@ -1260,7 +1323,7 @@ export default function ReceiptWorkbench() {
                                     taxRate: nextPreset ? nextPreset.rate / 100 : 0,
                                   });
                                 }}
-                                className="h-6 w-auto py-0 px-2 text-[0.68rem] font-bold bg-page border border-border rounded-md text-primary cursor-pointer"
+                                className="min-h-7 w-auto py-0.5 px-2.5 text-xs font-bold bg-page border border-border rounded-lg text-primary cursor-pointer"
                               >
                                 {taxPresets.map((t) => (
                                   <option key={t.id} value={t.id}>
@@ -1269,7 +1332,7 @@ export default function ReceiptWorkbench() {
                                 ))}
                               </select>
                             ) : (
-                              <span className="text-[0.68rem] font-semibold text-muted">
+                              <span className="text-xs font-semibold text-muted">
                                 {breakdown.preset
                                   ? `${breakdown.preset.name} (${breakdown.preset.rate}%)`
                                   : 'Tax'}
@@ -1283,7 +1346,7 @@ export default function ReceiptWorkbench() {
                                 onClick={() =>
                                   actions.updateItemInDB({ ...item, applySC: !item.applySC })
                                 }
-                                className={`px-1.5 py-0.5 rounded text-[0.62rem] font-bold border transition-colors ${
+                                className={`min-h-7 px-2 py-0.5 rounded-lg text-xs font-bold border transition-colors ${
                                   item.applySC
                                     ? 'bg-primary/10 border-primary/30 text-primary'
                                     : 'bg-page border-border text-muted line-through'
@@ -1303,7 +1366,7 @@ export default function ReceiptWorkbench() {
                                     applyDiscount: item.applyDiscount === false,
                                   })
                                 }
-                                className={`px-1.5 py-0.5 rounded text-[0.62rem] font-bold border transition-colors ${
+                                className={`min-h-7 px-2 py-0.5 rounded-lg text-xs font-bold border transition-colors ${
                                   item.applyDiscount !== false
                                     ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-500'
                                     : 'bg-page border-border text-muted line-through'
@@ -1316,26 +1379,26 @@ export default function ReceiptWorkbench() {
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="font-mono font-extrabold text-main tabular-nums text-[0.95rem]">
+                          <span className="font-mono font-extrabold text-main tabular-nums text-base">
                             {utils.formatMoney(breakdown.finalTotal)}
                           </span>
                           {isHost && (
-                            <div className="flex items-center gap-0.5">
+                            <div className="flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={() => handleEditItem(item)}
-                                className="p-1.5 text-muted hover:text-main rounded-lg hover:bg-subtle"
+                                className="p-2 text-muted hover:text-main rounded-xl hover:bg-subtle"
                                 aria-label="Edit item"
                               >
-                                <Edit2 size={13} />
+                                <Edit2 size={15} />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => actions.removeItemFromDB(item.id)}
-                                className="p-1.5 text-muted hover:text-danger rounded-lg hover:bg-danger/10"
+                                className="p-2 text-muted hover:text-danger rounded-xl hover:bg-danger/10"
                                 aria-label="Delete item"
                               >
-                                <Trash2 size={13} />
+                                <Trash2 size={15} />
                               </button>
                             </div>
                           )}
@@ -1344,12 +1407,12 @@ export default function ReceiptWorkbench() {
 
                       {/* 1-Tap Member Avatar Split Pills */}
                       {members.length > 0 && (
-                        <div className="flex items-center justify-between gap-2 pl-5">
-                          <div className="flex items-center gap-1.5 flex-wrap flex-1">
+                        <div className="flex items-center justify-between gap-2 pl-6">
+                          <div className="flex items-center gap-2 flex-wrap flex-1">
                             <button
                               type="button"
                               onClick={() => handleToggleAllOnItem(item)}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-extrabold border transition-all active:scale-95 ${
+                              className={`min-h-9 px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all active:scale-95 ${
                                 members.every(
                                   (m) => utils.parseQty(formattedClaims[m.id]?.[item.id]) > 0
                                 )
@@ -1369,7 +1432,7 @@ export default function ReceiptWorkbench() {
                                   key={m.id}
                                   type="button"
                                   onClick={() => handleToggleMemberOnItem(item, m.id)}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all active:scale-95 flex items-center gap-1 ${
+                                  className={`min-h-9 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all active:scale-95 flex items-center gap-1.5 ${
                                     isClaimed
                                       ? 'bg-primary/15 text-primary border-primary/40 font-bold'
                                       : 'bg-page text-muted border-border hover:text-main'
@@ -1377,7 +1440,7 @@ export default function ReceiptWorkbench() {
                                 >
                                   <span>{m.name}</span>
                                   {isClaimed && (
-                                    <span className="text-[0.62rem] font-mono bg-primary/20 px-1 rounded tabular-nums">
+                                    <span className="text-[0.68rem] font-mono bg-primary/20 px-1.5 py-0.5 rounded tabular-nums">
                                       {rawClaim}
                                     </span>
                                   )}
@@ -1391,22 +1454,22 @@ export default function ReceiptWorkbench() {
                             onClick={() =>
                               setExpandedCustomSplitItemId(isCustomOpen ? null : item.id)
                             }
-                            className={`p-1.5 rounded-lg border text-xs font-bold shrink-0 transition-colors ${
+                            className={`min-h-9 p-2 rounded-xl border text-xs font-bold shrink-0 transition-colors ${
                               isCustomOpen
                                 ? 'bg-primary text-white border-primary'
                                 : 'bg-page text-muted border-border hover:text-main'
                             }`}
                             title="Custom uneven or fractional shares"
                           >
-                            <SlidersHorizontal size={13} />
+                            <SlidersHorizontal size={15} />
                           </button>
                         </div>
                       )}
 
                       {/* Expandable Custom Fractional Stepper */}
                       {isCustomOpen && (
-                        <div className="bg-page border border-border rounded-xl p-3 flex flex-col gap-2.5 mt-1">
-                          <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                        <div className="bg-page border border-border rounded-2xl p-4 flex flex-col gap-3 mt-1">
+                          <span className="text-xs font-bold uppercase tracking-wider text-muted">
                             Custom Shares (Fractions like 1/3 or exact quantities)
                           </span>
                           {members.map((m) => {
@@ -1414,9 +1477,9 @@ export default function ReceiptWorkbench() {
                             return (
                               <div
                                 key={m.id}
-                                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-1.5 border-b border-border/50 last:border-0"
+                                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 py-2 border-b border-border/50 last:border-0"
                               >
-                                <span className="text-xs font-bold text-main truncate">
+                                <span className="text-xs sm:text-sm font-bold text-main truncate">
                                   {m.name}
                                 </span>
                                 <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -1427,7 +1490,7 @@ export default function ReceiptWorkbench() {
                                       onClick={() =>
                                         actions.updateClaimInDB(m.id, item.id, pill.value)
                                       }
-                                      className={`px-2 py-1 text-[0.65rem] font-bold rounded border transition-colors ${
+                                      className={`min-h-8 px-2.5 py-1 text-xs font-bold rounded-lg border transition-colors ${
                                         currentStr === pill.value
                                           ? 'bg-primary text-white border-primary'
                                           : 'bg-surface text-muted border-border'
@@ -1450,9 +1513,9 @@ export default function ReceiptWorkbench() {
                                           next === 0 ? '' : next.toString()
                                         );
                                       }}
-                                      className="w-7 h-7 rounded bg-surface border border-border flex items-center justify-center text-muted"
+                                      className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-muted"
                                     >
-                                      <Minus size={12} />
+                                      <Minus size={13} />
                                     </button>
                                     <input
                                       type="text"
@@ -1461,7 +1524,7 @@ export default function ReceiptWorkbench() {
                                         actions.updateClaimInDB(m.id, item.id, e.target.value)
                                       }
                                       placeholder="0"
-                                      className="w-14 h-7 px-1 text-center text-xs font-bold tabular-nums bg-surface border border-border rounded"
+                                      className="w-16 h-8 px-1.5 text-center text-xs font-bold tabular-nums bg-surface border border-border rounded-lg"
                                     />
                                     <button
                                       type="button"
@@ -1469,9 +1532,9 @@ export default function ReceiptWorkbench() {
                                         const next = utils.round2(utils.parseQty(currentStr) + 1);
                                         actions.updateClaimInDB(m.id, item.id, next.toString());
                                       }}
-                                      className="w-7 h-7 rounded bg-surface border border-border flex items-center justify-center text-muted"
+                                      className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-muted"
                                     >
-                                      <Plus size={12} />
+                                      <Plus size={13} />
                                     </button>
                                   </div>
                                 </div>
@@ -1488,37 +1551,37 @@ export default function ReceiptWorkbench() {
           )}
 
           {/* PERFORATED THERMAL TEAR DIVIDER */}
-          <div className="relative py-2 my-1">
+          <div className="relative py-2.5 my-1">
             <div className="pos-notch-left" />
             <div className="pos-notch-right" />
             <div className="pos-dashed-line w-full" />
           </div>
 
           {/* LIVE BILL ACCOUNTING SUMMARY */}
-          <div className="flex flex-col gap-1.5 font-mono text-xs">
-            <div className="flex items-center justify-between pb-1">
-              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+          <div className="flex flex-col gap-2 font-mono text-xs sm:text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+              <span className="text-xs font-bold uppercase tracking-widest text-muted">
                 Bill Summary
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => setActiveRuleSheet('discount')}
-                  className="px-2 py-0.5 rounded bg-page border border-border text-[0.65rem] font-sans font-bold text-primary hover:border-primary/40"
+                  className="min-h-7 px-2.5 py-1 rounded-lg bg-page border border-border text-xs font-sans font-bold text-primary hover:border-primary/40"
                 >
                   % Offers
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveRuleSheet('sc')}
-                  className="px-2 py-0.5 rounded bg-page border border-border text-[0.65rem] font-sans font-bold text-primary hover:border-primary/40"
+                  className="min-h-7 px-2.5 py-1 rounded-lg bg-page border border-border text-xs font-sans font-bold text-primary hover:border-primary/40"
                 >
                   S.C. ({scPercent}%)
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveRuleSheet('taxes')}
-                  className="px-2 py-0.5 rounded bg-page border border-border text-[0.65rem] font-sans font-bold text-primary hover:border-primary/40"
+                  className="min-h-7 px-2.5 py-1 rounded-lg bg-page border border-border text-xs font-sans font-bold text-primary hover:border-primary/40"
                 >
                   Taxes ({taxPresets.length})
                 </button>
@@ -1633,10 +1696,10 @@ export default function ReceiptWorkbench() {
             <div className="pos-double-line my-2" />
 
             <div className="flex justify-between items-baseline pt-1">
-              <span className="font-sans font-extrabold text-main text-base tracking-tight">
+              <span className="font-sans font-extrabold text-main text-base sm:text-lg tracking-tight">
                 GRAND TOTAL
               </span>
-              <span className="font-mono font-extrabold text-primary text-2xl tabular-nums">
+              <span className="font-mono font-extrabold text-primary text-2xl sm:text-3xl tabular-nums">
                 <AnimatedNumber value={gs.grandTotal} />
               </span>
             </div>
@@ -1654,7 +1717,7 @@ export default function ReceiptWorkbench() {
         <MagicScanner onScanComplete={() => setShowScannerDrawer(false)} />
       </BottomSheet>
 
-      {/* DRAWER 1B: 0-QUOTA UPSELL MODAL */}
+      {/* DRAWER 1B: 0-QUOTA UPSELL MODAL (UNIFIED PRO UPGRADE SHEET) */}
       <ProUpgradeSheet
         isOpen={showQuotaUpsellModal}
         onClose={() => setShowQuotaUpsellModal(false)}
@@ -1682,7 +1745,7 @@ export default function ReceiptWorkbench() {
                 }
               }}
               placeholder="Type name or search Ekwly user..."
-              className="flex-1 h-11 bg-page border border-border rounded-xl px-3.5 text-sm font-semibold"
+              className="flex-1 min-h-12 bg-page border border-border rounded-xl px-4 text-sm font-semibold"
             />
             <button
               type="button"
@@ -1691,7 +1754,7 @@ export default function ReceiptWorkbench() {
                 actions.addMemberToDB(newMemberName.trim());
                 setNewMemberName('');
               }}
-              className="h-11 px-4 bg-primary text-white rounded-xl font-bold text-xs shrink-0"
+              className="min-h-12 px-4 bg-primary text-white rounded-xl font-bold text-xs shrink-0"
             >
               Add Guest
             </button>
@@ -1711,7 +1774,7 @@ export default function ReceiptWorkbench() {
                       setNewMemberName('');
                       setProfileSearchResults([]);
                     }}
-                    className="w-full flex items-center justify-between px-3.5 py-2.5 text-left hover:bg-subtle disabled:opacity-50"
+                    className="w-full min-h-11 flex items-center justify-between px-4 py-2.5 text-left hover:bg-subtle disabled:opacity-50"
                   >
                     <span className="font-bold text-sm text-main">{p.name}</span>
                     <span className="text-xs font-bold text-primary">
@@ -1725,8 +1788,8 @@ export default function ReceiptWorkbench() {
 
           {savedSquads.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1">
-                <Sparkles size={11} className="text-primary" /> 1-Tap Add Saved Squad
+              <span className="text-xs font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                <Sparkles size={12} className="text-primary" /> 1-Tap Add Saved Squad
               </span>
               <div className="flex flex-wrap gap-2">
                 {savedSquads.map((squad) => (
@@ -1734,7 +1797,7 @@ export default function ReceiptWorkbench() {
                     key={squad.id}
                     type="button"
                     onClick={() => handleApplySquad(squad)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 transition-all active:scale-95"
+                    className="min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 transition-all active:scale-95"
                   >
                     + {squad.name} ({squad.members.length})
                   </button>
@@ -1745,7 +1808,7 @@ export default function ReceiptWorkbench() {
 
           {myFriends.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted">
                 1-Tap Add from Your Friends
               </span>
               <div className="flex flex-wrap gap-2">
@@ -1762,7 +1825,7 @@ export default function ReceiptWorkbench() {
                         utils.haptic('light');
                         actions.addMemberToDB(f.name, f.id);
                       }}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                      className={`min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
                         inRoom
                           ? 'bg-primary/10 border-primary/30 text-primary opacity-60'
                           : 'bg-page border-border text-main hover:border-primary'
@@ -1776,9 +1839,9 @@ export default function ReceiptWorkbench() {
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted">
                 Current Table ({members.length})
               </span>
               {members.length > 1 && (
@@ -1787,31 +1850,31 @@ export default function ReceiptWorkbench() {
                   onClick={() => setShowSaveSquadForm(!showSaveSquadForm)}
                   className="text-xs font-bold text-primary flex items-center gap-1 hover:underline"
                 >
-                  <BookmarkPlus size={13} /> Save Table as Squad
+                  <BookmarkPlus size={14} /> Save Table as Squad
                 </button>
               )}
             </div>
 
             {showSaveSquadForm && (
-              <div className="flex gap-2 bg-page border border-primary/30 p-2.5 rounded-xl">
+              <div className="flex gap-2 bg-page border border-primary/30 p-3 rounded-xl">
                 <input
                   type="text"
                   value={newSquadNameInput}
                   onChange={(e) => setNewSquadNameInput(e.target.value)}
                   placeholder="Squad Name (e.g. Friday Crew)"
-                  className="flex-1 h-9 bg-surface border border-border rounded-lg px-2.5 text-xs font-semibold"
+                  className="flex-1 min-h-10 bg-surface border border-border rounded-lg px-3 text-xs sm:text-sm font-semibold"
                 />
                 <button
                   type="button"
                   onClick={handleSaveCurrentTableAsSquad}
-                  className="h-9 px-3 bg-primary text-white rounded-lg font-bold text-xs shrink-0"
+                  className="min-h-10 px-4 bg-primary text-white rounded-lg font-bold text-xs shrink-0"
                 >
                   Save
                 </button>
               </div>
             )}
 
-            <div className="bg-page border border-border rounded-xl divide-y divide-border">
+            <div className="bg-page border border-border rounded-2xl divide-y divide-border">
               {members.map((m) => {
                 const isMe = m.user_id === currentUserId;
                 const canClaim =
@@ -1819,16 +1882,16 @@ export default function ReceiptWorkbench() {
                   currentUserId &&
                   !members.some((mem) => mem.user_id === currentUserId);
                 return (
-                  <div key={m.id} className="flex items-center justify-between px-3.5 py-2.5">
-                    <div className="flex items-center gap-2">
+                  <div key={m.id} className="min-h-12 flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-sm text-main">{m.name}</span>
                       {m.user_id === hostId && (
-                        <span className="text-[0.6rem] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500">
+                        <span className="text-[0.65rem] font-bold uppercase px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-500">
                           Host
                         </span>
                       )}
                       {isMe && (
-                        <span className="text-[0.6rem] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500">
+                        <span className="text-[0.65rem] font-bold uppercase px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500">
                           You
                         </span>
                       )}
@@ -1836,7 +1899,7 @@ export default function ReceiptWorkbench() {
                         <button
                           type="button"
                           onClick={() => actions.claimMemberIdentity(m.id)}
-                          className="text-[0.65rem] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded"
+                          className="text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-lg"
                         >
                           Claim My Slot
                         </button>
@@ -1845,9 +1908,9 @@ export default function ReceiptWorkbench() {
                     <button
                       type="button"
                       onClick={() => actions.removeMemberFromDB(m.id)}
-                      className="p-1.5 text-muted hover:text-danger"
+                      className="p-2 text-muted hover:text-danger"
                     >
-                      <Trash2 size={15} />
+                      <Trash2 size={16} />
                     </button>
                   </div>
                 );
