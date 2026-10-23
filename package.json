@@ -8,15 +8,20 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "start": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
     "test": "vitest run",
-    "build:mobile": "node -e \"require('child_process').execSync('pnpm astro build', {stdio:'inherit', env:{...process.env, CAPACITOR_BUILD:'true'}})\" && pnpm cap sync && node scripts/configure-native.mjs",
-    "build:apk": "pnpm run build:mobile && node scripts/configure-native.mjs apk-debug",
-    "cap:android": "pnpm cap open android",
-    "cap:ios": "pnpm cap open ios",
-    "pack": "pnpm dlx repomix"
+    "test:watch": "vitest",
+    "brand:generate": "node scripts/generate-brand-assets.mjs",
+    "keystore:init": "node scripts/configure-native.mjs keygen",
+    "sync:icons": "node scripts/configure-native.mjs icons",
+    "build:mobile": "node scripts/configure-native.mjs patch --full",
+    "build:apk": "node scripts/configure-native.mjs apk-debug --full",
+    "build:apk-release": "node scripts/configure-native.mjs apk-release --full",
+    "build:aab": "node scripts/configure-native.mjs aab-release --full",
+    "pack": "repomix"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.6",

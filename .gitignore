@@ -16,6 +16,8 @@ dist/
 
 # Capacitor / Native Artifacts
 *.keystore
+*.jks
+keystore.properties
 capacitor.config.ts.timestamp-*
 capacitor.config.json.timestamp-*
 
