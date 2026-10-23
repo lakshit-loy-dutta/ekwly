@@ -172,17 +172,13 @@ input:checked + .slider:before {
   background-color: var(--receipt-bg);
   border-left: 1.5px solid var(--receipt-border);
   border-right: 1.5px solid var(--receipt-border);
-  box-shadow:
-    0 14px 34px -10px rgba(0, 30, 59, 0.14),
-    0 2px 6px -1px rgba(0, 30, 59, 0.06);
+  box-shadow: 0 14px 32px -10px rgba(0, 30, 59, 0.12);
   position: relative;
 }
 
 [data-theme='dark'] .pos-receipt {
-  background-image: radial-gradient(circle at 50% 0%, rgba(0, 128, 255, 0.09) 0%, transparent 70%);
-  box-shadow:
-    0 20px 44px -12px rgba(0, 0, 0, 0.75),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  background-color: var(--receipt-bg);
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
 }
 
 .pos-dashed-line {

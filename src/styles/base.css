@@ -96,6 +96,16 @@ input[inputmode='numeric'],
   transform: translateZ(0);
 }
 
+select.receipt-select {
+  height: 26px;
+  min-height: 26px;
+  width: auto;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
 /* --- NATIVE MOBILE SAFE AREAS --- */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .pb-safe {

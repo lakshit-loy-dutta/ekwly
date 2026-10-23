@@ -1,55 +1,76 @@
 ---
 import '../styles/global.css';
-import { ClientRouter } from 'astro:transitions';
 import AppRouter from '../components/AppRouter';
+import PwaUpdater from '../components/PwaUpdater';
+import { pwaInfo } from 'virtual:pwa-info';
 
 const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
-<!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover"
     />
-    <title>Ekwly</title>
+    <title>Ekwly — Instant Bill Splitter & Tax Router</title>
 
+    <meta id="theme-color-meta" name="theme-color" content="#050914" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      id="apple-status-bar-meta"
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <meta name="apple-mobile-web-app-title" content="Ekwly" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <meta name="theme-color" content="#050914" />
     <link rel="manifest" href={`${baseUrl}/manifest.webmanifest`} />
     <link rel="apple-touch-icon" href={`${baseUrl}/apple-touch-icon.png`} />
     <link rel="icon" type="image/svg+xml" href={`${baseUrl}/icon.svg`} />
     <link rel="icon" href={`${baseUrl}/favicon.ico`} sizes="any" />
 
-    <ClientRouter />
+    {pwaInfo && <Fragment set:html={pwaInfo.webManifest.linkTag} />}
 
     <script is:inline>
-      const savedTheme = localStorage.getItem('theme');
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
-      document.documentElement.setAttribute('data-theme', initialTheme);
+      (function () {
+        function applyThemeMeta(theme) {
+          const isDark = theme === 'dark';
+          const bgHex = isDark ? '#050914' : '#f2f8ff';
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+          document.documentElement.style.backgroundColor = bgHex;
 
-      window.toggleTheme = function () {
-        const current = document.documentElement.getAttribute('data-theme');
-        const next = current === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem('theme', next);
-      };
+          const metaTheme = document.getElementById('theme-color-meta');
+          if (metaTheme) metaTheme.setAttribute('content', bgHex);
+
+          const appleMeta = document.getElementById('apple-status-bar-meta');
+          if (appleMeta) {
+            appleMeta.setAttribute('content', isDark ? 'black-translucent' : 'default');
+          }
+        }
+
+        const savedTheme = localStorage.getItem('ekwly_theme');
+        if (savedTheme === 'dark' || savedTheme === 'light') {
+          applyThemeMeta(savedTheme);
+        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          applyThemeMeta('dark');
+        } else {
+          applyThemeMeta('light');
+        }
+
+        window.toggleTheme = function () {
+          const current = document.documentElement.getAttribute('data-theme');
+          const next = current === 'dark' ? 'light' : 'dark';
+          localStorage.setItem('ekwly_theme', next);
+          applyThemeMeta(next);
+        };
+      })();
     </script>
   </head>
-  <body class="bg-page text-main antialiased selection:bg-primary-light selection:text-primary">
+  <body class="bg-page text-main min-h-dvh flex flex-col selection:bg-primary selection:text-white antialiased">
     <AppRouter client:only="react" />
+    <PwaUpdater client:only="react" />
   </body>
 </html>

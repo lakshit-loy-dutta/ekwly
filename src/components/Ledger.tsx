@@ -6,9 +6,11 @@ import { swrCache } from '../lib/swrCache';
 import { showToast, utils } from '../lib/utils';
 import type { GlobalLedgerRow, NettedBalanceRow } from '../lib/types';
 import { splitwiseCsv, type SplitwiseParseResult } from '../lib/splitwiseCsv';
+import { exportPersonalNudgeImage } from '../lib/bentoReceipt';
 import BottomSheet from './ui/BottomSheet';
 import ConfirmSheet from './ui/ConfirmSheet';
 import BrandLoader from './ui/BrandLoader';
+import AnimatedNumber from './ui/AnimatedNumber';
 import {
   Wallet,
   ArrowDownLeft,
@@ -22,6 +24,7 @@ import {
   Smartphone,
   QrCode,
   ArrowLeftRight,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface CachedLedgerData {
@@ -52,6 +55,7 @@ export default function Ledger({ user }: Props) {
   const [activeQrRow, setActiveQrRow] = useState<NettedBalanceRow | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const nudgeQrRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [parsedCsv, setParsedCsv] = useState<SplitwiseParseResult | null>(null);
   const [selectedSelfName, setSelectedSelfName] = useState<string>('');
   const [isImporting, setIsImporting] = useState(false);
@@ -290,6 +294,29 @@ export default function Ledger({ user }: Props) {
 
   return (
     <div className="w-full flex flex-col flex-1 px-4 py-6 md:px-8 bg-page pb-28">
+      {/* Hidden Pre-Rendered UPI QR SVGs for 1-on-1 Skeuomorphic Nudge Cards */}
+      <div className="hidden" aria-hidden="true">
+        {myUpiId &&
+          netted.netOwedToMe.map((entry) => {
+            const exactUri = utils.buildUpiUrl({
+              upiId: myUpiId,
+              payeeName: entry.selfName || user?.user_metadata?.full_name || 'Host',
+              amount: entry.netAmount,
+              note: 'Ekwly Net Settlement',
+            });
+            return (
+              <div
+                key={entry.counterpartyKey}
+                ref={(el) => {
+                  nudgeQrRefs.current[entry.counterpartyKey] = el;
+                }}
+              >
+                <QRCode value={exactUri} size={200} />
+              </div>
+            );
+          })}
+      </div>
+
       <ConfirmSheet
         isOpen={!!pendingSettle}
         onClose={() => setPendingSettle(null)}
@@ -315,22 +342,22 @@ export default function Ledger({ user }: Props) {
       </div>
 
       <div className="flex gap-3 mb-4">
-        <div className="flex-1 bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col items-center text-center">
+        <div className="flex-1 glass-card rounded-2xl p-4 flex flex-col items-center text-center">
           <ArrowDownLeft size={20} className="text-success mb-1" />
           <span className="text-[0.65rem] font-bold text-muted uppercase tracking-widest mb-0.5">
             Net Owed to You
           </span>
           <span className="text-lg font-extrabold text-main tabular-nums">
-            {utils.formatMoney(netted.totalOwedToMe)}
+            <AnimatedNumber value={netted.totalOwedToMe} />
           </span>
         </div>
-        <div className="flex-1 bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col items-center text-center">
+        <div className="flex-1 glass-card rounded-2xl p-4 flex flex-col items-center text-center">
           <ArrowUpRight size={20} className="text-danger mb-1" />
           <span className="text-[0.65rem] font-bold text-muted uppercase tracking-widest mb-0.5">
             Net You Owe
           </span>
           <span className="text-lg font-extrabold text-main tabular-nums">
-            {utils.formatMoney(netted.totalIOwe)}
+            <AnimatedNumber value={netted.totalIOwe} />
           </span>
         </div>
       </div>
@@ -346,7 +373,7 @@ export default function Ledger({ user }: Props) {
       <button
         type="button"
         onClick={() => fileInputRef.current?.click()}
-        className="w-full h-11 mb-6 bg-surface hover:bg-subtle active:scale-[0.99] text-main border border-border rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-all"
+        className="w-full h-11 mb-6 glass-card hover:bg-subtle active:scale-[0.99] text-main rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all"
       >
         <Upload size={15} className="text-primary" /> Import Splitwise CSV
       </button>
@@ -357,82 +384,110 @@ export default function Ledger({ user }: Props) {
           Owed To You ({netted.netOwedToMe.length})
         </h3>
       </div>
-      <div className="bg-surface border border-border rounded-2xl divide-y divide-border shadow-sm overflow-hidden flex flex-col mb-6">
+      <div className="glass-card rounded-2xl divide-y divide-border overflow-hidden flex flex-col mb-6">
         {netted.netOwedToMe.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted font-medium">
             No pending incoming payments.
           </div>
         ) : (
-          netted.netOwedToMe.map((entry) => (
-            <div
-              key={entry.counterpartyKey}
-              className="flex flex-col p-4 bg-surface hover:bg-subtle/40 transition-colors gap-3"
-            >
-              {/* Row 1: Full Counterparty Name + Clear Net Amount */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold overflow-hidden shrink-0 border border-primary/20">
-                    <User size={18} />
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-bold text-main text-base truncate">
-                      {entry.counterpartyName}
-                    </span>
-                    {entry.hasOpposing ? (
-                      <span className="text-[0.65rem] font-bold text-muted inline-flex items-center gap-1 tabular-nums">
-                        <ArrowLeftRight size={10} className="text-primary" /> Net of +
-                        {utils.formatMoney(entry.grossOwedToMe)} / -
-                        {utils.formatMoney(entry.grossIOwe)}
+          netted.netOwedToMe.map((entry) => {
+            const whatsappUrl = utils.buildWhatsAppReminderUrl({
+              debtorName: entry.counterpartyName,
+              creditorName: entry.selfName || 'me',
+              amount: entry.netAmount,
+              upiId: myUpiId,
+              isReminder: true,
+            });
+
+            return (
+              <div
+                key={entry.counterpartyKey}
+                className="flex flex-col p-4 hover:bg-subtle/40 transition-colors gap-3"
+              >
+                {/* Row 1: Full Counterparty Name + Clear Net Amount */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold overflow-hidden shrink-0 border border-primary/20">
+                      <User size={18} />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-main text-base truncate">
+                        {entry.counterpartyName}
                       </span>
-                    ) : (
-                      <span className="text-[0.7rem] text-muted font-medium">Owes you</span>
-                    )}
+                      {entry.hasOpposing ? (
+                        <span className="text-[0.65rem] font-bold text-muted inline-flex items-center gap-1 tabular-nums">
+                          <ArrowLeftRight size={10} className="text-primary" /> Net of +
+                          {utils.formatMoney(entry.grossOwedToMe)} / -
+                          {utils.formatMoney(entry.grossIOwe)}
+                        </span>
+                      ) : (
+                        <span className="text-[0.7rem] text-muted font-medium">Owes you</span>
+                      )}
+                    </div>
                   </div>
+
+                  <span className="text-base font-extrabold text-success tabular-nums shrink-0">
+                    +{utils.formatMoney(entry.netAmount)}
+                  </span>
                 </div>
 
-                <span className="text-base font-extrabold text-success tabular-nums shrink-0">
-                  +{utils.formatMoney(entry.netAmount)}
-                </span>
-              </div>
+                {/* Row 2: Uncramped Action Pills (Show QR, WhatsApp Nudge, 1-on-1 Nudge Card, Settle) */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border/50">
+                  {myUpiId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        utils.haptic('light');
+                        setActiveQrRow(entry);
+                      }}
+                      className="flex-1 min-w-22 h-9 px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    >
+                      <QrCode size={14} /> Show QR
+                    </button>
+                  )}
 
-              {/* Row 2: Uncramped Action Pills */}
-              <div className="flex items-center gap-2 pt-1 border-t border-border/50">
-                {myUpiId && (
+                  <a
+                    href={whatsappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 min-w-22 h-9 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <MessageCircle size={14} /> Nudge
+                  </a>
+
                   <button
                     type="button"
                     onClick={() => {
                       utils.haptic('light');
-                      setActiveQrRow(entry);
+                      const qrSvg =
+                        nudgeQrRefs.current[entry.counterpartyKey]?.querySelector('svg') || null;
+                      exportPersonalNudgeImage({
+                        debtorName: entry.counterpartyName,
+                        creditorName: entry.selfName || user?.user_metadata?.full_name || 'Me',
+                        amount: entry.netAmount,
+                        venueName: 'Consolidated Net Balance',
+                        upiId: myUpiId,
+                        qrSvgElement: qrSvg,
+                        whatsappTextUrl: whatsappUrl,
+                      });
                     }}
-                    className="flex-1 h-9 px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    className="flex-1 min-w-26 h-9 px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    title="Share personalized skeuomorphic receipt ticket with pre-filled QR"
                   >
-                    <QrCode size={14} /> Show QR
+                    <ImageIcon size={14} /> Nudge Card
                   </button>
-                )}
-                <a
-                  href={utils.buildWhatsAppReminderUrl({
-                    debtorName: entry.counterpartyName,
-                    creditorName: entry.selfName || 'me',
-                    amount: entry.netAmount,
-                    upiId: myUpiId,
-                    isReminder: true,
-                  })}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 h-9 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                >
-                  <MessageCircle size={14} /> Nudge
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setPendingSettle(entry)}
-                  className="flex-1 h-9 px-3.5 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                >
-                  <CheckCircle2 size={14} /> Settle
-                </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPendingSettle(entry)}
+                    className="flex-1 min-w-22 h-9 px-3.5 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <CheckCircle2 size={14} /> Settle
+                  </button>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -442,7 +497,7 @@ export default function Ledger({ user }: Props) {
           You Owe Others ({netted.netIOwe.length})
         </h3>
       </div>
-      <div className="bg-surface border border-border rounded-2xl divide-y divide-border shadow-sm overflow-hidden flex flex-col">
+      <div className="glass-card rounded-2xl divide-y divide-border overflow-hidden flex flex-col">
         {netted.netIOwe.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted font-medium">
             You are completely debt-free.
@@ -464,7 +519,7 @@ export default function Ledger({ user }: Props) {
             return (
               <div
                 key={entry.counterpartyKey}
-                className="flex flex-col p-4 bg-surface hover:bg-subtle/40 transition-colors gap-3"
+                className="flex flex-col p-4 hover:bg-subtle/40 transition-colors gap-3"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">

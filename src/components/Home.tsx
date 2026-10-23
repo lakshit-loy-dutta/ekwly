@@ -80,7 +80,6 @@ export default function Home({
   const [scansLeft, setScansLeft] = useState(cached?.scansLeft ?? 3);
   const [isLoading, setIsLoading] = useState(!cached);
 
-  // Saved Squads & Trip Folders
   const [savedSquads, setSavedSquads] = useState<SavedSquad[]>(() =>
     utils.getSavedSquads(user?.id)
   );
@@ -104,8 +103,8 @@ export default function Home({
   >([]);
   const [isLoadingTripStats, setIsLoadingTripStats] = useState(false);
 
-  // Session Filters & Editing
-  const [sessionFilter, setSessionFilter] = useState<'all' | 'draft' | 'locked'>('all');
+  // Unified Workspace Filter ('all' | 'draft' | 'locked' | 'trips')
+  const [workspaceTab, setWorkspaceTab] = useState<'all' | 'draft' | 'locked' | 'trips'>('all');
   const [sessionSearch, setSessionSearch] = useState('');
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editSessionName, setEditSessionName] = useState('');
@@ -114,12 +113,11 @@ export default function Home({
 
   useEffect(() => {
     setSavedSquads(utils.getSavedSquads(user?.id));
-    if (typeof window !== 'undefined') {
-      try {
-        setTripFolders(JSON.parse(localStorage.getItem(tripStorageKey) || '[]'));
-      } catch {
-        setTripFolders([]);
-      }
+    if (typeof window === 'undefined') return;
+    try {
+      setTripFolders(JSON.parse(localStorage.getItem(tripStorageKey) || '[]'));
+    } catch {
+      setTripFolders([]);
     }
   }, [user?.id, tripStorageKey]);
 
@@ -208,6 +206,7 @@ export default function Home({
     setNewTripName('');
     setSelectedTripSessionIds([]);
     setShowCreateTripModal(false);
+    setWorkspaceTab('trips');
     showToast(`Created "${trimmed}" Trip Folder!`, 'success');
   };
 
@@ -227,7 +226,6 @@ export default function Home({
         .in('session_id', trip.sessionIds)
         .eq('settled', false);
 
-      // Consolidate all unsettled transfers across all sessions in this Trip Folder
       const netByPerson = new Map<string, number>();
       (ledgerRows || []).forEach((row: any) => {
         const creditor = (row.creditor_fallback_name || 'Host').trim();
@@ -354,8 +352,8 @@ export default function Home({
 
   const filteredSessions = useMemo(() => {
     return recentSessions.filter((s) => {
-      if (sessionFilter === 'draft' && s.status === 'locked') return false;
-      if (sessionFilter === 'locked' && s.status !== 'locked') return false;
+      if (workspaceTab === 'draft' && s.status === 'locked') return false;
+      if (workspaceTab === 'locked' && s.status !== 'locked') return false;
       if (sessionSearch.trim()) {
         const q = sessionSearch.trim().toLowerCase();
         const title = getSessionTitle(s).toLowerCase();
@@ -364,7 +362,7 @@ export default function Home({
       }
       return true;
     });
-  }, [recentSessions, sessionFilter, sessionSearch]);
+  }, [recentSessions, workspaceTab, sessionSearch]);
 
   const firstName = user?.user_metadata?.full_name
     ? user.user_metadata.full_name.split(' ')[0]
@@ -393,14 +391,14 @@ export default function Home({
 
       <div className="absolute inset-0 bg-grid-pattern z-0" />
 
-      <div className="w-full flex flex-col gap-5 px-4 py-5 md:px-8 relative z-10">
+      <div className="w-full flex flex-col gap-4 px-4 py-5 md:px-8 relative z-10">
         {/* GREETING & AI SCAN STATUS HEADER */}
-        <div className="flex flex-wrap justify-between items-center gap-3">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-main tracking-tight">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-main tracking-tight truncate">
               {firstName ? `Hi, ${firstName}` : 'Command Center'}
             </h2>
-            <p className="text-muted text-xs sm:text-sm font-medium mt-0.5">
+            <p className="text-muted text-xs sm:text-sm font-medium mt-0.5 truncate">
               Split a restaurant bill or settle up with your crew
             </p>
           </div>
@@ -411,16 +409,14 @@ export default function Home({
               utils.haptic('light');
               if (onOpenProPlans) onOpenProPlans();
             }}
-            className={`px-3 py-1.5 rounded-2xl border text-xs font-extrabold flex items-center gap-1.5 transition-all active:scale-95 ${
+            className={`shrink-0 px-3 py-1.5 rounded-2xl border text-xs font-extrabold flex items-center gap-1.5 transition-all active:scale-95 ${
               isPro
                 ? 'bg-amber-500/15 border-amber-500/35 text-amber-400'
                 : 'glass-card text-main hover:border-primary/40'
             }`}
           >
-            <Sparkles size={14} className={isPro ? 'text-amber-400' : 'text-primary'} />
-            <span className="tabular-nums">
-              {isPro ? 'PRO ∞ Scans' : `${scansLeft}/3 Free AI Scans`}
-            </span>
+            <Sparkles size={13} className={isPro ? 'text-amber-400' : 'text-primary'} />
+            <span className="tabular-nums">{isPro ? 'PRO ∞' : `${scansLeft}/3 Scans`}</span>
           </button>
         </div>
 
@@ -445,62 +441,59 @@ export default function Home({
             <ChevronRight size={20} className="text-amber-500 shrink-0" />
           </button>
         ) : (
-          <div className="w-full premium-gradient-card text-white rounded-3xl p-5 sm:p-6 flex flex-col gap-4">
+          <div className="w-full premium-gradient-card text-white rounded-3xl p-5 sm:p-6 flex flex-col gap-3.5">
             <div
               onClick={() => {
                 utils.haptic('light');
                 onViewLedger();
               }}
-              className="flex flex-wrap justify-between items-end gap-3 cursor-pointer"
+              className="flex justify-between items-end gap-3 cursor-pointer"
             >
               <div className="flex flex-col">
-                <span className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1">
+                <span className="text-white/80 text-[0.7rem] font-bold uppercase tracking-widest mb-1">
                   Net Owed to You
                 </span>
                 <span className="text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums">
                   <AnimatedNumber value={owedToMe} />
                 </span>
               </div>
-              <div className="flex items-center gap-1 text-white text-xs font-bold bg-white/20 hover:bg-white/30 px-4 py-2.5 rounded-full transition-colors shadow-sm">
-                Open Ledger <ChevronRight size={15} />
+              <div className="flex items-center gap-1 text-white text-xs font-bold bg-white/20 hover:bg-white/30 px-3.5 py-2 rounded-full transition-colors shadow-sm shrink-0">
+                Open Ledger <ChevronRight size={14} />
               </div>
             </div>
 
             <div className="h-px w-full bg-white/20" />
 
-            <div className="flex flex-wrap justify-between items-center gap-2 text-xs sm:text-sm">
+            <div className="flex justify-between items-center gap-2 text-xs sm:text-sm">
               <span className="text-white/85 font-medium">Net You Owe Others</span>
               <span className="font-extrabold tracking-wide tabular-nums">
                 <AnimatedNumber value={iOwe} />
               </span>
             </div>
 
-            {/* Live Pending Settlements Quick Strip */}
             {topPending.length > 0 && (
-              <div className="pt-2 border-t border-white/15 flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[0.7rem] font-bold uppercase tracking-wider text-white/75 mr-1">
-                    Pending:
-                  </span>
-                  {topPending.map((row) => (
-                    <button
-                      key={row.counterpartyKey}
-                      type="button"
-                      onClick={onViewLedger}
-                      className="px-2.5 py-1 rounded-full bg-black/25 hover:bg-black/35 text-white text-xs font-bold tabular-nums flex items-center gap-1 transition-colors"
-                    >
-                      <span>{row.counterpartyName.split(' ')[0]}</span>
-                      <span className="text-emerald-300">+{utils.formatMoney(row.netAmount)}</span>
-                    </button>
-                  ))}
-                </div>
+              <div className="pt-2 border-t border-white/15 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                <span className="text-[0.65rem] font-bold uppercase tracking-wider text-white/75 shrink-0 mr-1">
+                  Pending:
+                </span>
+                {topPending.map((row) => (
+                  <button
+                    key={row.counterpartyKey}
+                    type="button"
+                    onClick={onViewLedger}
+                    className="shrink-0 px-2.5 py-1 rounded-full bg-black/25 hover:bg-black/35 text-white text-xs font-bold tabular-nums flex items-center gap-1 transition-colors"
+                  >
+                    <span>{row.counterpartyName.split(' ')[0]}</span>
+                    <span className="text-emerald-300">+{utils.formatMoney(row.netAmount)}</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
         )}
 
-        {/* PRIMARY QUICK ACTIONS (SPACIOUS GLASS CARDS) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* PRIMARY QUICK ACTIONS */}
+        <div className="grid grid-cols-2 gap-3">
           <motion.button
             type="button"
             whileTap={{ scale: 0.98 }}
@@ -508,15 +501,17 @@ export default function Home({
               utils.haptic('medium');
               onOpenLobby('create');
             }}
-            className="glass-card hover:border-primary/50 text-main rounded-2xl p-4 flex items-center gap-3.5 transition-colors text-left min-h-18"
+            className="glass-card hover:border-primary/50 text-main rounded-2xl p-3.5 sm:p-4 flex items-center gap-3 transition-colors text-left"
           >
-            <div className="w-12 h-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
-              <Plus size={24} strokeWidth={2.5} />
+            <div className="w-11 h-11 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+              <Plus size={22} strokeWidth={2.5} />
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="font-extrabold text-base text-main">New Bill Split</span>
-              <span className="text-xs text-muted font-medium">
-                AI Magic Scan or manual receipt
+              <span className="font-extrabold text-sm sm:text-base text-main truncate">
+                New Split
+              </span>
+              <span className="text-[0.7rem] text-muted font-medium truncate">
+                Scan or add bill
               </span>
             </div>
           </motion.button>
@@ -528,16 +523,16 @@ export default function Home({
               utils.haptic('light');
               setIsScanningRoom(true);
             }}
-            className="glass-card hover:border-primary/50 text-main rounded-2xl p-4 flex items-center gap-3.5 transition-colors text-left min-h-18"
+            className="glass-card hover:border-primary/50 text-main rounded-2xl p-3.5 sm:p-4 flex items-center gap-3 transition-colors text-left"
           >
-            <div className="w-12 h-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
-              <QrCode size={22} strokeWidth={2.5} />
+            <div className="w-11 h-11 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+              <QrCode size={20} strokeWidth={2.5} />
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="font-extrabold text-base text-main">Scan Table QR</span>
-              <span className="text-xs text-muted font-medium">
-                Join a friend&apos;s live session
+              <span className="font-extrabold text-sm sm:text-base text-main truncate">
+                Scan QR
               </span>
+              <span className="text-[0.7rem] text-muted font-medium truncate">Join live table</span>
             </div>
           </motion.button>
         </div>
@@ -549,286 +544,303 @@ export default function Home({
             utils.haptic('light');
             onOpenLobby('join');
           }}
-          className="w-full min-h-11 py-2.5 px-4 glass-card hover:border-primary/40 text-muted hover:text-main rounded-2xl flex items-center justify-center gap-2 text-xs sm:text-sm font-bold transition-colors"
+          className="w-full min-h-11 py-2.5 px-4 glass-card hover:border-primary/40 text-muted hover:text-main rounded-2xl flex items-center justify-center gap-2 text-xs font-bold transition-colors"
         >
-          <KeyRound size={15} className="text-primary shrink-0" /> Have a Room ID &amp; 4-Digit PIN?
-          Enter here
+          <KeyRound size={14} className="text-primary shrink-0" /> Have a Room ID &amp; 4-Digit PIN?
+          Join here
         </motion.button>
 
-        {/* 1-TAP SAVED SQUAD QUICK-LAUNCH BAR */}
+        {/* 1-TAP SAVED SQUAD QUICK-LAUNCH STRIP */}
         {savedSquads.length > 0 && (
-          <div className="glass-card rounded-2xl p-4 flex flex-col gap-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-main flex items-center gap-1.5">
-                <Users size={14} className="text-primary" /> 1-Tap Squad Split
-              </span>
-              <span className="text-xs text-muted font-medium">Starts room with crew added</span>
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
-              {savedSquads.map((squad) => (
-                <button
-                  key={squad.id}
-                  type="button"
-                  onClick={() => {
-                    utils.haptic('medium');
-                    if (onLaunchSquadSession) {
-                      onLaunchSquadSession(squad);
-                    } else {
-                      onOpenLobby('create', `${squad.name} Split`);
-                    }
-                  }}
-                  className="shrink-0 min-h-10 px-3.5 py-2 rounded-xl bg-primary/12 hover:bg-primary/20 text-primary border border-primary/25 text-xs font-extrabold flex items-center gap-1.5 active:scale-95 transition-transform"
-                >
-                  <Sparkles size={13} /> {squad.name} ({squad.members.length})
-                </button>
-              ))}
-            </div>
+          <div className="glass-card rounded-2xl p-3.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            <span className="text-[0.68rem] font-extrabold uppercase tracking-wider text-muted flex items-center gap-1 shrink-0 pl-1">
+              <Users size={13} className="text-primary" /> Squads:
+            </span>
+            {savedSquads.map((squad) => (
+              <button
+                key={squad.id}
+                type="button"
+                onClick={() => {
+                  utils.haptic('medium');
+                  if (onLaunchSquadSession) {
+                    onLaunchSquadSession(squad);
+                  } else {
+                    onOpenLobby('create', `${squad.name} Split`);
+                  }
+                }}
+                className="shrink-0 h-8 px-3 rounded-xl bg-primary/12 hover:bg-primary/20 text-primary border border-primary/25 text-xs font-extrabold flex items-center gap-1 active:scale-95 transition-transform"
+              >
+                <Sparkles size={11} /> {squad.name} ({squad.members.length})
+              </button>
+            ))}
           </div>
         )}
 
-        {/* PRO MULTI-BILL TRIP & EVENT FOLDERS */}
-        <div className="glass-card rounded-2xl p-4 flex flex-col gap-3">
+        {/* UNIFIED BILLS & TRIP FOLDERS WORKSPACE */}
+        <div className="flex flex-col flex-1 pb-4 gap-3 pt-1">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <FolderKanban size={16} className="text-primary" />
-              <span className="text-xs font-extrabold uppercase tracking-wider text-main">
-                Trip &amp; Event Folders ({tripFolders.length})
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[0.62rem] font-extrabold uppercase">
-                Multi-Bill
-              </span>
+            <div className="flex items-center gap-1 bg-surface border border-border rounded-xl p-1 overflow-x-auto no-scrollbar">
+              {[
+                { id: 'all' as const, label: `All (${recentSessions.length})` },
+                { id: 'draft' as const, label: 'Drafts' },
+                { id: 'locked' as const, label: 'Locked' },
+                { id: 'trips' as const, label: `Trips (${tripFolders.length})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    utils.haptic('light');
+                    setWorkspaceTab(tab.id);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap transition-colors ${
+                    workspaceTab === tab.id
+                      ? 'bg-primary text-white shadow-2xs'
+                      : 'text-muted hover:text-main'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
+
             <button
               type="button"
               onClick={() => {
                 utils.haptic('light');
                 setShowCreateTripModal(true);
               }}
-              className="text-xs font-extrabold text-primary hover:underline flex items-center gap-1"
+              className="shrink-0 h-9 px-3 rounded-xl bg-primary/12 hover:bg-primary/20 text-primary border border-primary/25 text-xs font-extrabold flex items-center gap-1 transition-colors"
             >
-              <Plus size={14} /> New Trip
+              <FolderKanban size={13} /> + Trip
             </button>
           </div>
 
-          {tripFolders.length === 0 ? (
-            <p className="text-xs text-muted leading-relaxed">
-              Bar-hopping or on a weekend trip? Group multiple bills into a{' '}
-              <strong className="text-main">Trip Folder</strong> (e.g.{' '}
-              <em>&ldquo;Goa Oct &apos;26&rdquo;</em>) to settle the entire weekend in one
-              consolidated payment per person.
-            </p>
-          ) : (
-            <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar pb-0.5">
-              {tripFolders.map((trip) => (
+          {/* VIEW A: TRIP & EVENT FOLDERS TAB */}
+          {workspaceTab === 'trips' ? (
+            tripFolders.length === 0 ? (
+              <div className="glass-card rounded-3xl p-6 text-center flex flex-col items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-primary/12 text-primary flex items-center justify-center">
+                  <FolderKanban size={24} />
+                </div>
+                <div className="flex flex-col gap-1 max-w-xs">
+                  <h4 className="font-extrabold text-main text-base">Group Multi-Bill Trips</h4>
+                  <p className="text-xs text-muted leading-relaxed">
+                    Combine multiple restaurant, cab, and bar bills from a weekend trip (e.g.,{' '}
+                    <em>&ldquo;Goa Oct &apos;26&rdquo;</em>) to settle the entire trip in one
+                    consolidated transfer per person.
+                  </p>
+                </div>
                 <button
-                  key={trip.id}
                   type="button"
-                  onClick={() => openTripFolderDetails(trip)}
-                  className="shrink-0 min-h-14 px-4 py-2.5 rounded-2xl bg-page border border-border hover:border-primary/40 text-left flex flex-col justify-center gap-0.5 transition-all active:scale-95"
+                  onClick={() => setShowCreateTripModal(true)}
+                  className="h-10 px-4 bg-primary text-white rounded-xl font-extrabold text-xs flex items-center gap-1.5 shadow-sm"
                 >
-                  <span className="font-extrabold text-sm text-main">{trip.name}</span>
-                  <span className="text-xs text-primary font-bold tabular-nums">
-                    {trip.sessionIds.length} {trip.sessionIds.length === 1 ? 'bill' : 'bills'} • Tap
-                    to Settle
-                  </span>
+                  <Plus size={14} /> Create First Trip Folder
                 </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* RECENT SESSIONS LIST WITH SEARCH & STATUS FILTERS */}
-        <div className="flex flex-col flex-1 pb-4 gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-            <div className="flex items-center gap-1.5">
-              <Clock className="text-muted" size={15} />
-              <h3 className="text-xs font-extrabold text-muted uppercase tracking-widest">
-                Recent Sessions ({filteredSessions.length})
-              </h3>
-            </div>
-
-            <div className="flex items-center gap-1 bg-surface border border-border rounded-xl p-1">
-              {(['all', 'draft', 'locked'] as const).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setSessionFilter(f)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold capitalize transition-colors ${
-                    sessionFilter === f ? 'bg-primary text-white' : 'text-muted hover:text-main'
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {recentSessions.length > 3 && (
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
-                <Search size={15} />
               </div>
-              <input
-                type="text"
-                value={sessionSearch}
-                onChange={(e) => setSessionSearch(e.target.value)}
-                placeholder="Search sessions by name or restaurant..."
-                className="w-full min-h-11 bg-surface border border-border rounded-xl pl-10 pr-4 text-sm font-semibold text-main"
-              />
-            </div>
-          )}
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {tripFolders.map((trip) => (
+                  <button
+                    key={trip.id}
+                    type="button"
+                    onClick={() => openTripFolderDetails(trip)}
+                    className="glass-card hover:border-primary/40 rounded-2xl p-4 text-left flex items-center justify-between gap-3 transition-all active:scale-[0.99]"
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="w-11 h-11 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+                        <FolderKanban size={20} />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-extrabold text-main text-[0.95rem] truncate">
+                          {trip.name}
+                        </span>
+                        <span className="text-xs text-primary font-bold tabular-nums mt-0.5">
+                          {trip.sessionIds.length} {trip.sessionIds.length === 1 ? 'bill' : 'bills'}{' '}
+                          • Tap to consolidate
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight size={18} className="text-muted shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            /* VIEW B: RECENT SESSIONS LIST (STRICT 2-LINE ALIGNMENT) */
+            <>
+              {recentSessions.length > 3 && (
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
+                    <Search size={15} />
+                  </div>
+                  <input
+                    type="text"
+                    value={sessionSearch}
+                    onChange={(e) => setSessionSearch(e.target.value)}
+                    placeholder="Search sessions by name or restaurant..."
+                    className="w-full h-11 bg-surface border border-border rounded-xl pl-10 pr-4 text-sm font-semibold text-main"
+                  />
+                </div>
+              )}
 
-          {isLoading ? (
-            <BrandLoader label="Loading Sessions..." />
-          ) : filteredSessions.length > 0 ? (
-            <div className="flex flex-col gap-3">
-              <AnimatePresence initial={false}>
-                {filteredSessions.map((session) => {
-                  const title = getSessionTitle(session);
-                  const isEditing = editingSessionId === session.id;
-                  const isLocked = session.status === 'locked';
-                  const hasDistinctVenue = Boolean(
-                    session.venue_name &&
-                    (!session.name ||
-                      session.name.toLowerCase() !== session.venue_name.toLowerCase())
-                  );
+              {isLoading ? (
+                <BrandLoader label="Loading Sessions..." />
+              ) : filteredSessions.length > 0 ? (
+                <div className="flex flex-col gap-2.5">
+                  <AnimatePresence initial={false}>
+                    {filteredSessions.map((session) => {
+                      const title = getSessionTitle(session);
+                      const isEditing = editingSessionId === session.id;
+                      const isLocked = session.status === 'locked';
+                      const hasDistinctVenue = Boolean(
+                        session.venue_name &&
+                        (!session.name ||
+                          session.name.toLowerCase() !== session.venue_name.toLowerCase())
+                      );
 
-                  return (
-                    <motion.div
-                      key={session.id}
-                      layout="position"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.96 }}
-                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      className="glass-card hover:border-primary/40 rounded-2xl p-4 flex items-center justify-between text-left"
-                    >
-                      <div
-                        className="flex items-center gap-3.5 flex-1 min-w-0 cursor-pointer"
-                        onClick={() =>
-                          !isEditing &&
-                          onJoinSession(
-                            session.id,
-                            session.pin || localStorage.getItem('ekwly_pin_' + session.id) || ''
-                          )
-                        }
-                      >
-                        <div
-                          className={`w-11 h-11 rounded-2xl text-white flex items-center justify-center shrink-0 font-extrabold text-base shadow-inner ${getAvatarColor(
-                            title
-                          )}`}
+                      return (
+                        <motion.div
+                          key={session.id}
+                          layout="position"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.96 }}
+                          transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+                          className="glass-card hover:border-primary/40 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-3 text-left"
                         >
-                          {title.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex flex-col min-w-0 flex-1 pr-2">
-                          {isEditing ? (
+                          <div
+                            className="flex items-center gap-3.5 flex-1 min-w-0 cursor-pointer"
+                            onClick={() =>
+                              !isEditing &&
+                              onJoinSession(
+                                session.id,
+                                session.pin || localStorage.getItem('ekwly_pin_' + session.id) || ''
+                              )
+                            }
+                          >
                             <div
-                              className="flex items-center gap-1.5"
-                              onClick={(e) => e.stopPropagation()}
+                              className={`w-11 h-11 rounded-2xl text-white flex items-center justify-center shrink-0 font-extrabold text-base shadow-inner ${getAvatarColor(
+                                title
+                              )}`}
                             >
-                              <input
-                                autoFocus
-                                type="text"
-                                value={editSessionName}
-                                onChange={(e) => setEditSessionName(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleRenameSession(e, session.id);
-                                  if (e.key === 'Escape') setEditingSessionId(null);
-                                }}
-                                className="min-h-9 flex-1 bg-page border border-primary/50 rounded-lg px-2.5 text-sm font-bold text-main"
-                              />
+                              {title.charAt(0).toUpperCase()}
+                            </div>
+
+                            <div className="flex flex-col justify-center min-w-0 flex-1">
+                              {isEditing ? (
+                                <div
+                                  className="flex items-center gap-1.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={editSessionName}
+                                    onChange={(e) => setEditSessionName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleRenameSession(e, session.id);
+                                      if (e.key === 'Escape') setEditingSessionId(null);
+                                    }}
+                                    className="h-9 flex-1 bg-page border border-primary/50 rounded-lg px-2.5 text-sm font-bold text-main"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleRenameSession(e, session.id)}
+                                    className="p-2 bg-primary text-white rounded-lg"
+                                    aria-label="Save name"
+                                  >
+                                    <Check size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingSessionId(null);
+                                    }}
+                                    className="p-2 bg-page text-muted rounded-lg border border-border"
+                                    aria-label="Cancel rename"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  {/* LINE 1: Session Title + Inline Status Pill (Never Wraps to 3 Lines) */}
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="font-extrabold text-main text-[0.95rem] truncate">
+                                      {title}
+                                    </span>
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[0.62rem] font-extrabold uppercase tracking-wider shrink-0 ${
+                                        isLocked
+                                          ? 'bg-emerald-500/15 text-emerald-500'
+                                          : 'bg-amber-500/15 text-amber-500'
+                                      }`}
+                                    >
+                                      {isLocked ? <Lock size={9} /> : <FileEdit size={9} />}
+                                      {isLocked ? 'Locked' : 'Draft'}
+                                    </span>
+                                  </div>
+
+                                  {/* LINE 2: Venue • Date • Short Room Code */}
+                                  <span className="text-xs text-muted font-medium tabular-nums truncate mt-0.5">
+                                    {hasDistinctVenue ? `${session.venue_name} • ` : ''}
+                                    {new Date(session.created_at).toLocaleDateString(undefined, {
+                                      month: 'short',
+                                      day: 'numeric',
+                                    })}{' '}
+                                    • #{session.id.slice(0, 6).toUpperCase()}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {!isEditing && (
+                            <div className="flex items-center gap-0.5 shrink-0">
                               <button
                                 type="button"
-                                onClick={(e) => handleRenameSession(e, session.id)}
-                                className="p-2 bg-primary text-white rounded-lg"
-                                aria-label="Save name"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingSessionId(session.id);
+                                  setEditSessionName(title);
+                                }}
+                                className="p-2 text-muted hover:text-primary hover:bg-subtle rounded-xl transition-colors"
+                                aria-label="Rename session"
                               >
-                                <Check size={14} />
+                                <Edit2 size={15} />
                               </button>
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setEditingSessionId(null);
+                                  setSessionToDelete(session);
                                 }}
-                                className="p-2 bg-page text-muted rounded-lg border border-border"
-                                aria-label="Cancel rename"
+                                className="p-2 text-muted hover:text-danger hover:bg-danger/10 rounded-xl transition-colors"
+                                aria-label="Delete session"
                               >
-                                <X size={14} />
+                                <Trash2 size={15} />
                               </button>
                             </div>
-                          ) : (
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-main text-base truncate">
-                                {title}
-                              </span>
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[0.65rem] font-extrabold uppercase tracking-wider shrink-0 ${
-                                  isLocked
-                                    ? 'bg-emerald-500/15 text-emerald-500'
-                                    : 'bg-amber-500/15 text-amber-500'
-                                }`}
-                              >
-                                {isLocked ? <Lock size={10} /> : <FileEdit size={10} />}
-                                {isLocked ? 'Locked' : 'Draft'}
-                              </span>
-                            </div>
                           )}
-
-                          <span className="text-xs text-muted font-medium tabular-nums truncate mt-0.5">
-                            {hasDistinctVenue ? `${session.venue_name} • ` : ''}
-                            {new Date(session.created_at).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                            })}{' '}
-                            • #{session.id.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-
-                      {!isEditing && (
-                        <div className="flex items-center gap-1 pl-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingSessionId(session.id);
-                              setEditSessionName(title);
-                            }}
-                            className="p-2.5 text-muted hover:text-primary hover:bg-subtle rounded-xl transition-colors"
-                            aria-label="Rename session"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSessionToDelete(session);
-                            }}
-                            className="p-2.5 text-muted hover:text-danger hover:bg-danger/10 rounded-xl transition-colors"
-                            aria-label="Delete session"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      )}
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 px-6 glass-card border-dashed rounded-3xl text-center">
-              <div className="w-13 h-13 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-3">
-                <Plus size={26} />
-              </div>
-              <h3 className="font-extrabold text-main text-base mb-1">No matching sessions</h3>
-              <p className="text-xs sm:text-sm font-medium text-muted max-w-xs">
-                Tap <strong>New Bill Split</strong> above or the <strong>+</strong> button in the
-                dock to scan your first receipt.
-              </p>
-            </div>
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 px-6 glass-card border-dashed rounded-3xl text-center">
+                  <Clock size={26} className="text-muted/40 mb-2" />
+                  <h3 className="font-extrabold text-main text-sm mb-1">No sessions found</h3>
+                  <p className="text-xs text-muted max-w-xs">
+                    Tap <strong>New Split</strong> above or the <strong>+</strong> button in the
+                    dock to start a bill.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -937,7 +949,7 @@ export default function Home({
                 }}
                 className="min-h-10 px-4 bg-primary text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm"
               >
-                <Plus size={14} /> Add New Bill to Trip
+                <Plus size={14} /> Add New Bill
               </button>
             </div>
 
