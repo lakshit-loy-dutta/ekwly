@@ -402,7 +402,7 @@ export default function AppRouter() {
   }
 
   return (
-    <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col overflow-x-clip no-scrollbar">
+    <div className="w-full max-w-2xl mx-auto bg-page relative md:shadow-stripe md:border-x md:border-border min-h-screen md:min-h-[calc(100vh-64px)] flex flex-col no-scrollbar">
       <SpotlightTour
         isOpen={showTour}
         onClose={() => setShowTour(false)}
@@ -795,9 +795,9 @@ export default function AppRouter() {
             {currentView === 'session' && (
               <motion.div
                 key="session"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
                 transition={{ duration: 0.16 }}
                 className="flex-1 flex flex-col"
               >

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { DownloadCloud, X } from 'lucide-react';
 
@@ -6,27 +7,36 @@ export default function PwaUpdater() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
-    // FIX: Explicitly type 'r' as ServiceWorkerRegistration | undefined
     onRegistered(r: ServiceWorkerRegistration | undefined) {
-      if (r) {
-        setInterval(
-          () => {
+      if (!r) return;
+      r.update();
+      setInterval(
+        () => {
+          r.update();
+        },
+        60 * 60 * 1000
+      );
+
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
             r.update();
-          },
-          60 * 60 * 1000
-        );
+          }
+        });
       }
     },
-    // FIX: Explicitly type 'error' as any or Error
     onRegisterError(error: Error | any) {
       console.error('SW registration error', error);
     },
   });
 
+  useEffect(() => {
+    // Ensure SW controller changes reload cleanly when user taps Reload
+  }, [needRefresh]);
+
   if (!needRefresh) return null;
 
   return (
-    // FIX: Replaced z-[9999] with z-9999 for Tailwind 4 canonical compliance
     <div className="fixed top-4 left-4 right-4 z-9999 bg-primary text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between animate-in slide-in-from-top-4">
       <div className="flex items-center gap-3">
         <div className="bg-white/20 p-2 rounded-full">
@@ -39,14 +49,17 @@ export default function PwaUpdater() {
       </div>
       <div className="flex items-center gap-2">
         <button
+          type="button"
           onClick={() => updateServiceWorker(true)}
           className="bg-white text-primary px-4 py-2 rounded-xl font-bold text-sm shadow-sm active:scale-95 transition-transform"
         >
           Reload
         </button>
         <button
+          type="button"
           onClick={() => setNeedRefresh(false)}
           className="p-2 text-white/70 hover:text-white transition-colors"
+          aria-label="Dismiss update banner"
         >
           <X size={20} />
         </button>

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Receipt, CreditCard, ArrowRight, Wallet, Trash2, Check, Users } from 'lucide-react';
 import { SessionProvider, useSessionContext } from '../lib/SessionContext';
 import { mathEngine } from '../lib/mathEngine';
+import { exportToPDF } from '../lib/pdf';
 import { utils, showToast } from '../lib/utils';
 import ReceiptWorkbench from './session/ReceiptWorkbench';
 import DebtMatrix from './session/DebtMatrix';
@@ -36,6 +37,7 @@ function ActiveSessionContent({
     isHost,
     items,
     members,
+    taxPresets,
     sessionRules,
     sessionStatus,
     ledger,
@@ -46,6 +48,7 @@ function ActiveSessionContent({
   } = useSessionContext();
 
   const [activeTab, setActiveTab] = useState<'workbench' | 'settle'>('workbench');
+  const [receiptTitle, setReceiptTitle] = useState<string>(initialName || '');
   const [showPayerSheet, setShowPayerSheet] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -54,6 +57,12 @@ function ActiveSessionContent({
       actions.createSessionInDB(sessionId, pin, initialName);
     }
   }, [sessionId, pin, isHost, initialName, actions]);
+
+  useEffect(() => {
+    if (!receiptTitle && sessionRules.venueName) {
+      setReceiptTitle(sessionRules.venueName);
+    }
+  }, [sessionRules.venueName, receiptTitle]);
 
   useEffect(() => {
     if (sessionStatus === 'locked') {
@@ -67,7 +76,6 @@ function ActiveSessionContent({
 
   const grandTotal = liveCalculation.globalSummary.grandTotal;
   const totalPaid = members.reduce((sum, m) => sum + (m.paid_amount || 0), 0);
-  const resolvedReceiptTitle = initialName || sessionRules.venueName || 'Dining Bill Split';
 
   const assignSinglePayer = async (targetMemberId: string) => {
     if (!isHost || grandTotal <= 0) return;
@@ -145,6 +153,27 @@ function ActiveSessionContent({
     showToast('Bill unlocked for editing.', 'default');
   };
 
+  const handleExportPDF = (
+    mode: 'download' | 'share' = 'download',
+    upiMap: Record<string, string> = {},
+    qrSvgMap: Record<string, SVGElement | null> = {}
+  ) => {
+    utils.haptic('light');
+    exportToPDF(
+      liveCalculation,
+      receiptTitle || sessionRules.venueName || 'Settlement Receipt',
+      items,
+      taxPresets,
+      sessionRules.scTaxPresetId,
+      sessionRules.isScApplicable ? sessionRules.serviceChargeRate : 0,
+      members,
+      ledger,
+      mode,
+      upiMap,
+      qrSvgMap
+    );
+  };
+
   const handleDeleteRoom = async () => {
     await actions.deleteActiveSessionInDB();
     showToast('Session deleted.', 'success');
@@ -165,9 +194,9 @@ function ActiveSessionContent({
         variant="danger"
       />
 
-      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Glassmorphic Chrome) */}
-      <div className="sticky top-16 z-30 glass-chrome border-b border-border/80 px-4 py-2 gpu-layer">
-        <div className="bg-page/55 backdrop-blur-md border border-border/80 rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
+      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Locked Flush Under Top Header at top-16) */}
+      <div className="sticky top-16 z-30 glass-chrome border-b border-border px-4 py-2">
+        <div className="bg-page/60 border border-border rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
           <button
             type="button"
             onClick={() => handleSwitchTab('workbench')}
@@ -240,9 +269,9 @@ function ActiveSessionContent({
             transition={{ duration: 0.15 }}
             className="flex flex-col flex-1 pt-4 relative z-10"
           >
-            {/* "WHO PAID THE RESTAURANT BILL?" GLASS CARD WITH 1-TAP PAYER CHIPS */}
+            {/* "WHO PAID THE RESTAURANT BILL?" CARD WITH 1-TAP PAYER CHIPS */}
             {sessionStatus !== 'locked' && (
-              <div className="mx-4 mb-4 glass-card rounded-3xl p-5 flex flex-col gap-3">
+              <div className="mx-4 mb-4 glass-card rounded-2xl p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Wallet size={15} className="text-primary" />
@@ -255,7 +284,7 @@ function ActiveSessionContent({
                   </span>
                 </div>
 
-                <p className="text-xs text-muted leading-relaxed -mt-1">
+                <p className="text-[0.72rem] text-muted leading-relaxed -mt-1">
                   Tap the person who paid the waiter/cashier so everyone else&apos;s settlements
                   route to them:
                 </p>
@@ -272,7 +301,7 @@ function ActiveSessionContent({
                         type="button"
                         disabled={!isHost}
                         onClick={() => assignSinglePayer(m.id)}
-                        className={`min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 ${
+                        className={`h-9 px-3 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 ${
                           isSolePayer
                             ? 'bg-primary text-white border-primary shadow-2xs'
                             : 'bg-page text-main border-border hover:border-primary/40'
@@ -290,7 +319,7 @@ function ActiveSessionContent({
                       utils.haptic('light');
                       setShowPayerSheet(true);
                     }}
-                    className={`min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
+                    className={`h-9 px-3 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
                       activePayers.length > 1
                         ? 'bg-primary/15 text-primary border-primary/40'
                         : 'bg-page text-muted border-border hover:text-main'
@@ -308,16 +337,19 @@ function ActiveSessionContent({
             )}
 
             <DebtMatrix
-              isHost={isHost}
+              calculationResult={liveCalculation}
+              receiptTitle={receiptTitle}
+              setReceiptTitle={setReceiptTitle}
               sessionStatus={sessionStatus}
               ledger={ledger}
-              members={members}
-              calculationResult={liveCalculation}
+              isHost={isHost}
+              currentUserId={currentUserId}
+              handleLockSession={handleLockSession}
+              handleToggleSettled={actions.toggleLedgerSettledInDB}
+              handleExportPDF={handleExportPDF}
+              handleUnlockSession={handleUnlockSession}
+              handleGoHome={onExit}
               venueName={sessionRules.venueName}
-              receiptTitle={resolvedReceiptTitle}
-              onFinalize={handleLockSession}
-              onUnlock={handleUnlockSession}
-              onToggleSettle={actions.toggleLedgerSettledInDB}
             />
           </motion.div>
         )}

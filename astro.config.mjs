@@ -27,7 +27,7 @@ export default defineConfig({
     sitemap(),
     AstroPWA({
       registerType: 'prompt',
-      injectRegister: 'auto',
+      injectRegister: 'null',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         ignoreURLParametersMatching: [/.*/],

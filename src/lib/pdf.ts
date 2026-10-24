@@ -1,449 +1,600 @@
+import { showToast, utils } from './utils';
 import { mathEngine } from './mathEngine';
-import { utils, showToast } from './utils';
-import type { BillItem, CalculationResult, TaxPreset } from './types';
-import type { DBMember, SessionRules } from './useSession';
+import { EKWLY_E_PATH } from '../components/ui/BrandLoader';
+import type { CalculationResult, BillItem, TaxPreset } from './types';
+import type { DBMember } from './useSession';
 
-export interface PdfSessionDetails {
-  items: BillItem[];
-  members: DBMember[];
-  formattedClaims: Record<string, Record<string, string>>;
-  taxPresets: TaxPreset[];
-  sessionRules: SessionRules;
+const KWLY_PATHS = [
+  '<path d="M 14 12 L 14 74" />',
+  '<path d="M 46 34 L 18 53 L 48 74" />',
+  '<path d="M 70 34 L 83 74 L 99 44 L 115 74 L 128 34" />',
+  '<path d="M 152 12 L 152 65 Q 152 74 162 74" />',
+  '<path d="M 182 34 L 200 68" />',
+  '<path d="M 220 34 L 195 83 Q 190 91 179 89" />',
+].join('');
+
+/**
+ * Renders the exact locked v3 <BrandWordmark /> ([E=]kwly) SVG to a crisp high-DPI PNG data URL
+ * for embedding into the PDF header.
+ */
+function renderBrandWordmarkPngDataUrl(): Promise<string | null> {
+  if (typeof document === 'undefined') return Promise.resolve(null);
+  const svgStr = [
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 114" width="708" height="228" fill="none">',
+    `<path d="${EKWLY_E_PATH}" fill="#001E3B" />`,
+    '<rect x="37.63" y="25.15" width="40.63" height="13.90" rx="6.00" fill="#0080FF" />',
+    '<rect x="37.63" y="60.95" width="40.63" height="13.90" rx="6.00" fill="#38BDF8" />',
+    '<g transform="translate(91.25, 4.09) scale(1.09)" stroke="#0284C7" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">',
+    KWLY_PATHS,
+    '</g>',
+    '</svg>',
+  ].join('');
+
+  return new Promise((resolve) => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 708;
+      canvas.height = 228;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(null);
+
+      const img = new Image();
+      const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, 708, 228);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      img.src = url;
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
-function formatPdfMoney(n: number): string {
-  return `Rs. ${utils.round2(n).toFixed(2)}`;
+function renderSvgElementToPngDataUrl(
+  svgEl: SVGElement | null | undefined
+): Promise<string | null> {
+  if (!svgEl || typeof document === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const xml = new XMLSerializer().serializeToString(svgEl);
+      const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 240;
+        canvas.height = 240;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, 240, 240);
+          ctx.drawImage(img, 10, 10, 220, 220);
+        }
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      img.src = url;
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
-export const generatePDF = async (
-  calculationResult: CalculationResult,
-  venueName: string,
-  ledger: any[] = [],
-  receiptTitle = '',
+export const exportToPDF = async (
+  calculationResult: CalculationResult | null,
+  receiptTitle: string,
+  items: BillItem[],
+  taxPresets: TaxPreset[],
+  scTaxPresetId: string,
+  serviceChargeRate: number,
+  members: DBMember[],
+  ledger: any[],
   mode: 'download' | 'share' = 'download',
-  creditorUpiMap: Record<string, string> = {},
-  sessionDetails?: PdfSessionDetails
+  upiMap: Record<string, string> = {},
+  qrSvgMap: Record<string, SVGElement | null> = {}
 ) => {
   try {
-    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    if (!calculationResult) return showToast('Calculate split first.', 'error');
+
+    const [{ jsPDF }, { default: autoTable }, wordmarkPng] = await Promise.all([
       import('jspdf'),
       import('jspdf-autotable'),
+      renderBrandWordmarkPngDataUrl(),
     ]);
 
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 36;
+    const { globalSummary: gs, individualBreakdowns } = calculationResult;
 
-    const items: BillItem[] = sessionDetails?.items || [];
-    const members: DBMember[] = sessionDetails?.members || [];
-    const formattedClaims: Record<
-      string,
-      Record<string, string>
-    > = sessionDetails?.formattedClaims || {};
-    const taxPresets: TaxPreset[] = sessionDetails?.taxPresets || [];
-    const sessionRules: SessionRules = sessionDetails?.sessionRules || {
-      venueName,
-      isScApplicable: calculationResult.globalSummary.serviceCharge > 0,
-      serviceChargeRate: 0.1,
-      scTaxPresetId: 'inherit',
-      discountType: 'none',
-      discountValue: '',
-      discountMode: 'pre-tax',
-      postTaxDiscountType: 'none',
-      postTaxDiscountValue: '',
-    };
-
-    const gs = calculationResult.globalSummary;
     const preTaxMultiplier = mathEngine.computePreTaxMultiplier(items, gs.preTaxDiscountAmount);
 
-    // --- 1. TOP DARK SLATE BRAND HEADER BANNER ---
-    doc.setFillColor(7, 18, 38); // #071226
-    doc.roundedRect(margin, 28, pageWidth - margin * 2, 82, 12, 12, 'F');
-
-    // Draw Ekwly [E=] Monolith Icon inside Header
-    const iconX = margin + 18;
-    const iconY = 44;
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(iconX, iconY, 8, 48, 3, 3, 'F');
-    doc.roundedRect(iconX, iconY, 42, 8, 3, 3, 'F');
-    doc.roundedRect(iconX, iconY + 20, 28, 8, 3, 3, 'F');
-    doc.roundedRect(iconX, iconY + 40, 42, 8, 3, 3, 'F');
-
-    // Dual Azure '=' Bars in Negative Space
-    doc.setFillColor(0, 128, 255);
-    doc.roundedRect(iconX + 13, iconY + 10, 24, 8, 3, 3, 'F');
-    doc.setFillColor(56, 189, 248);
-    doc.roundedRect(iconX + 13, iconY + 30, 24, 8, 3, 3, 'F');
-
-    // "kwly" Wordmark & Subtitle
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(24);
-    doc.setTextColor(147, 197, 253); // #93C5FD
-    doc.text('kwly', iconX + 46, iconY + 34);
-
-    doc.setFontSize(8.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text('EXACT INDIAN GST/VAT & MULTI-OFFER SETTLEMENT STATEMENT', iconX + 46, iconY + 47);
-
-    // Right-Aligned Title, Venue & Date
-    const primaryTitle = receiptTitle.trim() || venueName.trim() || 'Dining Bill Split';
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(255, 255, 255);
-    doc.text(primaryTitle.slice(0, 36), pageWidth - margin - 18, iconY + 18, { align: 'right' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(147, 197, 253);
-    const totalPeopleCount =
-      members.length || Object.keys(calculationResult.individualBreakdowns).length;
-    const subHeaderStr = [
-      ...(venueName && venueName.toLowerCase() !== primaryTitle.toLowerCase() ? [venueName] : []),
-      new Date().toLocaleDateString(undefined, {
-        weekday: 'short',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      }),
-      `${totalPeopleCount} People`,
-    ].join('  •  ');
-    doc.text(subHeaderStr, pageWidth - margin - 18, iconY + 36, { align: 'right' });
-
-    let cursorY = 124;
-
-    // --- 2. 4-COLUMN EXECUTIVE KPI SUMMARY STRIP ---
-    const totalTaxes = Object.values(gs.taxBreakdown).reduce((a: number, b: number) => a + b, 0);
-    const kpiCards: { label: string; val: string; color: [number, number, number] }[] = [
-      { label: 'RAW SUBTOTAL', val: formatPdfMoney(gs.rawSubTotal), color: [15, 23, 42] },
-      {
-        label: 'TOTAL DISCOUNTS SAVED',
-        val: gs.discountAmount > 0 ? `- ${formatPdfMoney(gs.discountAmount)}` : 'Rs. 0.00',
-        color: [16, 185, 129],
-      },
-      {
-        label: 'TAXES & SERVICE CHARGE',
-        val: formatPdfMoney(totalTaxes + gs.serviceCharge),
-        color: [2, 132, 199],
-      },
-      {
-        label: 'FINAL GRAND TOTAL',
-        val: formatPdfMoney(gs.grandTotal),
-        color: [0, 128, 255],
-      },
-    ];
-
-    const kpiGap = 10;
-    const kpiW = (pageWidth - margin * 2 - kpiGap * 3) / 4;
-    kpiCards.forEach((kpi, idx: number) => {
-      const kx = margin + idx * (kpiW + kpiGap);
-      doc.setFillColor(242, 248, 255);
-      doc.setDrawColor(216, 235, 255);
-      doc.roundedRect(kx, cursorY, kpiW, 46, 8, 8, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(71, 85, 105);
-      doc.text(kpi.label, kx + 10, cursorY + 16);
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11.5);
-      doc.setTextColor(kpi.color[0], kpi.color[1], kpi.color[2]);
-      doc.text(kpi.val, kx + 10, cursorY + 34);
+    const customTitle = receiptTitle.trim();
+    const dateStr = new Date().toLocaleDateString(undefined, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
     });
+    const docTitle = customTitle ? customTitle : 'Settlement Receipt';
 
-    cursorY += 62;
+    const primaryColor: [number, number, number] = [0, 128, 255];
+    const primaryLight: [number, number, number] = [216, 235, 255];
+    const darkText: [number, number, number] = [0, 30, 59];
+    const mutedText: [number, number, number] = [71, 85, 105];
+    const accentBlueText: [number, number, number] = [0, 69, 137];
+    const emeraldText: [number, number, number] = [5, 150, 105];
+    const borderColor: [number, number, number] = [186, 218, 255];
+    const headerFill: [number, number, number] = [230, 242, 255];
 
-    // --- 3. MASTER ITEMIZED BILL TABLE ---
-    if (items.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('1. Itemized Bill & Tax Routing Breakdown', margin, cursorY);
-      cursorY += 8;
+    // Helper: Ensures a logical section (heading + table) fits on the current page without splitting
+    const ensurePageSpace = (neededHeightMm: number, currentY: number): number => {
+      if (currentY + neededHeightMm > pageHeight - 20) {
+        doc.addPage();
+        return 25;
+      }
+      return currentY;
+    };
 
-      const itemRows = items.map((item: BillItem, idx: number) => {
-        const b = mathEngine.calculateItemBreakdown(item, {
-          taxPresets,
-          isScApplicable: sessionRules.isScApplicable,
-          serviceChargeRate: sessionRules.serviceChargeRate,
-          scTaxPresetId: sessionRules.scTaxPresetId,
-          preTaxMultiplier,
-        });
+    let startY = 22;
 
-        const claimers = members
-          .filter((m: DBMember) => utils.parseQty(formattedClaims[m.id]?.[item.id]) > 0)
-          .map((m: DBMember) => `${m.name} (${formattedClaims[m.id]?.[item.id]})`)
-          .join(', ');
+    // --- HEADER (With True v3 [E=]kwly Brand Wordmark on Right) ---
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...darkText);
+    doc.text(docTitle.slice(0, 34), 14, startY + 2);
 
-        const offerBadge =
-          b.itemDiscountAmount > 0
-            ? ` [-${
-                item.discountType === 'percentage'
-                  ? `${item.discountValue}%`
-                  : formatPdfMoney(b.itemDiscountAmount)
-              }]`
-            : '';
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...mutedText);
+    doc.text(
+      `Generated on ${dateStr}  •  ${members.length} ${members.length === 1 ? 'Person' : 'People'}  •  ${items.length} ${items.length === 1 ? 'Item' : 'Items'}`,
+      14,
+      startY + 9
+    );
 
-        const taxLabel = b.preset ? `${b.preset.name} (${b.preset.rate}%)` : '0%';
-        const scFlag =
-          sessionRules.isScApplicable && sessionRules.serviceChargeRate > 0 && item.applySC
-            ? ` + S.C.`
-            : '';
-
-        return [
-          String(idx + 1).padStart(2, '0'),
-          `${item.name}${offerBadge}`,
-          `${item.qty} x ${formatPdfMoney(item.unitPrice)}`,
-          `${taxLabel}${scFlag}`,
-          claimers || 'Unclaimed',
-          formatPdfMoney(b.finalTotal),
-        ];
-      });
-
-      autoTable(doc, {
-        startY: cursorY,
-        margin: { left: margin, right: margin },
-        head: [['#', 'Item & Offers', 'Qty x Price', 'Tax & S.C.', 'Shared By', 'Line Total']],
-        body: itemRows,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [7, 18, 38],
-          textColor: [255, 255, 255],
-          fontSize: 8.5,
-          fontStyle: 'bold',
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: [15, 23, 42],
-          cellPadding: 5,
-        },
-        columnStyles: {
-          0: { cellWidth: 24, halign: 'center' },
-          2: { cellWidth: 78, halign: 'right' },
-          3: { cellWidth: 86 },
-          5: { cellWidth: 72, halign: 'right', fontStyle: 'bold' },
-        },
-      });
-
-      cursorY = (doc as any).lastAutoTable.finalY + 16;
+    if (wordmarkPng) {
+      // Aspect ratio of 354 x 114 is 3.105:1 -> 34mm wide x 10.95mm tall at top-right
+      doc.addImage(wordmarkPng, 'PNG', pageWidth - 14 - 34, startY - 6, 34, 11);
     }
 
-    // --- 4. 3-LAYER ACCOUNTING SUMMARY TABLE ---
-    const accountingRows: [string, string][] = [];
+    doc.setDrawColor(...borderColor);
+    doc.setLineWidth(0.5);
+    doc.line(14, startY + 15, pageWidth - 14, startY + 15);
+    startY += 25;
+
+    // --- 1. MASTER BILL BREAKDOWN ---
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text('MASTER BILL BREAKDOWN', 14, startY);
+    startY += 5;
+
+    const masterTableData = items.map((i) => {
+      const breakdown = mathEngine.calculateItemBreakdown(i, {
+        taxPresets,
+        serviceChargeRate,
+        scTaxPresetId,
+        preTaxMultiplier,
+      });
+
+      const discLabel =
+        breakdown.itemDiscountAmount > 0 ? ` (-Rs.${breakdown.itemDiscountAmount.toFixed(0)})` : '';
+
+      const ratePct = (breakdown.dynamicTaxRate * 100).toFixed(1).replace(/\.0$/, '');
+      const taxNameStr = breakdown.preset
+        ? `${breakdown.preset.name} (${ratePct}%)`
+        : `${ratePct}%`;
+      const scStr = i.applySC && serviceChargeRate > 0 ? ' + S.C.' : '';
+
+      return [
+        `${i.name}${discLabel}`,
+        i.qty.toString(),
+        `Rs. ${i.unitPrice.toFixed(2)}`,
+        `${taxNameStr}${scStr}`,
+        `Rs. ${breakdown.finalTotal.toFixed(2)}`,
+      ];
+    });
+
+    autoTable(doc, {
+      startY,
+      head: [['Item', 'Qty', 'Unit Price', 'Tax & Fees', 'Total']],
+      body: masterTableData,
+      theme: 'grid',
+      headStyles: {
+        fillColor: headerFill,
+        textColor: accentBlueText,
+        fontStyle: 'bold',
+        fontSize: 8.5,
+      },
+      bodyStyles: { textColor: darkText, fontSize: 9 },
+      styles: { lineColor: borderColor, lineWidth: 0.15, cellPadding: 3.8 },
+      columnStyles: {
+        0: { fontStyle: 'bold' },
+        1: { halign: 'center', cellWidth: 18 },
+        2: { halign: 'right', cellWidth: 32 },
+        3: { halign: 'center', cellWidth: 44 },
+        4: { halign: 'right', fontStyle: 'bold', textColor: primaryColor, cellWidth: 34 },
+      },
+      margin: { left: 14, right: 14 },
+    });
+
+    startY = (doc as any).lastAutoTable.finalY + 8;
+
+    // --- 2. SUMMARY SUB-TABLE (Right-Aligned Accounting Block) ---
+    const computedGrossTotal =
+      gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
+    const summaryData: any[] = [];
+
     if (gs.itemDiscountAmount > 0 || gs.preTaxDiscountAmount > 0) {
-      accountingRows.push(['Raw Item Subtotal', formatPdfMoney(gs.rawSubTotal)]);
+      summaryData.push(['Raw Subtotal:', `Rs. ${gs.rawSubTotal.toFixed(2)}`]);
     }
     if (gs.itemDiscountAmount > 0) {
-      accountingRows.push([
-        'Layer 1: Item & Category Offers',
-        `- ${formatPdfMoney(gs.itemDiscountAmount)}`,
-      ]);
+      summaryData.push(['Item / Category Discounts:', `- Rs. ${gs.itemDiscountAmount.toFixed(2)}`]);
     }
     if (gs.preTaxDiscountAmount > 0) {
-      accountingRows.push([
-        'Layer 2: Pre-Tax Restaurant Discount',
-        `- ${formatPdfMoney(gs.preTaxDiscountAmount)}`,
+      summaryData.push([
+        'Restaurant Discount (Pre-Tax):',
+        `- Rs. ${gs.preTaxDiscountAmount.toFixed(2)}`,
       ]);
     }
-    accountingRows.push(['Taxable Base Subtotal', formatPdfMoney(gs.subTotal)]);
 
-    Object.entries(gs.taxBreakdown).forEach(([taxName, val]) => {
-      if (val > 0) accountingRows.push([taxName, formatPdfMoney(val)]);
-    });
+    summaryData.push(['Taxable Base Subtotal:', `Rs. ${gs.subTotal.toFixed(2)}`]);
+
+    for (const [taxName, amount] of Object.entries(gs.taxBreakdown)) {
+      if (amount > 0) summaryData.push([`${taxName}:`, `Rs. ${amount.toFixed(2)}`]);
+    }
 
     if (gs.serviceCharge > 0) {
-      const scPct = Math.round(sessionRules.serviceChargeRate * 100);
-      accountingRows.push([`Service Charge (${scPct}%)`, formatPdfMoney(gs.serviceCharge)]);
+      const scPct = Math.round(serviceChargeRate * 100);
+      summaryData.push([`Service Charge (${scPct}%):`, `Rs. ${gs.serviceCharge.toFixed(2)}`]);
     }
 
     if (gs.postTaxDiscountAmount > 0) {
-      accountingRows.push([
-        'Layer 3: Post-Tax App / Bank Coupon',
-        `- ${formatPdfMoney(gs.postTaxDiscountAmount)}`,
+      summaryData.push(['Gross Total:', `Rs. ${computedGrossTotal.toFixed(2)}`]);
+      summaryData.push([
+        'Coupon / App Discount (Post-Tax):',
+        `- Rs. ${gs.postTaxDiscountAmount.toFixed(2)}`,
       ]);
     }
 
     if (gs.roundOff !== 0) {
-      accountingRows.push([
-        'POS Round-Off Adjustment',
-        `${gs.roundOff > 0 ? '+' : ''}${formatPdfMoney(gs.roundOff)}`,
+      summaryData.push([
+        'POS Round Off:',
+        `${gs.roundOff > 0 ? '+' : ''} Rs. ${gs.roundOff.toFixed(2)}`,
       ]);
     }
 
-    accountingRows.push(['FINAL GRAND TOTAL', formatPdfMoney(gs.grandTotal)]);
+    summaryData.push(['GRAND TOTAL:', `Rs. ${gs.grandTotal.toFixed(2)}`]);
+
+    startY = ensurePageSpace(summaryData.length * 7 + 10, startY);
 
     autoTable(doc, {
-      startY: cursorY,
-      margin: { left: pageWidth - margin - 260, right: margin },
-      body: accountingRows,
+      startY,
+      body: summaryData,
       theme: 'plain',
-      styles: { fontSize: 8.5, cellPadding: 3.5, textColor: [30, 41, 59] },
+      styles: { fontSize: 9, textColor: mutedText, cellPadding: 2.5 },
       columnStyles: {
-        0: { fontStyle: 'bold' },
-        1: { halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 62, halign: 'right' },
+        1: { cellWidth: 36, halign: 'right', textColor: darkText, fontStyle: 'bold' },
       },
-      didParseCell: (hookData) => {
-        if (hookData.row.index === accountingRows.length - 1) {
-          hookData.cell.styles.fillColor = [0, 128, 255];
-          hookData.cell.styles.textColor = [255, 255, 255];
-          hookData.cell.styles.fontSize = 10;
-          hookData.cell.styles.cellPadding = 6;
+      didParseCell: (data: any) => {
+        const label = String(data.row.raw[0] || '');
+        if (label.includes('Discount')) {
+          data.cell.styles.textColor = emeraldText;
+        }
+        if (label === 'GRAND TOTAL:') {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fontSize = 11;
+          data.cell.styles.fillColor = primaryLight;
+          data.cell.styles.textColor = data.column.index === 1 ? primaryColor : darkText;
+          data.cell.styles.cellPadding = 4;
         }
       },
+      margin: { left: pageWidth - 14 - 98, right: 14 },
     });
 
-    cursorY = (doc as any).lastAutoTable.finalY + 22;
+    startY = (doc as any).lastAutoTable.finalY + 14;
 
-    // --- 5. INDIVIDUAL MEMBER SHARES & SETTLEMENT ACTION PLAN ---
-    if (cursorY > pageHeight - 160) {
-      doc.addPage();
-      cursorY = 40;
+    // --- 3. WHO PAID THE RESTAURANT ---
+    const payers = members.filter((m) => (m.paid_amount || 0) > 0);
+    if (payers.length > 0) {
+      startY = ensurePageSpace(20 + payers.length * 10, startY);
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...primaryColor);
+      doc.text('PAYMENTS TO RESTAURANT', 14, startY);
+      startY += 5;
+
+      autoTable(doc, {
+        startY,
+        head: [['Member Who Paid Cashier', 'Amount Paid']],
+        body: payers.map((m) => [m.name, `Rs. ${Number(m.paid_amount).toFixed(2)}`]),
+        theme: 'grid',
+        headStyles: {
+          fillColor: headerFill,
+          textColor: accentBlueText,
+          fontStyle: 'bold',
+          fontSize: 8.5,
+        },
+        bodyStyles: { textColor: darkText, fontSize: 9 },
+        styles: { lineColor: borderColor, lineWidth: 0.15, cellPadding: 3.8 },
+        columnStyles: {
+          0: { fontStyle: 'bold' },
+          1: { halign: 'right', fontStyle: 'bold', textColor: accentBlueText },
+        },
+        margin: { left: 14, right: 14 },
+      });
+      startY = (doc as any).lastAutoTable.finalY + 14;
     }
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
-    doc.text('2. Individual Shares & Cashier Payments', margin, cursorY);
-    cursorY += 8;
+    // --- 4. SETTLEMENT TRANSACTIONS (WHO OWES WHOM + UPI ID & QR) ---
+    if (ledger.length > 0) {
+      startY = ensurePageSpace(24 + ledger.length * 11, startY);
 
-    const memberRows =
-      members.length > 0
-        ? members.map((m: DBMember) => {
-            const b = calculationResult.individualBreakdowns[m.id];
-            const owed = b ? b.totalOwed : 0;
-            const paid = Number(m.paid_amount || 0);
-            const net = utils.round2(paid - owed);
-            const dishSummary = b
-              ? b.items.map((i) => `${i.name} (${i.qtyString})`).join(', ')
-              : 'No items';
-
-            return [
-              m.name,
-              dishSummary || 'No items',
-              formatPdfMoney(owed),
-              formatPdfMoney(paid),
-              net > 0.01
-                ? `Receives +${formatPdfMoney(net)}`
-                : net < -0.01
-                  ? `Owes -${formatPdfMoney(Math.abs(net))}`
-                  : 'Settled (0.00)',
-            ];
-          })
-        : Object.values(calculationResult.individualBreakdowns).map((b) => [
-            b.memberName,
-            b.items.map((i) => `${i.name} (${i.qtyString})`).join(', ') || 'No items',
-            formatPdfMoney(b.totalOwed),
-            'Rs. 0.00',
-            formatPdfMoney(b.totalOwed),
-          ]);
-
-    autoTable(doc, {
-      startY: cursorY,
-      margin: { left: margin, right: margin },
-      head: [['Person', 'Items Consumed', 'Share Owed', 'Paid Cashier', 'Net Position']],
-      body: memberRows,
-      theme: 'grid',
-      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 8.5 },
-      bodyStyles: { fontSize: 8, textColor: [15, 23, 42], cellPadding: 5 },
-      columnStyles: {
-        0: { cellWidth: 80, fontStyle: 'bold' },
-        2: { cellWidth: 72, halign: 'right', fontStyle: 'bold' },
-        3: { cellWidth: 72, halign: 'right' },
-        4: { cellWidth: 96, halign: 'right', fontStyle: 'bold' },
-      },
-    });
-
-    cursorY = (doc as any).lastAutoTable.finalY + 20;
-
-    if (ledger && ledger.length > 0) {
-      if (cursorY > pageHeight - 130) {
-        doc.addPage();
-        cursorY = 40;
-      }
-
-      doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('3. Settlement Action Plan (Who Pays Whom)', margin, cursorY);
-      cursorY += 8;
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...primaryColor);
+      doc.text('SETTLEMENT TRANSACTIONS', 14, startY);
+      startY += 5;
 
-      const settlementRows = ledger.map((row: any) => {
-        const cKey = row.creditor_id || `fallback:${row.creditor_name}`;
-        const upi = creditorUpiMap[cKey] || 'Cash / Direct Transfer';
+      const ledgerTableData = ledger.map((l) => {
+        const cKey = l.creditor_id || `fallback:${l.creditor_name}`;
+        const upi = upiMap[cKey];
+        const statusStr = l.settled ? 'PAID' : upi ? `UPI: ${upi}` : 'Pending';
         return [
-          row.debtor_name,
-          `->  ${row.creditor_name}`,
-          formatPdfMoney(Number(row.amount || 0)),
-          upi,
-          row.settled ? 'PAID / SETTLED' : 'PENDING',
+          l.debtor_name,
+          'owes',
+          l.creditor_name,
+          statusStr,
+          `Rs. ${Number(l.amount).toFixed(2)}`,
         ];
       });
 
       autoTable(doc, {
-        startY: cursorY,
-        margin: { left: margin, right: margin },
-        head: [['Payer (Debtor)', 'Recipient (Creditor)', 'Amount', 'UPI ID / Method', 'Status']],
-        body: settlementRows,
+        startY,
+        head: [['Payer', '', 'Recipient', 'UPI ID / Status', 'Amount']],
+        body: ledgerTableData,
         theme: 'grid',
-        headStyles: { fillColor: [0, 128, 255], textColor: [255, 255, 255], fontSize: 8.5 },
-        bodyStyles: { fontSize: 8.5, textColor: [15, 23, 42], cellPadding: 5.5 },
-        columnStyles: {
-          0: { fontStyle: 'bold' },
-          1: { fontStyle: 'bold' },
-          2: { halign: 'right', fontStyle: 'bold' },
-          4: { halign: 'center', fontStyle: 'bold' },
+        headStyles: {
+          fillColor: headerFill,
+          textColor: accentBlueText,
+          fontStyle: 'bold',
+          fontSize: 8.5,
         },
+        styles: { lineColor: borderColor, lineWidth: 0.15, cellPadding: 3.8, fontSize: 9 },
+        columnStyles: {
+          0: { fontStyle: 'bold', textColor: darkText },
+          1: { halign: 'center', textColor: mutedText, fontSize: 8, cellWidth: 16 },
+          2: { fontStyle: 'bold', textColor: darkText },
+          3: { textColor: mutedText, fontSize: 8.5 },
+          4: { halign: 'right', fontStyle: 'bold', textColor: primaryColor, cellWidth: 34 },
+        },
+        margin: { left: 14, right: 14 },
       });
-    }
 
-    // Footer on every page
-    const totalPages = doc.getNumberOfPages();
-    for (let p = 1; p <= totalPages; p++) {
-      doc.setPage(p);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text(
-        `Generated by Ekwly (ekwly.app)  •  Page ${p} of ${totalPages}`,
-        pageWidth / 2,
-        pageHeight - 18,
-        { align: 'center' }
-      );
-    }
+      startY = (doc as any).lastAutoTable.finalY + 10;
 
-    const safeFile = (receiptTitle || venueName || 'Ekwly_Statement')
-      .replace(/[^a-z0-9]/gi, '_')
-      .toLowerCase();
-    const fileName = `${safeFile}_statement.pdf`;
-
-    if (
-      mode === 'share' &&
-      typeof navigator !== 'undefined' &&
-      typeof navigator.canShare === 'function'
-    ) {
-      const pdfBlob = doc.output('blob');
-      const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-      if (navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({
-            title: primaryTitle,
-            text: `Itemized PDF bill statement for ${primaryTitle} on Ekwly`,
-            files: [file],
+      // Embed Scannable UPI QR Code Cards for Unsettled Creditors (If Available)
+      const uniqueCreditors: { key: string; name: string; upi: string; total: number }[] = [];
+      const seenKeys = new Set<string>();
+      for (const l of ledger) {
+        if (l.settled) continue;
+        const cKey = l.creditor_id || `fallback:${l.creditor_name}`;
+        const upi = upiMap[cKey];
+        if (upi && !seenKeys.has(cKey)) {
+          seenKeys.add(cKey);
+          const totalForCreditor = ledger
+            .filter(
+              (row) => !row.settled && (row.creditor_id || `fallback:${row.creditor_name}`) === cKey
+            )
+            .reduce((s, row) => s + Number(row.amount || 0), 0);
+          uniqueCreditors.push({
+            key: cKey,
+            name: l.creditor_name,
+            upi,
+            total: utils.round2(totalForCreditor),
           });
-          showToast('PDF shared!', 'success');
-          return;
-        } catch (err: any) {
-          if (err?.name === 'AbortError') return;
+        }
+      }
+
+      for (const cred of uniqueCreditors) {
+        const qrDataUrl = await renderSvgElementToPngDataUrl(qrSvgMap[cred.key]);
+        if (qrDataUrl) {
+          startY = ensurePageSpace(38, startY);
+          doc.setFillColor(242, 248, 255);
+          doc.setDrawColor(...borderColor);
+          doc.roundedRect(14, startY, pageWidth - 28, 34, 3, 3, 'FD');
+          doc.addImage(qrDataUrl, 'PNG', 18, startY + 3, 28, 28);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9.5);
+          doc.setTextColor(...primaryColor);
+          doc.text(`SCAN TO PAY ${cred.name.toUpperCase()} VIA ANY UPI APP`, 52, startY + 11);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(...darkText);
+          doc.text(`UPI ID: ${cred.upi}`, 52, startY + 19);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(...mutedText);
+          doc.text(
+            `Total Receivable: Rs. ${cred.total.toFixed(2)}  •  Works with GPay, PhonePe, Paytm & BHIM`,
+            52,
+            startY + 27
+          );
+          startY += 40;
         }
       }
     }
 
-    doc.save(fileName);
-    showToast('PDF downloaded!', 'success');
-  } catch (err: any) {
-    if (err?.name === 'AbortError') return;
-    console.error('PDF generation error:', err);
-    showToast('Failed to generate PDF.', 'error');
+    // --- 5. INDIVIDUAL SETTLEMENTS (NEW PAGE — KEEPING EACH PERSON'S BLOCK TOGETHER) ---
+    doc.addPage();
+    startY = 24;
+
+    if (wordmarkPng) {
+      doc.addImage(wordmarkPng, 'PNG', pageWidth - 14 - 28, startY - 5, 28, 9);
+    }
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text('INDIVIDUAL SETTLEMENTS', 14, startY);
+    startY += 10;
+
+    Object.keys(individualBreakdowns).forEach((person) => {
+      const b = individualBreakdowns[person];
+      if (b.totalOwed === 0) return;
+
+      // Calculate exact height needed for this person's heading + table so it never splits across a page break
+      const rowCount = b.items.length + (b.serviceCharge > 0 ? 1 : 0) + 1;
+      const estimatedBlockHeight = 16 + rowCount * 8.5;
+      if (startY + estimatedBlockHeight > pageHeight - 18 && startY > 35) {
+        doc.addPage();
+        startY = 25;
+      }
+
+      doc.setFontSize(11.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...darkText);
+      doc.text(b.memberName || person, 14, startY);
+      startY += 4;
+
+      const tableData: any[] = b.items.map((i) => [
+        i.name,
+        i.qtyString,
+        `Rs. ${i.cost.toFixed(2)}`,
+      ]);
+      if (b.serviceCharge > 0) {
+        tableData.push([
+          {
+            content: 'Service Charge (inc. Tax)',
+            styles: { textColor: mutedText, fontStyle: 'normal' },
+          },
+          '-',
+          {
+            content: `Rs. ${b.serviceCharge.toFixed(2)}`,
+            styles: { textColor: mutedText, fontStyle: 'normal' },
+          },
+        ]);
+      }
+
+      tableData.push([
+        {
+          content: 'Total Owed:',
+          colSpan: 2,
+          styles: {
+            halign: 'right',
+            fontStyle: 'bold',
+            fillColor: primaryLight,
+            textColor: primaryColor,
+            fontSize: 10,
+          },
+        },
+        {
+          content: `Rs. ${b.totalOwed.toFixed(2)}`,
+          styles: {
+            halign: 'right',
+            fontStyle: 'bold',
+            fillColor: primaryLight,
+            textColor: primaryColor,
+            fontSize: 10,
+          },
+        },
+      ]);
+
+      autoTable(doc, {
+        startY,
+        head: [['Item Consumed', 'Qty', 'Allocated Cost']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: {
+          fillColor: headerFill,
+          textColor: accentBlueText,
+          fontStyle: 'bold',
+          fontSize: 8.5,
+        },
+        bodyStyles: { textColor: darkText, fontSize: 9 },
+        styles: { lineColor: borderColor, lineWidth: 0.15, cellPadding: 3.8 },
+        columnStyles: {
+          0: { fontStyle: 'bold' },
+          1: { halign: 'center', cellWidth: 28 },
+          2: { halign: 'right', cellWidth: 42 },
+        },
+        margin: { left: 14, right: 14 },
+      });
+      startY = (doc as any).lastAutoTable.finalY + 12;
+    });
+
+    // --- GLOBAL DECORATIONS (Top Accent Bar & Page Numbers) ---
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFillColor(...primaryColor);
+      doc.rect(0, 0, pageWidth, 4, 'F');
+      doc.setFontSize(8);
+      doc.setTextColor(...mutedText);
+      doc.text(
+        `Ekwly Settlement Receipt  •  Page ${i} of ${pageCount}`,
+        pageWidth / 2,
+        pageHeight - 10,
+        {
+          align: 'center',
+        }
+      );
+    }
+
+    const safeFilename = customTitle
+      ? customTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()
+      : `Settlement_${new Date().toISOString().slice(0, 10)}`;
+    const fileNameWithExt = `${safeFilename}.pdf`;
+
+    if (mode === 'share') {
+      const pdfBlob = doc.output('blob');
+      const pdfFile = new File([pdfBlob], fileNameWithExt, { type: 'application/pdf' });
+
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [pdfFile] })
+      ) {
+        try {
+          await navigator.share({
+            title: docTitle,
+            text: `Bill split receipt for ${docTitle} generated via Ekwly.`,
+            files: [pdfFile],
+          });
+          showToast('Receipt shared!', 'success');
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') return;
+          doc.save(fileNameWithExt);
+          showToast('PDF downloaded to device!', 'success');
+        }
+        return;
+      }
+    }
+
+    doc.save(fileNameWithExt);
+    showToast('PDF downloaded to device!', 'success');
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return;
+    console.error(error);
+    showToast('Error generating PDF.', 'error');
   }
 };
+
+// Alias for compatibility if any module imports generatePDF
+export const generatePDF = exportToPDF;

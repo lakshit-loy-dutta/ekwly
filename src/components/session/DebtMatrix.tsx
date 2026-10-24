@@ -1,121 +1,113 @@
 import { useState, useEffect, useRef } from 'react';
-import QRCode from 'react-qr-code';
-import { supabase } from '../../lib/supabase';
-import { utils, showToast } from '../../lib/utils';
-import { generatePDF } from '../../lib/pdf';
 import {
   exportBentoReceiptImage,
   exportPersonalNudgeImage,
   type CreditorQrEntry,
 } from '../../lib/bentoReceipt';
+import QRCode from 'react-qr-code';
 import type { CalculationResult } from '../../lib/types';
-import type { DBMember } from '../../lib/useSession';
-import { useSessionContext } from '../../lib/SessionContext';
-import BottomSheet from '../ui/BottomSheet';
+import { utils, showToast } from '../../lib/utils';
 import {
-  CheckCircle2,
-  Clock,
-  Lock,
+  DownloadCloud,
+  LockKeyhole,
   Unlock,
-  Share2,
-  Download,
+  Home,
   Smartphone,
   MessageCircle,
   QrCode,
+  CheckCircle2,
+  Copy,
+  CreditCard,
   ShieldCheck,
   Sparkles,
   Image as ImageIcon,
 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import ToggleSwitch from '../ui/ToggleSwitch';
+import SectionHeader from '../ui/SectionHeader';
+import BottomSheet from '../ui/BottomSheet';
 
 interface Props {
-  isHost: boolean;
+  calculationResult: CalculationResult;
+  receiptTitle: string;
+  setReceiptTitle: (val: string) => void;
   sessionStatus: 'draft' | 'locked' | 'archived';
   ledger: any[];
-  members: DBMember[];
-  calculationResult: CalculationResult;
+  isHost: boolean;
+  currentUserId: string | null;
+  handleLockSession: () => void;
+  handleToggleSettled: (id: string, current: boolean) => void;
+  handleExportPDF: (
+    mode?: 'download' | 'share',
+    upiMap?: Record<string, string>,
+    qrSvgMap?: Record<string, SVGElement | null>
+  ) => void;
+  handleUnlockSession: () => void;
+  handleGoHome: () => void;
   venueName: string;
-  receiptTitle: string;
-  onFinalize: () => void;
-  onUnlock: () => void;
-  onToggleSettle: (id: string, currentStatus: boolean) => void;
 }
 
 export default function DebtMatrix(props: Props) {
   const [upiMap, setUpiMap] = useState<Record<string, string>>({});
-  const [verifiedUpiKeys, setVerifiedUpiKeys] = useState<Record<string, boolean>>({});
-  const [editingUpiForKey, setEditingUpiForKey] = useState<string | null>(null);
-  const [tempUpiInput, setTempUpiInput] = useState('');
-  const [activeQrTransfer, setActiveQrTransfer] = useState<{
-    upiUri: string;
-    creditorName: string;
-    debtorName: string;
-    amount: number;
-    upiId: string;
-  } | null>(null);
-
-  const { items, formattedClaims, taxPresets, sessionRules } = useSessionContext();
-  const pdfDetails = {
-    items,
-    members: props.members,
-    formattedClaims,
-    taxPresets,
-    sessionRules,
-  };
+  const [verifiedProfileUpiKeys, setVerifiedProfileUpiKeys] = useState<Record<string, boolean>>({});
+  const [activeQrLedgerRow, setActiveQrLedgerRow] = useState<any | null>(null);
+  const [inlineUpiInput, setInlineUpiInput] = useState('');
+  const [isSavingUpi, setIsSavingUpi] = useState(false);
 
   const multiCreditorQrRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const personalNudgeQrRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
-    const fetchCreditorUpis = async () => {
+    const fetchUpis = async () => {
+      if (props.sessionStatus !== 'locked' || props.ledger.length === 0) return;
+
       const creditorIds = Array.from(
         new Set(props.ledger.map((l) => l.creditor_id).filter(Boolean))
       );
       if (creditorIds.length === 0) return;
 
       const { data } = await supabase.from('profiles').select('id, upi_id').in('id', creditorIds);
-
-      if (data) {
-        const nextMap: Record<string, string> = {};
-        const nextVerified: Record<string, boolean> = {};
-        data.forEach((row: any) => {
-          if (row.upi_id) {
-            nextMap[row.id] = row.upi_id;
-            nextVerified[row.id] = true;
-          }
-        });
-        setUpiMap((prev) => ({ ...prev, ...nextMap }));
-        setVerifiedUpiKeys((prev) => ({ ...prev, ...nextVerified }));
-      }
+      const map: Record<string, string> = {};
+      const verifiedMap: Record<string, boolean> = {};
+      data?.forEach((p) => {
+        if (p.upi_id) {
+          map[p.id] = p.upi_id;
+          verifiedMap[p.id] = true;
+        }
+      });
+      setUpiMap((prev) => ({ ...prev, ...map }));
+      setVerifiedProfileUpiKeys((prev) => ({ ...prev, ...verifiedMap }));
     };
-    fetchCreditorUpis();
-  }, [props.ledger]);
 
-  const getCreditorKey = (row: any) => row.creditor_id || `fallback:${row.creditor_name}`;
+    fetchUpis();
+  }, [props.sessionStatus, props.ledger]);
 
-  const handleSaveManualUpi = async (row: any) => {
-    const key = getCreditorKey(row);
-    const cleaned = tempUpiInput.trim();
-    if (!cleaned || !cleaned.includes('@')) {
+  const handleSaveInlineUpi = async (creditorKey: string, creditorId: string | null) => {
+    const trimmed = inlineUpiInput.trim().toLowerCase();
+    if (!trimmed || !trimmed.includes('@')) {
       return showToast('Enter a valid UPI ID (e.g. name@okaxis)', 'error');
     }
-    utils.haptic('light');
-    setUpiMap((prev) => ({ ...prev, [key]: cleaned }));
-    setEditingUpiForKey(null);
-    setTempUpiInput('');
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (session?.user && row.creditor_id === session.user.id) {
-      await supabase.from('profiles').update({ upi_id: cleaned }).eq('id', session.user.id);
-      setVerifiedUpiKeys((prev) => ({ ...prev, [key]: true }));
-      showToast('Saved UPI ID to your profile!', 'success');
-    } else {
-      showToast('UPI ID attached for this session!', 'success');
+    setIsSavingUpi(true);
+    try {
+      const isSelf = Boolean(creditorId && creditorId === props.currentUserId);
+      if (isSelf && creditorId) {
+        await supabase
+          .from('profiles')
+          .update({ upi_id: trimmed, updated_at: new Date().toISOString() })
+          .eq('id', creditorId);
+        setVerifiedProfileUpiKeys((prev) => ({ ...prev, [creditorKey]: true }));
+      }
+      setUpiMap((prev) => ({ ...prev, [creditorKey]: trimmed }));
+      setInlineUpiInput('');
+      showToast('UPI ID linked for instant QR!', 'success');
+    } catch {
+      showToast('Could not save UPI ID.', 'error');
+    } finally {
+      setIsSavingUpi(false);
     }
   };
 
-  // Collect every unique creditor who is still owed money and has a UPI ID
+  // Collect all unique unsettled creditors who have a linked UPI ID
   const uniqueUnsettledCreditors = (() => {
     const map = new Map<
       string,
@@ -123,7 +115,7 @@ export default function DebtMatrix(props: Props) {
     >();
     props.ledger.forEach((row) => {
       if (row.settled) return;
-      const key = getCreditorKey(row);
+      const key = row.creditor_id || `fallback:${row.creditor_name}`;
       const upi = upiMap[key];
       if (!upi) return;
       const existing = map.get(key);
@@ -141,449 +133,662 @@ export default function DebtMatrix(props: Props) {
     return Array.from(map.values());
   })();
 
-  const handleShareFullReceiptImage = () => {
-    utils.haptic('medium');
-    const creditorQrList: CreditorQrEntry[] = uniqueUnsettledCreditors.map((c) => ({
-      creditorName: c.creditorName,
-      upiId: c.upiId,
-      totalReceivable: c.totalReceivable,
-      qrSvgElement: multiCreditorQrRefs.current[c.key]?.querySelector('svg') || null,
-    }));
-
-    exportBentoReceiptImage({
-      calculationResult: props.calculationResult,
-      venueName: props.venueName,
-      receiptTitle: props.receiptTitle,
-      ledger: props.ledger,
-      creditorQrList,
-      mode: 'share',
-    });
+  const collectQrSvgMap = () => {
+    const svgMap: Record<string, SVGElement | null> = {};
+    for (const c of uniqueUnsettledCreditors) {
+      svgMap[c.key] = multiCreditorQrRefs.current[c.key]?.querySelector('svg') || null;
+    }
+    return svgMap;
   };
 
-  const breakdowns = Object.values(props.calculationResult.individualBreakdowns);
-  const settledCount = props.ledger.filter((l) => l.settled).length;
+  // --- LOCKED STATE: COLLECTION TRAY ---
+  if (props.sessionStatus === 'locked') {
+    const totalExpected = props.ledger.reduce((sum, l) => sum + Number(l.amount), 0);
+    const totalCollected = props.ledger
+      .filter((l) => l.settled)
+      .reduce((sum, l) => sum + Number(l.amount), 0);
+    const progress = totalExpected === 0 ? 0 : (totalCollected / totalExpected) * 100;
 
-  return (
-    <div className="w-full flex flex-col gap-4 pb-8 px-4">
-      {/* Hidden QR SVGs for Multi-Creditor Receipt Image & 1-on-1 Nudge Cards */}
-      <div className="hidden" aria-hidden="true">
-        {uniqueUnsettledCreditors.map((c) => {
-          const uri = `upi://pay?pa=${encodeURIComponent(c.upiId)}&pn=${encodeURIComponent(
-            c.creditorName
-          )}&cu=INR`;
-          return (
-            <div
-              key={c.key}
-              ref={(el) => {
-                multiCreditorQrRefs.current[c.key] = el;
-              }}
-            >
-              <QRCode value={uri} size={200} />
-            </div>
-          );
-        })}
+    const qrCreditorKey = activeQrLedgerRow
+      ? activeQrLedgerRow.creditor_id || `fallback:${activeQrLedgerRow.creditor_name}`
+      : '';
+    const activeQrUpi = qrCreditorKey ? upiMap[qrCreditorKey] : null;
+    const isActiveQrVerified = Boolean(qrCreditorKey && verifiedProfileUpiKeys[qrCreditorKey]);
+    const activeQrUri =
+      activeQrLedgerRow && activeQrUpi
+        ? utils.buildUpiUrl({
+            upiId: activeQrUpi,
+            payeeName: activeQrLedgerRow.creditor_name,
+            amount: Number(activeQrLedgerRow.amount),
+            note: props.venueName ? `Ekwly: ${props.venueName}` : 'Ekwly Split',
+          })
+        : '';
 
-        {props.ledger.map((row) => {
-          const key = getCreditorKey(row);
-          const upi = upiMap[key];
-          if (!upi) return null;
-          const exactUri = utils.buildUpiUrl({
-            upiId: upi,
-            payeeName: row.creditor_name,
-            amount: Number(row.amount),
-            note: props.venueName || props.receiptTitle || 'Ekwly Split',
-          });
-          return (
-            <div
-              key={row.id}
-              ref={(el) => {
-                personalNudgeQrRefs.current[row.id] = el;
-              }}
-            >
-              <QRCode value={exactUri} size={200} />
-            </div>
-          );
-        })}
-      </div>
-
-      {/* HOST-SCREEN DYNAMIC UPI QR MODAL */}
-      <BottomSheet
-        isOpen={!!activeQrTransfer}
-        onClose={() => setActiveQrTransfer(null)}
-        title="Scan to Settle via UPI"
-      >
-        {activeQrTransfer && (
-          <div className="flex flex-col items-center text-center pb-4">
-            <p className="text-xs sm:text-sm text-muted mb-5">
-              Have <strong className="text-main">{activeQrTransfer.debtorName}</strong> scan this QR
-              with Google Pay, PhonePe, or Paytm to pay{' '}
-              <strong className="text-main">{activeQrTransfer.creditorName}</strong>.
-            </p>
-            <div className="bg-white p-5 rounded-3xl shadow-md border border-border mb-4">
-              <QRCode value={activeQrTransfer.upiUri} size={210} />
-            </div>
-            <span className="text-2xl font-extrabold text-primary tabular-nums">
-              {utils.formatMoney(activeQrTransfer.amount)}
-            </span>
-            <span className="text-xs font-mono text-muted mt-1">{activeQrTransfer.upiId}</span>
-          </div>
-        )}
-      </BottomSheet>
-
-      {/* SECTION 1: INDIVIDUAL SHARES SUMMARY */}
-      <div className="glass-card rounded-3xl p-5 flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted">
-            Individual Consumption Shares ({breakdowns.length})
-          </h3>
-          <span className="text-xs font-mono font-bold text-primary tabular-nums">
-            Total: {utils.formatMoney(props.calculationResult.globalSummary.grandTotal)}
-          </span>
-        </div>
-
-        <div className="bg-page/90 border border-border rounded-2xl divide-y divide-border overflow-hidden">
-          {breakdowns.map((b) => (
-            <div key={b.memberId} className="p-3.5 flex items-center justify-between gap-2">
-              <div className="flex flex-col min-w-0">
-                <span className="font-bold text-sm text-main truncate">{b.memberName}</span>
-                <span className="text-xs text-muted tabular-nums">
-                  {b.items.length} {b.items.length === 1 ? 'item' : 'items'}
-                  {b.serviceCharge > 0 ? ` • S.C.: ${utils.formatMoney(b.serviceCharge)}` : ''}
-                </span>
-              </div>
-              <span className="font-mono font-extrabold text-base text-primary tabular-nums shrink-0">
-                {utils.formatMoney(b.totalOwed)}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* SECTION 2: LOCKED COLLECTION TRAY OR DRAFT FINALIZE CTA */}
-      {props.sessionStatus === 'locked' ? (
-        <div className="glass-card rounded-3xl p-5 flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Lock size={15} className="text-emerald-500" />
-              <span className="text-xs font-extrabold uppercase tracking-wider text-main">
-                Settlement Plan ({settledCount}/{props.ledger.length} Paid)
-              </span>
-            </div>
-            {props.isHost && (
-              <button
-                type="button"
-                onClick={props.onUnlock}
-                className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+    return (
+      <div className="w-full flex flex-col pb-10">
+        {/* Hidden QR SVGs for Multi-Creditor Receipt Image, PDF & 1-on-1 Nudge Cards */}
+        <div className="hidden" aria-hidden="true">
+          {uniqueUnsettledCreditors.map((c) => {
+            const uri = `upi://pay?pa=${encodeURIComponent(c.upiId)}&pn=${encodeURIComponent(
+              c.creditorName
+            )}&cu=INR`;
+            return (
+              <div
+                key={c.key}
+                ref={(el) => {
+                  multiCreditorQrRefs.current[c.key] = el;
+                }}
               >
-                <Unlock size={13} /> Unlock to Edit Bill
-              </button>
-            )}
+                <QRCode value={uri} size={200} />
+              </div>
+            );
+          })}
+
+          {props.ledger.map((l) => {
+            const key = l.creditor_id || `fallback:${l.creditor_name}`;
+            const upi = upiMap[key];
+            if (!upi) return null;
+            const exactUri = utils.buildUpiUrl({
+              upiId: upi,
+              payeeName: l.creditor_name,
+              amount: Number(l.amount),
+              note: props.venueName ? `Ekwly: ${props.venueName}` : 'Ekwly Split',
+            });
+            return (
+              <div
+                key={l.id}
+                ref={(el) => {
+                  personalNudgeQrRefs.current[l.id] = el;
+                }}
+              >
+                <QRCode value={exactUri} size={200} />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* COLLECTION TRAY HERO BENTO CARD */}
+        <div className="mx-4 mt-2 premium-gradient-card rounded-3xl p-6 text-white flex flex-col items-center justify-center text-center shadow-sm">
+          <h2 className="text-xl font-extrabold tracking-tight mb-1">Collection Tray</h2>
+          <p className="text-white/80 text-xs font-medium mb-5">
+            Room is locked • Scan UPI QR or tap to settle
+          </p>
+          <div className="text-3xl sm:text-4xl font-extrabold mb-3 tabular-nums tracking-tight">
+            {utils.formatMoney(totalCollected)}{' '}
+            <span className="text-lg text-white/65 font-bold">
+              / {utils.formatMoney(totalExpected)}
+            </span>
           </div>
+          <div className="w-full max-w-xs bg-black/25 h-2.5 rounded-full overflow-hidden">
+            <div
+              className="bg-success h-full transition-all duration-500 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
 
-          {props.ledger.length === 0 ? (
-            <div className="p-6 bg-page border border-border rounded-2xl text-center text-xs sm:text-sm text-muted font-medium">
-              Everyone is already even—no transfers required!
+        <SectionHeader
+          title="Settlements"
+          helpText="Tap 'Show UPI QR' so friends at the table can scan your screen with GPay, PhonePe, or Paytm, or send a 1-tap WhatsApp payment link or Nudge Card."
+        />
+
+        <div className="mx-4 glass-card rounded-2xl divide-y divide-border/60 overflow-hidden">
+          {props.ledger.length === 0 && (
+            <div className="p-8 text-center text-sm text-muted font-medium">
+              Everyone is settled! No pending payments.
             </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {props.ledger.map((row) => {
-                const cKey = getCreditorKey(row);
-                const creditorUpi = upiMap[cKey];
-                const isVerifiedUpi = Boolean(verifiedUpiKeys[cKey]);
-                const amountNum = Number(row.amount || 0);
+          )}
 
-                const upiUri = creditorUpi
-                  ? utils.buildUpiUrl({
-                      upiId: creditorUpi,
-                      payeeName: row.creditor_name,
-                      amount: amountNum,
-                      note: props.venueName || props.receiptTitle || 'Ekwly Split',
-                    })
-                  : '';
-
-                const whatsappUrl = utils.buildWhatsAppReminderUrl({
-                  debtorName: row.debtor_name,
-                  creditorName: row.creditor_name,
-                  amount: amountNum,
-                  venueName: props.venueName || props.receiptTitle,
+          {props.ledger.map((l) => {
+            const creditorKey = l.creditor_id || `fallback:${l.creditor_name}`;
+            const creditorUpi = upiMap[creditorKey] || null;
+            const isVerifiedUpi = Boolean(verifiedProfileUpiKeys[creditorKey]);
+            const amICreditor = Boolean(l.creditor_id && l.creditor_id === props.currentUserId);
+            const upiDeepLink = creditorUpi
+              ? utils.buildUpiUrl({
                   upiId: creditorUpi,
-                });
+                  payeeName: l.creditor_name,
+                  amount: Number(l.amount),
+                  note: props.venueName ? `Ekwly: ${props.venueName}` : 'Ekwly Split',
+                })
+              : null;
 
-                const debtorMember = props.members.find(
-                  (m) =>
-                    (row.debtor_id && m.user_id === row.debtor_id) ||
-                    m.name.toLowerCase() === String(row.debtor_name || '').toLowerCase()
-                );
-                const debtorBreakdown = debtorMember
-                  ? props.calculationResult.individualBreakdowns[debtorMember.id]
-                  : null;
+            const whatsappUrl = utils.buildWhatsAppReminderUrl({
+              debtorName: l.debtor_name,
+              creditorName: l.creditor_name,
+              amount: Number(l.amount),
+              venueName: props.venueName,
+              upiId: creditorUpi,
+              isReminder: false,
+            });
 
-                return (
-                  <div
-                    key={row.id}
-                    className={`p-4 rounded-2xl border flex flex-col gap-3 transition-colors ${
-                      row.settled
-                        ? 'bg-emerald-500/8 border-emerald-500/30'
-                        : 'bg-page/90 border-border'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-col min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap text-sm font-bold text-main">
-                          <span>{row.debtor_name}</span>
-                          <span className="text-xs text-muted font-normal">pays</span>
-                          <span>{row.creditor_name}</span>
-                        </div>
+            const debtorBreakdown = Object.values(
+              props.calculationResult.individualBreakdowns
+            ).find(
+              (b) =>
+                b.memberName.toLowerCase() ===
+                String(l.debtor_name || '')
+                  .trim()
+                  .toLowerCase()
+            );
 
-                        {creditorUpi ? (
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            <span className="text-xs font-mono text-muted truncate">
-                              UPI: {creditorUpi}
-                            </span>
-                            {isVerifiedUpi && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 text-[0.6rem] font-extrabold uppercase">
-                                <ShieldCheck size={10} /> Verified
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          !row.settled && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingUpiForKey(cKey);
-                                setTempUpiInput('');
-                              }}
-                              className="text-xs font-bold text-primary hover:underline self-start mt-1"
-                            >
-                              + Link {row.creditor_name}&apos;s UPI ID for 1-Tap Pay &amp; QR
-                            </button>
-                          )
-                        )}
-                      </div>
-
-                      <span className="text-lg font-mono font-extrabold text-main tabular-nums shrink-0">
-                        {utils.formatMoney(amountNum)}
+            return (
+              <div key={l.id} className="p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-main text-[0.95rem] truncate">
+                        {l.debtor_name}{' '}
+                        <span className="text-muted text-xs font-medium mx-1">owes</span>{' '}
+                        {l.creditor_name}
                       </span>
-                    </div>
-
-                    {editingUpiForKey === cKey && (
-                      <div className="flex gap-2 pt-1">
-                        <input
-                          type="text"
-                          value={tempUpiInput}
-                          onChange={(e) => setTempUpiInput(e.target.value)}
-                          placeholder="e.g. rahul@okicici"
-                          className="flex-1 h-10 bg-surface border border-border rounded-xl px-3 text-xs font-mono font-bold"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleSaveManualUpi(row)}
-                          className="h-10 px-3.5 bg-primary text-white rounded-xl font-bold text-xs"
+                      {creditorUpi && isVerifiedUpi && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/12 text-emerald-500 text-[0.6rem] font-extrabold uppercase tracking-wider"
+                          title="UPI ID verified from linked Ekwly profile"
                         >
-                          Save UPI
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Action Buttons Row */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border/60">
-                      {!row.settled && creditorUpi && (
-                        <>
-                          <a
-                            href={upiUri}
-                            className="h-9 px-3 bg-primary text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-2xs"
-                          >
-                            <Smartphone size={14} /> UPI App
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setActiveQrTransfer({
-                                upiUri,
-                                creditorName: row.creditor_name,
-                                debtorName: row.debtor_name,
-                                amount: amountNum,
-                                upiId: creditorUpi,
-                              })
-                            }
-                            className="h-9 px-3 bg-surface text-main border border-border rounded-xl font-bold text-xs flex items-center gap-1.5"
-                          >
-                            <QrCode size={14} className="text-primary" /> Show QR
-                          </button>
-                        </>
+                          <ShieldCheck size={11} /> Verified UPI
+                        </span>
                       )}
+                    </div>
+                    <span className="text-primary text-base font-extrabold tabular-nums mt-0.5">
+                      {utils.formatMoney(Number(l.amount))}
+                    </span>
+                  </div>
 
-                      {!row.settled && (
-                        <>
-                          <a
-                            href={whatsappUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="h-9 px-3 bg-emerald-500/12 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center gap-1.5"
-                          >
-                            <MessageCircle size={14} /> WhatsApp
-                          </a>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              utils.haptic('light');
-                              const qrSvg =
-                                personalNudgeQrRefs.current[row.id]?.querySelector('svg') || null;
-                              exportPersonalNudgeImage({
-                                debtorName: row.debtor_name,
-                                creditorName: row.creditor_name,
-                                amount: amountNum,
-                                venueName: props.venueName || props.receiptTitle,
-                                upiId: creditorUpi,
-                                memberBreakdown: debtorBreakdown,
-                                qrSvgElement: qrSvg,
-                                whatsappTextUrl: whatsappUrl,
-                              });
-                            }}
-                            className="h-9 px-3 bg-primary/12 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center gap-1.5"
-                            title="Share personalized receipt ticket with pre-filled QR for this person"
-                          >
-                            <ImageIcon size={14} /> Nudge Card
-                          </button>
-                        </>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => props.onToggleSettle(row.id, row.settled)}
-                        className={`ml-auto h-9 px-3.5 rounded-xl font-extrabold text-xs flex items-center gap-1.5 transition-colors ${
-                          row.settled
-                            ? 'bg-emerald-500 text-white'
-                            : 'bg-surface border border-border text-main hover:border-emerald-500/50'
+                  {props.isHost || amICreditor ? (
+                    <label className="flex items-center gap-2.5 cursor-pointer shrink-0">
+                      <span
+                        className={`text-xs font-bold uppercase tracking-wider ${
+                          l.settled ? 'text-success' : 'text-muted'
                         }`}
                       >
-                        {row.settled ? (
-                          <>
-                            <CheckCircle2 size={14} /> Paid
-                          </>
-                        ) : (
-                          <>
-                            <Clock size={14} className="text-amber-500" /> Mark Paid
-                          </>
-                        )}
-                      </button>
+                        {l.settled ? 'Paid' : 'Unpaid'}
+                      </span>
+                      <ToggleSwitch
+                        checked={l.settled}
+                        onChange={() => props.handleToggleSettled(l.id, l.settled)}
+                      />
+                    </label>
+                  ) : (
+                    <div
+                      className={`px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider shrink-0 ${
+                        l.settled ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning-700'
+                      }`}
+                    >
+                      {l.settled ? 'Paid' : 'Unpaid'}
                     </div>
+                  )}
+                </div>
+
+                {/* ACTION BAR FOR UNSETTLED DEBTS */}
+                {!l.settled && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {upiDeepLink && !amICreditor && (
+                      <a
+                        href={upiDeepLink}
+                        onClick={() => utils.haptic('light')}
+                        className="flex-1 min-w-32 h-10 px-3 bg-primary text-white hover:bg-primary-hover active:scale-95 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                      >
+                        <Smartphone size={15} /> Pay via UPI
+                      </a>
+                    )}
+
+                    {(creditorUpi || props.isHost || amICreditor) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          utils.haptic('light');
+                          setActiveQrLedgerRow(l);
+                        }}
+                        className="flex-1 min-w-28 h-10 px-3 bg-primary/10 hover:bg-primary/20 active:scale-95 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        <QrCode size={15} /> Show UPI QR
+                      </button>
+                    )}
+
+                    {(props.isHost || amICreditor) && (
+                      <>
+                        <a
+                          href={whatsappUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 min-w-28 h-10 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 text-emerald-500 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                        >
+                          <MessageCircle size={15} /> WhatsApp
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            utils.haptic('light');
+                            const qrSvg =
+                              personalNudgeQrRefs.current[l.id]?.querySelector('svg') || null;
+                            exportPersonalNudgeImage({
+                              debtorName: l.debtor_name,
+                              creditorName: l.creditor_name,
+                              amount: Number(l.amount),
+                              venueName: props.venueName || props.receiptTitle,
+                              upiId: creditorUpi,
+                              memberBreakdown: debtorBreakdown || null,
+                              qrSvgElement: qrSvg,
+                              whatsappTextUrl: whatsappUrl,
+                            });
+                          }}
+                          className="flex-1 min-w-28 h-10 px-3 bg-primary/10 hover:bg-primary/20 active:scale-95 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                          title="Share personalized receipt ticket with pre-filled QR"
+                        >
+                          <ImageIcon size={15} /> Nudge Card
+                        </button>
+                      </>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Share Receipt Image & PDF Export Actions */}
-          <div className="flex flex-col gap-2.5 pt-2 border-t border-border">
-            <button
-              type="button"
-              onClick={handleShareFullReceiptImage}
-              className="min-h-12 w-full premium-gradient-card text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform"
-            >
-              <Sparkles size={16} /> Share Receipt Image (With QR)
-            </button>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() =>
-                  generatePDF(
-                    props.calculationResult,
-                    props.venueName,
-                    props.ledger,
-                    props.receiptTitle,
-                    'download',
-                    upiMap,
-                    pdfDetails
-                  )
-                }
-                className="min-h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
-              >
-                <Download size={15} className="text-primary" /> Download PDF
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  generatePDF(
-                    props.calculationResult,
-                    props.venueName,
-                    props.ledger,
-                    props.receiptTitle,
-                    'share',
-                    upiMap,
-                    pdfDetails
-                  )
-                }
-                className="min-h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
-              >
-                <Share2 size={15} className="text-primary" /> Share PDF
-              </button>
-            </div>
-          </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      ) : (
-        /* DRAFT STATE: LOCK & GENERATE SETTLEMENT PLAN */
-        <div className="glass-card rounded-3xl p-5 flex flex-col gap-3">
-          {props.isHost ? (
-            <button
-              type="button"
-              onClick={props.onFinalize}
-              className="min-h-13 w-full premium-gradient-card text-white rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-md active:scale-98 transition-transform"
-            >
-              <Lock size={17} /> Lock Bill &amp; Generate Settlement Plan
-            </button>
-          ) : (
-            <div className="p-4 bg-page border border-border rounded-2xl text-center text-xs text-muted font-semibold">
-              Waiting for the Host to lock the bill and generate final settlements...
-            </div>
-          )}
 
+        <div className="px-4 mt-6 flex flex-col gap-3">
           <button
             type="button"
-            onClick={handleShareFullReceiptImage}
-            className="min-h-11 w-full bg-primary/12 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors"
+            onClick={() => {
+              utils.haptic('medium');
+              const creditorQrList: CreditorQrEntry[] = uniqueUnsettledCreditors.map((c) => ({
+                creditorName: c.creditorName,
+                upiId: c.upiId,
+                totalReceivable: c.totalReceivable,
+                qrSvgElement: multiCreditorQrRefs.current[c.key]?.querySelector('svg') || null,
+              }));
+
+              exportBentoReceiptImage({
+                calculationResult: props.calculationResult,
+                venueName: props.venueName,
+                receiptTitle: props.receiptTitle,
+                ledger: props.ledger,
+                creditorQrList,
+                mode: 'share',
+              });
+            }}
+            className="h-12 w-full premium-gradient-card text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform"
           >
-            <Sparkles size={15} /> Share Receipt Image Preview
+            <Sparkles size={16} /> Share Receipt Image (With QR)
           </button>
 
           <div className="grid grid-cols-2 gap-2.5">
             <button
               type="button"
-              onClick={() =>
-                generatePDF(
-                  props.calculationResult,
-                  props.venueName,
-                  props.ledger,
-                  props.receiptTitle,
-                  'download',
-                  upiMap,
-                  pdfDetails
-                )
-              }
-              className="min-h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+              className="h-12 bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              onClick={() => props.handleExportPDF('download', upiMap, collectQrSvgMap())}
             >
-              <Download size={15} className="text-primary" /> Download PDF
+              <DownloadCloud size={17} className="text-primary" /> Download PDF
             </button>
             <button
               type="button"
-              onClick={() =>
-                generatePDF(
-                  props.calculationResult,
-                  props.venueName,
-                  props.ledger,
-                  props.receiptTitle,
-                  'share',
-                  upiMap,
-                  pdfDetails
-                )
-              }
-              className="min-h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+              className="h-12 bg-primary/10 active:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              onClick={() => props.handleExportPDF('share', upiMap, collectQrSvgMap())}
             >
-              <Share2 size={15} className="text-primary" /> Share PDF
+              <Smartphone size={17} /> Share PDF
             </button>
+          </div>
+
+          <button
+            type="button"
+            className="h-12 w-full bg-surface active:bg-subtle text-main border border-border rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm"
+            onClick={props.handleGoHome}
+          >
+            <Home size={18} className="text-muted" /> Return to Dashboard
+          </button>
+
+          {props.isHost && (
+            <button
+              type="button"
+              className="h-12 w-full bg-surface active:bg-danger/10 text-danger border border-border rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm mt-2"
+              onClick={props.handleUnlockSession}
+            >
+              <Unlock size={18} /> Unlock &amp; Edit Bill
+            </button>
+          )}
+        </div>
+
+        {/* HOST-SIDE DYNAMIC UPI QR MODAL */}
+        <BottomSheet
+          isOpen={!!activeQrLedgerRow}
+          onClose={() => setActiveQrLedgerRow(null)}
+          title="Scan to Pay via UPI"
+        >
+          {activeQrLedgerRow && (
+            <div className="flex flex-col items-center gap-4 pb-4">
+              <div className="text-center">
+                <p className="text-xs font-bold uppercase tracking-widest text-muted">
+                  {activeQrLedgerRow.debtor_name} pays {activeQrLedgerRow.creditor_name}
+                </p>
+                <p className="text-3xl font-extrabold text-primary tabular-nums mt-1">
+                  {utils.formatMoney(Number(activeQrLedgerRow.amount))}
+                </p>
+                {props.venueName && (
+                  <p className="text-xs text-muted font-medium mt-0.5">{props.venueName}</p>
+                )}
+              </div>
+
+              {activeQrUpi ? (
+                <>
+                  <div className="bg-white p-5 rounded-3xl shadow-md border border-border">
+                    <QRCode value={activeQrUri} size={210} />
+                  </div>
+
+                  <div className="w-full bg-page border border-border rounded-xl px-4 py-2.5 flex items-center justify-between gap-2">
+                    <div className="flex flex-col min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[0.65rem] font-bold uppercase tracking-widest text-muted">
+                          Creditor UPI ID
+                        </span>
+                        {isActiveQrVerified ? (
+                          <span className="inline-flex items-center gap-0.5 text-[0.6rem] font-extrabold text-emerald-500">
+                            <ShieldCheck size={11} /> Verified Profile
+                          </span>
+                        ) : (
+                          <span className="text-[0.6rem] font-bold text-amber-500">
+                            Manual Entry
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm font-mono font-bold text-main truncate">
+                        {activeQrUpi}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(activeQrUpi);
+                        showToast('UPI ID copied!', 'success');
+                      }}
+                      className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors shrink-0"
+                      title="Copy UPI ID"
+                    >
+                      <Copy size={16} />
+                    </button>
+                  </div>
+
+                  {(props.isHost || activeQrLedgerRow.creditor_id === props.currentUserId) &&
+                    !activeQrLedgerRow.settled && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          utils.haptic('medium');
+                          props.handleToggleSettled(
+                            activeQrLedgerRow.id,
+                            activeQrLedgerRow.settled
+                          );
+                          setActiveQrLedgerRow(null);
+                          showToast(`Marked ${activeQrLedgerRow.debtor_name} as paid!`, 'success');
+                        }}
+                        className="w-full h-12 bg-success hover:bg-success-dark active:scale-95 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all"
+                      >
+                        <CheckCircle2 size={18} /> Payment Received — Mark Paid
+                      </button>
+                    )}
+                </>
+              ) : (
+                <div className="w-full bg-page border border-border rounded-2xl p-4 flex flex-col gap-3 text-center">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto">
+                    <CreditCard size={20} />
+                  </div>
+                  <p className="text-sm font-bold text-main">
+                    No UPI ID linked for {activeQrLedgerRow.creditor_name}
+                  </p>
+                  <p className="text-xs text-muted leading-relaxed">
+                    Enter {activeQrLedgerRow.creditor_name}&apos;s UPI ID (VPA) below to generate an
+                    instant scan-to-pay QR code for this bill.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={inlineUpiInput}
+                      onChange={(e) => setInlineUpiInput(e.target.value)}
+                      placeholder="e.g. name@okhdfcbank"
+                      className="flex-1 h-11 bg-surface border border-border rounded-xl px-3 text-sm font-semibold lowercase"
+                    />
+                    <button
+                      type="button"
+                      disabled={isSavingUpi}
+                      onClick={() =>
+                        handleSaveInlineUpi(qrCreditorKey, activeQrLedgerRow.creditor_id || null)
+                      }
+                      className="h-11 px-4 bg-primary text-white rounded-xl font-bold text-xs shrink-0"
+                    >
+                      Generate QR
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </BottomSheet>
+      </div>
+    );
+  }
+
+  // --- DRAFT STATE: MATH SUMMARY & INDIVIDUAL SHARES ---
+  const gs = props.calculationResult.globalSummary;
+  const computedGrossTotal =
+    gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="w-full flex flex-col pb-10">
+      <div className="px-4 py-2">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
+          Master Bill Summary
+        </h3>
+      </div>
+
+      <div className="mx-4 glass-card rounded-2xl px-4 py-3 flex flex-col divide-y divide-border/60">
+        <div className="flex justify-between py-2.5 text-sm">
+          <span className="text-muted">Total Items</span>
+          <span className="font-semibold text-main tabular-nums">
+            {gs.totalQty.toFixed(2).replace(/\.00$/, '')}
+          </span>
+        </div>
+
+        {(gs.itemDiscountAmount > 0 || gs.preTaxDiscountAmount > 0) && (
+          <div className="flex justify-between py-2.5 text-sm">
+            <span className="text-muted">Raw Subtotal</span>
+            <span className="font-semibold text-main tabular-nums">
+              {utils.formatMoney(gs.rawSubTotal)}
+            </span>
+          </div>
+        )}
+
+        {gs.itemDiscountAmount > 0 && (
+          <div className="flex justify-between py-2.5 text-sm text-success">
+            <span className="font-medium">Item / Category Discounts</span>
+            <span className="font-bold tabular-nums">
+              - {utils.formatMoney(gs.itemDiscountAmount)}
+            </span>
+          </div>
+        )}
+
+        {gs.preTaxDiscountAmount > 0 && (
+          <div className="flex justify-between py-2.5 text-sm text-success">
+            <span className="font-medium">Restaurant Discount (Pre-Tax)</span>
+            <span className="font-bold tabular-nums">
+              - {utils.formatMoney(gs.preTaxDiscountAmount)}
+            </span>
+          </div>
+        )}
+
+        <div className="flex justify-between py-2.5 text-sm">
+          <span className="text-muted">Taxable Base Subtotal</span>
+          <span className="font-semibold text-main tabular-nums">
+            {utils.formatMoney(gs.subTotal)}
+          </span>
+        </div>
+
+        {Object.entries(gs.taxBreakdown).map(
+          ([taxName, amount]) =>
+            amount > 0 && (
+              <div key={taxName} className="flex justify-between py-2.5 text-sm">
+                <span className="text-muted">{taxName}</span>
+                <span className="font-semibold text-main tabular-nums">
+                  {utils.formatMoney(amount)}
+                </span>
+              </div>
+            )
+        )}
+
+        {gs.serviceCharge > 0 && (
+          <div className="flex justify-between py-2.5 text-sm">
+            <span className="text-muted">Service Charge</span>
+            <span className="font-semibold text-main tabular-nums">
+              {utils.formatMoney(gs.serviceCharge)}
+            </span>
+          </div>
+        )}
+
+        {gs.postTaxDiscountAmount > 0 && (
+          <>
+            <div className="flex justify-between py-2.5 text-sm">
+              <span className="text-muted">Gross Total</span>
+              <span className="font-semibold text-main tabular-nums">
+                {utils.formatMoney(computedGrossTotal)}
+              </span>
+            </div>
+            <div className="flex justify-between py-2.5 text-sm text-success">
+              <span className="font-medium">Coupon / App Discount (Post-Tax)</span>
+              <span className="font-bold tabular-nums">
+                - {utils.formatMoney(gs.postTaxDiscountAmount)}
+              </span>
+            </div>
+          </>
+        )}
+
+        {gs.roundOff !== 0 && (
+          <div className="flex justify-between py-2.5 text-sm">
+            <span className="text-muted">POS Round Off</span>
+            <span className="font-semibold text-main tabular-nums">
+              {gs.roundOff > 0 ? '+' : ''}
+              {utils.formatMoney(gs.roundOff)}
+            </span>
+          </div>
+        )}
+
+        <div className="flex justify-between py-3.5 items-baseline">
+          <span className="font-extrabold text-main text-base">Grand Total</span>
+          <span className="font-extrabold text-primary text-xl tabular-nums">
+            {utils.formatMoney(gs.grandTotal)}
+          </span>
+        </div>
+      </div>
+
+      <div className="px-4 py-3 mt-3">
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
+          Individual Breakdown
+        </h3>
+      </div>
+
+      <div className="flex flex-col gap-3 px-4">
+        {Object.entries(props.calculationResult.individualBreakdowns).map(
+          ([personKey, b]) =>
+            b.totalOwed > 0 && (
+              <div key={personKey} className="glass-card rounded-2xl overflow-hidden flex flex-col">
+                <div className="px-4 py-3 border-b border-border bg-page/50 flex items-center justify-between">
+                  <h3 className="font-bold text-main text-sm">{b.memberName || personKey}</h3>
+                  <span className="text-xs font-bold text-muted tabular-nums">
+                    {b.items.length} {b.items.length === 1 ? 'item' : 'items'}
+                  </span>
+                </div>
+                <div className="flex flex-col divide-y divide-border/50 px-4">
+                  {b.items.map((i, idx) => (
+                    <div key={idx} className="flex justify-between py-2.5 text-sm">
+                      <span className="text-muted truncate pr-2">
+                        {i.name}{' '}
+                        <span className="text-xs font-bold ml-1 bg-page px-1.5 py-0.5 rounded border border-border tabular-nums">
+                          x{i.qtyString}
+                        </span>
+                      </span>
+                      <span className="font-semibold text-main tabular-nums shrink-0">
+                        {utils.formatMoney(i.cost)}
+                      </span>
+                    </div>
+                  ))}
+                  {b.serviceCharge > 0 && (
+                    <div className="flex justify-between py-2.5 text-sm">
+                      <span className="text-muted">Service Charge (inc. Tax)</span>
+                      <span className="font-semibold text-main tabular-nums">
+                        {utils.formatMoney(b.serviceCharge)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="px-4 py-3 border-t border-border flex justify-between items-center bg-primary/5">
+                  <span className="font-bold text-primary text-xs uppercase tracking-wider">
+                    Final Share
+                  </span>
+                  <span className="font-extrabold text-primary text-lg tabular-nums">
+                    {utils.formatMoney(b.totalOwed)}
+                  </span>
+                </div>
+              </div>
+            )
+        )}
+      </div>
+
+      {props.isHost && (
+        <div className="px-4 mt-6">
+          <div className="glass-card rounded-2xl p-4 flex flex-col gap-3.5">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-muted">
+              Finalize &amp; Collect
+            </h3>
+            <input
+              type="text"
+              value={props.receiptTitle}
+              onChange={(e) => props.setReceiptTitle(e.target.value)}
+              placeholder={
+                props.venueName
+                  ? `${props.venueName} Receipt`
+                  : 'Receipt Title (e.g. Friday Dinner)'
+              }
+              className="w-full h-11 bg-page border border-border rounded-xl px-3.5 font-semibold text-sm"
+            />
+            <button
+              type="button"
+              className="h-12 w-full bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-sm"
+              onClick={props.handleLockSession}
+            >
+              <LockKeyhole size={18} /> Lock Room &amp; Generate UPI Links
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                utils.haptic('medium');
+                exportBentoReceiptImage({
+                  calculationResult: props.calculationResult,
+                  venueName: props.venueName,
+                  receiptTitle: props.receiptTitle,
+                  ledger: props.ledger,
+                  mode: 'share',
+                });
+              }}
+              className="h-11 w-full bg-primary/12 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors"
+            >
+              <Sparkles size={15} /> Share Receipt Image Preview
+            </button>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                className="h-11 bg-page hover:bg-subtle text-main border border-border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                onClick={() => props.handleExportPDF('download')}
+              >
+                <DownloadCloud size={15} className="text-primary" /> Download PDF
+              </button>
+              <button
+                type="button"
+                className="h-11 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                onClick={() => props.handleExportPDF('share')}
+              >
+                <Smartphone size={15} /> Share PDF
+              </button>
+            </div>
           </div>
         </div>
       )}
