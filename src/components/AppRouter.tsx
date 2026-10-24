@@ -417,113 +417,118 @@ export default function AppRouter() {
         userName={user?.user_metadata?.full_name}
       />
 
-      {/* STICKY GLASSMORPHIC HEADER */}
+      {/* UNIFIED STICKY GLASSMORPHIC HEADER (With Top Safe-Area Boundary & Seamless Session Subnav Slot) */}
       {currentView !== 'auth' && currentView !== 'lobby' && (
-        <header className="w-full h-16 px-4 glass-chrome border-b border-border flex items-center justify-between sticky top-0 z-40 transition-colors duration-200 gpu-layer">
-          {isSubView ? (
-            <div className="flex items-center gap-1 min-w-0">
-              {!isOnboarding && (
+        <header className="w-full glass-chrome border-b border-border flex flex-col sticky top-0 z-40 pt-safe transition-colors duration-200 gpu-layer">
+          <div className="w-full h-15 px-4 flex items-center justify-between">
+            {isSubView ? (
+              <div className="flex items-center gap-1 min-w-0">
+                {!isOnboarding && (
+                  <button
+                    type="button"
+                    onClick={
+                      currentView === 'session' ? handleLeaveSession : () => navigateTo('home')
+                    }
+                    className="p-2 -ml-2 rounded-full text-primary hover:bg-subtle active:bg-border transition-colors shrink-0"
+                    aria-label="Go Back"
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                )}
+                <span className="font-bold text-main text-[1.05rem] tracking-tight truncate">
+                  {getHeaderTitle()}
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleSelectDockTab('home')}
+                className="flex items-center py-1 active:scale-95 transition-transform"
+                aria-label="Ekwly Home"
+              >
+                <BrandWordmark height={28} />
+              </button>
+            )}
+
+            <div className="flex items-center gap-2">
+              {!isOnline && (
+                <span
+                  className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-500 text-[0.65rem] font-extrabold uppercase tracking-wider flex items-center gap-1"
+                  title="Offline Mode — All changes are safely queued on your device and will sync automatically when back online."
+                >
+                  <WifiOff size={12} /> Offline
+                </span>
+              )}
+
+              {currentView === 'home' && (
                 <button
                   type="button"
-                  onClick={
-                    currentView === 'session' ? handleLeaveSession : () => navigateTo('home')
-                  }
-                  className="p-2 -ml-2 rounded-full text-primary hover:bg-subtle active:bg-border transition-colors shrink-0"
-                  aria-label="Go Back"
+                  onClick={() => {
+                    utils.haptic('light');
+                    setShowTour(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-full glass-pill text-primary text-xs font-bold flex items-center gap-1 hover:bg-primary/15 transition-colors"
+                  title="Open App Guide & Tutorial"
                 >
-                  <ChevronLeft size={24} />
+                  <HelpCircle size={14} />
+                  <span className="hidden xs:inline">Guide</span>
                 </button>
               )}
-              <span className="font-bold text-main text-[1.05rem] tracking-tight truncate">
-                {getHeaderTitle()}
-              </span>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => handleSelectDockTab('home')}
-              className="flex items-center py-1 active:scale-95 transition-transform"
-              aria-label="Ekwly Home"
-            >
-              <BrandWordmark height={28} />
-            </button>
-          )}
 
-          <div className="flex items-center gap-2">
-            {!isOnline && (
-              <span
-                className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-500 text-[0.65rem] font-extrabold uppercase tracking-wider flex items-center gap-1"
-                title="Offline Mode — All changes are safely queued on your device and will sync automatically when back online."
-              >
-                <WifiOff size={12} /> Offline
-              </span>
-            )}
-
-            {currentView === 'home' && (
-              <button
-                type="button"
-                onClick={() => {
-                  utils.haptic('light');
-                  setShowTour(true);
-                }}
-                className="px-2.5 py-1.5 rounded-full glass-pill text-primary text-xs font-bold flex items-center gap-1 hover:bg-primary/15 transition-colors"
-                title="Open App Guide & Tutorial"
-              >
-                <HelpCircle size={14} />
-                <span className="hidden xs:inline">Guide</span>
-              </button>
-            )}
-
-            {currentView === 'session' && (
-              <button
-                type="button"
-                onClick={() => {
-                  utils.haptic('light');
-                  if (typeof window !== 'undefined' && activeSessionId) {
-                    window.dispatchEvent(
-                      new CustomEvent('ekwly:enable-realtime', {
-                        detail: { sessionId: activeSessionId },
-                      })
-                    );
-                  }
-                  setShowInviteModal(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 glass-pill text-primary hover:bg-primary/20 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
-              >
-                <QrCode size={15} />
-                <span>Invite QR</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleToggleTheme}
-              aria-label="Toggle Theme"
-              className="p-2 rounded-full text-muted hover:text-main hover:bg-subtle transition-colors"
-            >
-              {isDark ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                utils.haptic('light');
-                setIsProfileOpen(true);
-              }}
-              aria-label="Account Settings"
-              className="w-9 h-9 rounded-full bg-primary-light border border-primary/20 text-primary flex items-center justify-center font-bold overflow-hidden hover:opacity-90 transition-opacity shrink-0"
-            >
-              {user?.user_metadata?.avatar_url ? (
-                <img
-                  src={user.user_metadata.avatar_url}
-                  alt="Avatar"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <UserIcon size={18} />
+              {currentView === 'session' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    utils.haptic('light');
+                    if (typeof window !== 'undefined' && activeSessionId) {
+                      window.dispatchEvent(
+                        new CustomEvent('ekwly:enable-realtime', {
+                          detail: { sessionId: activeSessionId },
+                        })
+                      );
+                    }
+                    setShowInviteModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 glass-pill text-primary hover:bg-primary/20 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
+                >
+                  <QrCode size={15} />
+                  <span>Invite QR</span>
+                </button>
               )}
-            </button>
+
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                aria-label="Toggle Theme"
+                className="p-2 rounded-full text-muted hover:text-main hover:bg-subtle transition-colors"
+              >
+                {isDark ? <Sun size={20} /> : <Moon size={20} />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  utils.haptic('light');
+                  setIsProfileOpen(true);
+                }}
+                aria-label="Account Settings"
+                className="w-9 h-9 rounded-full bg-primary-light border border-primary/20 text-primary flex items-center justify-center font-bold overflow-hidden hover:opacity-90 transition-opacity shrink-0"
+              >
+                {user?.user_metadata?.avatar_url ? (
+                  <img
+                    src={user.user_metadata.avatar_url}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <UserIcon size={18} />
+                )}
+              </button>
+            </div>
           </div>
+
+          {/* Seamless slot where ActiveSession portals the 2-Tab Switcher */}
+          <div id="ekwly-header-subnav" className="w-full empty:hidden" />
         </header>
       )}
 

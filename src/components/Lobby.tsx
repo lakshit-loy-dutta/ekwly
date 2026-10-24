@@ -61,7 +61,7 @@ export default function Lobby({ onClose, onJoin }: Props) {
       <div className="absolute inset-0 bg-grid-pattern z-0" />
 
       {/* HEADER */}
-      <div className="w-full h-16 flex items-center justify-between px-4 relative z-10 border-b border-border bg-surface/85 backdrop-blur-xl">
+      <div className="w-full h-16 flex items-center justify-between px-4 relative z-10 border-b border-border bg-surface/85 backdrop-blur-xl pt-safe">
         <button
           type="button"
           onClick={onClose}

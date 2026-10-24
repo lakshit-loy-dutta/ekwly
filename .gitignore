@@ -20,6 +20,8 @@ dist/
 keystore.properties
 capacitor.config.ts.timestamp-*
 capacitor.config.json.timestamp-*
+*.apk
+*.aab
 
 # Editor & OS Files
 .DS_Store

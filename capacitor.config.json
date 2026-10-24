@@ -7,5 +7,10 @@
     "androidScheme": "https",
     "iosScheme": "https",
     "cleartext": false
+  },
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false
+    }
   }
 }

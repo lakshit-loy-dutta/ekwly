@@ -297,25 +297,24 @@ function injectAndroidBrandAndMetadata() {
 `;
   fs.writeFileSync(path.join(valuesDir, 'colors.xml'), colorsXml, 'utf8');
 
-  // 5.7 Write values/styles.xml (OLED #050914 Window Background, Status Bar & Navigation Bar)
+  // 5.7 Write values/styles.xml (True Edge-to-Edge Transparent Status & Navigation Bars)
   const stylesXml = `<?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
         <item name="android:windowBackground">@color/colorPrimaryDark</item>
-        <item name="android:statusBarColor">@color/colorPrimaryDark</item>
-        <item name="android:navigationBarColor">@color/colorPrimaryDark</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
     </style>
 
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="AppTheme.NoActionBar" parent="AppTheme">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
-        <item name="android:windowBackground">@color/colorPrimaryDark</item>
-        <item name="android:statusBarColor">@color/colorPrimaryDark</item>
-        <item name="android:navigationBarColor">@color/colorPrimaryDark</item>
     </style>
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
@@ -328,6 +327,81 @@ function injectAndroidBrandAndMetadata() {
 `;
   fs.writeFileSync(path.join(valuesDir, 'styles.xml'), stylesXml, 'utf8');
 
+  // 5.8 Patch MainActivity.java for Edge-to-Edge Window Insets (--safe-top / --safe-bottom) & Dynamic Light/Dark Bar Icons
+  const mainActivityPath = path.join(
+    androidDir,
+    'app',
+    'src',
+    'main',
+    'java',
+    'com',
+    'ekwly',
+    'app',
+    'MainActivity.java'
+  );
+  if (fs.existsSync(mainActivityPath)) {
+    const mainActivityJava = `package com.ekwly.app;
+
+import android.graphics.Color;
+import android.os.Bundle;
+import android.view.View;
+import android.view.Window;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        Window window = getWindow();
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            final WebView webView = getBridge().getWebView();
+            webView.addJavascriptInterface(new Object() {
+                @JavascriptInterface
+                public void setLightBars(final boolean isLight) {
+                    runOnUiThread(() -> {
+                        Window w = getWindow();
+                        View decor = w.getDecorView();
+                        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(w, decor);
+                        if (controller != null) {
+                            controller.setAppearanceLightStatusBars(isLight);
+                            controller.setAppearanceLightNavigationBars(isLight);
+                        }
+                    });
+                }
+            }, "EkwlyNativeBar");
+
+            ViewCompat.setOnApplyWindowInsetsListener(webView, (v, windowInsets) -> {
+                Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                float density = getResources().getDisplayMetrics().density;
+                int topDp = Math.round(bars.top / density);
+                int bottomDp = Math.round(bars.bottom / density);
+
+                String js = String.format(
+                    "document.documentElement.style.setProperty('--safe-top', '%dpx');" +
+                    "document.documentElement.style.setProperty('--safe-bottom', '%dpx');",
+                    topDp, bottomDp
+                );
+                webView.post(() -> webView.evaluateJavascript(js, null));
+                return WindowInsetsCompat.CONSUMED;
+            });
+        }
+    }
+}
+`;
+    fs.writeFileSync(mainActivityPath, mainActivityJava, 'utf8');
+  }
   console.log(
     '[Ekwly Native] Injected Vector Adaptive Icon (Android 8-16 + Android 13 Monochrome), Splash & App Metadata.'
   );
@@ -538,7 +612,7 @@ if (fs.existsSync(iosPlistPath)) {
   }
 }
 
-// --- 9. CLI APK & PLAY STORE AAB BUNDLE COMPILER ---
+// --- 9. CLI APK & PLAY STORE AAB BUNDLE COMPILER (AUTO-RENAMED TO Ekwly.apk / Ekwly.aab) ---
 if (mode === 'apk-debug' || mode === 'apk-release' || mode === 'aab-release') {
   if (!fs.existsSync(androidDir)) {
     console.error('[Ekwly Native] android/ folder not found. Run "pnpm cap add android" first.');
@@ -559,12 +633,24 @@ if (mode === 'apk-debug' || mode === 'apk-release' || mode === 'aab-release') {
   console.log(`[Ekwly Native] Compiling Android ${task}...`);
   execSync(`${gradleCmd} ${task}`, { cwd: androidDir, stdio: 'inherit', env });
 
-  const outputPath =
+  const rawOutputPath =
     mode === 'aab-release'
       ? path.join(androidDir, 'app', 'build', 'outputs', 'bundle', 'release', 'app-release.aab')
       : mode === 'apk-release'
         ? path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
         : path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 
-  console.log(`\n✅ Build Artifact Ready at: ${outputPath}`);
+  const cleanFileName = mode === 'aab-release' ? 'Ekwly.aab' : 'Ekwly.apk';
+  const sameDirRenamedPath = path.join(path.dirname(rawOutputPath), cleanFileName);
+  const rootRenamedPath = path.join(rootDir, cleanFileName);
+
+  if (fs.existsSync(rawOutputPath)) {
+    fs.copyFileSync(rawOutputPath, sameDirRenamedPath);
+    fs.copyFileSync(rawOutputPath, rootRenamedPath);
+    console.log(`\n✅ ${cleanFileName} Ready at:`);
+    console.log(`   1. ${rootRenamedPath} (Project Root)`);
+    console.log(`   2. ${sameDirRenamedPath}`);
+  } else {
+    console.log(`\n✅ Build Artifact Ready at: ${rawOutputPath}`);
+  }
 }

@@ -348,39 +348,28 @@ export default function DebtMatrix(props: Props) {
                     )}
 
                     {(props.isHost || amICreditor) && (
-                      <>
-                        <a
-                          href={whatsappUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 min-w-28 h-10 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 text-emerald-500 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                        >
-                          <MessageCircle size={15} /> WhatsApp
-                        </a>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            utils.haptic('light');
-                            const qrSvg =
-                              personalNudgeQrRefs.current[l.id]?.querySelector('svg') || null;
-                            exportPersonalNudgeImage({
-                              debtorName: l.debtor_name,
-                              creditorName: l.creditor_name,
-                              amount: Number(l.amount),
-                              venueName: props.venueName || props.receiptTitle,
-                              upiId: creditorUpi,
-                              memberBreakdown: debtorBreakdown || null,
-                              qrSvgElement: qrSvg,
-                              whatsappTextUrl: whatsappUrl,
-                            });
-                          }}
-                          className="flex-1 min-w-28 h-10 px-3 bg-primary/10 hover:bg-primary/20 active:scale-95 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                          title="Share personalized receipt ticket with pre-filled QR"
-                        >
-                          <ImageIcon size={15} /> Nudge Card
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          utils.haptic('light');
+                          const qrSvg =
+                            personalNudgeQrRefs.current[l.id]?.querySelector('svg') || null;
+                          exportPersonalNudgeImage({
+                            debtorName: l.debtor_name,
+                            creditorName: l.creditor_name,
+                            amount: Number(l.amount),
+                            venueName: props.venueName || props.receiptTitle,
+                            upiId: creditorUpi,
+                            memberBreakdown: debtorBreakdown || null,
+                            qrSvgElement: qrSvg,
+                            isReminder: false,
+                            whatsappTextUrl: whatsappUrl,
+                          });
+                        }}
+                        className="flex-1 min-w-32 h-10 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 text-emerald-500 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        <MessageCircle size={15} /> WhatsApp Nudge
+                      </button>
                     )}
                   </div>
                 )}

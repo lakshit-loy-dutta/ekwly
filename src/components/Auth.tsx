@@ -94,7 +94,7 @@ export default function Auth({ onContinueAsGuest }: Props) {
   };
 
   return (
-    <div className="flex flex-col flex-1 relative bg-page min-h-dvh">
+    <div className="flex flex-col flex-1 relative bg-page min-h-dvh pt-safe pb-safe">
       <div className="absolute inset-0 bg-grid-pattern z-0" />
 
       <motion.div

@@ -458,8 +458,8 @@ export async function exportBentoReceiptImage(params: {
 }
 
 /**
- * Generates a personalized 1-on-1 WhatsApp Payment Request Receipt Ticket for a single debtor,
- * complete with their itemized dishes (if available), exact amount owed, and a pre-filled UPI QR.
+ * Generates a personalized 1-on-1 WhatsApp Settlement Ticket (isReminder = false)
+ * OR a Friendly Payment Reminder Ticket (isReminder = true) with an embedded pre-filled UPI QR.
  */
 export async function exportPersonalNudgeImage(params: {
   debtorName: string;
@@ -469,20 +469,32 @@ export async function exportPersonalNudgeImage(params: {
   upiId?: string | null;
   memberBreakdown?: IndividualBreakdown | null;
   qrSvgElement?: SVGElement | null;
+  isReminder?: boolean;
   whatsappTextUrl?: string;
 }) {
-  try {
-    const {
+  const {
+    debtorName,
+    creditorName,
+    amount,
+    venueName,
+    upiId,
+    memberBreakdown,
+    qrSvgElement,
+    isReminder = false,
+  } = params;
+
+  const fallbackWhatsappUrl =
+    params.whatsappTextUrl ||
+    utils.buildWhatsAppReminderUrl({
       debtorName,
       creditorName,
       amount,
-      venueName,
+      venueName: venueName || undefined,
       upiId,
-      memberBreakdown,
-      qrSvgElement,
-      whatsappTextUrl,
-    } = params;
+      isReminder,
+    });
 
+  try {
     const qrImage = await loadSvgElementAsImage(qrSvgElement);
     const items = memberBreakdown?.items || [];
     const visibleItems = items.slice(0, 8);
@@ -511,15 +523,26 @@ export async function exportPersonalNudgeImage(params: {
 
     drawBrandWordmarkOnCanvas(ctx, sheetX + 52, sheetY + 48, 0.52);
 
-    ctx.fillStyle = '#38BDF8';
+    ctx.fillStyle = isReminder ? '#F59E0B' : '#38BDF8';
     ctx.font = '800 20px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText('★ PERSONAL SETTLEMENT TICKET ★', sheetX + sheetW - 52, sheetY + 76);
+    ctx.fillText(
+      isReminder ? '★ FRIENDLY PAYMENT REMINDER ★' : '★ PERSONAL SETTLEMENT TICKET ★',
+      sheetX + sheetW - 52,
+      sheetY + 76
+    );
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#FFFFFF';
     ctx.font = '800 38px Inter, system-ui, sans-serif';
-    ctx.fillText((venueName || 'Shared Bill Settlement').slice(0, 34), sheetX + 52, sheetY + 166);
+    ctx.fillText(
+      (venueName || (isReminder ? 'Pending Balance Reminder' : 'Shared Bill Settlement')).slice(
+        0,
+        34
+      ),
+      sheetX + 52,
+      sheetY + 166
+    );
 
     // Hero Amount Due Box
     const heroY = sheetY + 194;
@@ -551,14 +574,16 @@ export async function exportPersonalNudgeImage(params: {
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.font = '600 20px monospace';
     ctx.fillText(
-      'Includes your exact share of dishes, GST/VAT & Service Charge',
+      isReminder
+        ? 'Friendly reminder for your pending balance on Ekwly'
+        : 'Includes your exact share of dishes, GST/VAT & Service Charge',
       sheetX + 84,
       heroY + 166
     );
 
     let cursorY = notchY + 48;
 
-    // Itemized Dishes for This Person
+    // Itemized Dishes for This Person (when sent from inside a session)
     if (visibleItems.length > 0) {
       ctx.fillStyle = '#38BDF8';
       ctx.font = '800 20px monospace';
@@ -623,17 +648,38 @@ export async function exportPersonalNudgeImage(params: {
     const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     if (!blob) throw new Error('Failed to encode Nudge PNG');
 
-    const fileName = `Pay_${creditorName}_${Math.round(amount)}.png`.replace(/[^a-z0-9._-]/gi, '_');
+    const fileName =
+      `${isReminder ? 'Reminder' : 'Split'}_${creditorName}_${Math.round(amount)}.png`.replace(
+        /[^a-z0-9._-]/gi,
+        '_'
+      );
+
+    // Build the exact context-appropriate message (Session Nudge vs. Friendly Reminder)
+    const formattedAmt = `₹${amount.toFixed(2)}`;
+    const contextStr = venueName ? ` at *${venueName}*` : '';
+    let shareMessage = isReminder
+      ? `Hey ${debtorName}! 👋 Friendly reminder regarding your pending balance of *${formattedAmt}*${contextStr} owed to ${creditorName} on Ekwly.`
+      : `Hey ${debtorName}! 👋 Here is the bill split${contextStr} on Ekwly. Your exact share is *${formattedAmt}* (payable to ${creditorName}).`;
+
+    if (upiId) {
+      const upiLink = utils.buildUpiUrl({
+        upiId,
+        payeeName: creditorName,
+        amount,
+        note: venueName ? `Ekwly: ${venueName}` : 'Ekwly Split',
+      });
+      shareMessage += `\n\nScan the UPI QR on the attached card or tap to pay (${upiId}):\n${upiLink}`;
+    }
 
     if (typeof navigator !== 'undefined' && typeof navigator.canShare === 'function') {
       const file = new File([blob], fileName, { type: 'image/png' });
       if (navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
-            title: `Settle ${utils.formatMoney(amount)} with ${creditorName}`,
-            text: `Hey ${debtorName}! Here is your itemized split (${utils.formatMoney(amount)})${
-              venueName ? ` for ${venueName}` : ''
-            }.${upiId ? ` You can scan the QR on this card or pay via UPI: ${upiId}` : ''}`,
+            title: isReminder
+              ? `Friendly Reminder: ${formattedAmt} (${creditorName})`
+              : `Bill Split: ${formattedAmt} (${creditorName})`,
+            text: shareMessage,
             files: [file],
           });
           return;
@@ -648,13 +694,9 @@ export async function exportPersonalNudgeImage(params: {
     a.download = fileName;
     a.href = URL.createObjectURL(blob);
     a.click();
-    if (whatsappTextUrl) {
-      window.open(whatsappTextUrl, '_blank', 'noopener,noreferrer');
-    }
+    window.open(fallbackWhatsappUrl, '_blank', 'noopener,noreferrer');
   } catch (err: any) {
     if (err?.name === 'AbortError') return;
-    if (params.whatsappTextUrl) {
-      window.open(params.whatsappTextUrl, '_blank', 'noopener,noreferrer');
-    }
+    window.open(fallbackWhatsappUrl, '_blank', 'noopener,noreferrer');
   }
 }

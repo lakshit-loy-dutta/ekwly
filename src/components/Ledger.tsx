@@ -446,15 +446,6 @@ export default function Ledger({ user }: Props) {
                     </button>
                   )}
 
-                  <a
-                    href={whatsappUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 min-w-22 h-9 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                  >
-                    <MessageCircle size={14} /> Nudge
-                  </a>
-
                   <button
                     type="button"
                     onClick={() => {
@@ -468,13 +459,13 @@ export default function Ledger({ user }: Props) {
                         venueName: 'Consolidated Net Balance',
                         upiId: myUpiId,
                         qrSvgElement: qrSvg,
+                        isReminder: true,
                         whatsappTextUrl: whatsappUrl,
                       });
                     }}
-                    className="flex-1 min-w-26 h-9 px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                    title="Share personalized skeuomorphic receipt ticket with pre-filled QR"
+                    className="flex-1 h-9 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/25 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
                   >
-                    <ImageIcon size={14} /> Nudge Card
+                    <MessageCircle size={14} /> Nudge
                   </button>
 
                   <button

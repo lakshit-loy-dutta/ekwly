@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Receipt, CreditCard, ArrowRight, Wallet, Trash2, Check, Users } from 'lucide-react';
 import { SessionProvider, useSessionContext } from '../lib/SessionContext';
@@ -194,46 +195,54 @@ function ActiveSessionContent({
         variant="danger"
       />
 
-      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Locked Flush Under Top Header at top-16) */}
-      <div className="sticky top-16 z-30 glass-chrome border-b border-border px-4 py-2">
-        <div className="bg-page/60 border border-border rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
-          <button
-            type="button"
-            onClick={() => handleSwitchTab('workbench')}
-            className={`relative py-2 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
-              activeTab === 'workbench' ? 'text-white' : 'text-muted hover:text-main'
-            }`}
-          >
-            {activeTab === 'workbench' && (
-              <motion.div
-                layoutId="ekwly-workbench-tab"
-                transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
-                className="absolute inset-0 bg-primary rounded-xl shadow-[0_2px_12px_rgba(0,128,255,0.4)] -z-10"
-              />
-            )}
-            <Receipt size={15} />
-            <span>1. Receipt &amp; Split</span>
-          </button>
+      {/* 2-TAB SEGMENTED WORKBENCH HEADER (Portaled directly into unified glass <header>) */}
+      {(() => {
+        const tabSwitcher = (
+          <div className="px-4 pb-2.5 pt-0.5">
+            <div className="bg-page/60 border border-border rounded-2xl p-1 grid grid-cols-2 gap-1 relative">
+              <button
+                type="button"
+                onClick={() => handleSwitchTab('workbench')}
+                className={`relative py-2 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
+                  activeTab === 'workbench' ? 'text-white' : 'text-muted hover:text-main'
+                }`}
+              >
+                {activeTab === 'workbench' && (
+                  <motion.div
+                    layoutId="ekwly-workbench-tab"
+                    transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
+                    className="absolute inset-0 bg-primary rounded-xl shadow-[0_2px_12px_rgba(0,128,255,0.4)] -z-10"
+                  />
+                )}
+                <Receipt size={15} />
+                <span>1. Receipt &amp; Split</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => handleSwitchTab('settle')}
-            className={`relative py-2 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
-              activeTab === 'settle' ? 'text-white' : 'text-muted hover:text-main'
-            }`}
-          >
-            {activeTab === 'settle' && (
-              <motion.div
-                layoutId="ekwly-workbench-tab"
-                transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
-                className="absolute inset-0 bg-primary rounded-xl shadow-[0_2px_12px_rgba(0,128,255,0.4)] -z-10"
-              />
-            )}
-            <CreditCard size={15} />
-            <span>2. Settle &amp; Collect</span>
-          </button>
-        </div>
-      </div>
+              <button
+                type="button"
+                onClick={() => handleSwitchTab('settle')}
+                className={`relative py-2 px-3 rounded-xl text-xs font-extrabold tracking-tight flex items-center justify-center gap-2 transition-colors z-10 ${
+                  activeTab === 'settle' ? 'text-white' : 'text-muted hover:text-main'
+                }`}
+              >
+                {activeTab === 'settle' && (
+                  <motion.div
+                    layoutId="ekwly-workbench-tab"
+                    transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
+                    className="absolute inset-0 bg-primary rounded-xl shadow-[0_2px_12px_rgba(0,128,255,0.4)] -z-10"
+                  />
+                )}
+                <CreditCard size={15} />
+                <span>2. Settle &amp; Collect</span>
+              </button>
+            </div>
+          </div>
+        );
+
+        const headerSlot =
+          typeof document !== 'undefined' ? document.getElementById('ekwly-header-subnav') : null;
+        return headerSlot ? createPortal(tabSwitcher, headerSlot) : tabSwitcher;
+      })()}
 
       {/* TAB BODY */}
       <AnimatePresence mode="wait" initial={false}>

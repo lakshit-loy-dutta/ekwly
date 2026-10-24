@@ -716,12 +716,12 @@ export default function ReceiptWorkbench() {
         </div>
       )}
 
-      {/* ZONE 2: SPACIOUS "AT THE TABLE" MEMBER BAR + 1-TAP FRIEND & SAVED SQUAD CHIPS */}
-      <div className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-3.5">
+      {/* ZONE 2: "AT THE TABLE" MEMBER BAR + 1-TAP FRIEND & SAVED SQUAD CHIPS */}
+      <div className="glass-card rounded-2xl p-3.5 sm:p-4 flex flex-col gap-2.5">
         <div className="flex items-center justify-between gap-2 px-0.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-muted flex items-center gap-1.5">
-              <Users size={15} className="text-primary" /> At the Table ({members.length})
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[0.7rem] font-bold uppercase tracking-widest text-muted flex items-center gap-1.5 shrink-0">
+              <Users size={13} className="text-primary" /> At the Table ({members.length})
             </span>
             <button
               type="button"
@@ -732,13 +732,13 @@ export default function ReceiptWorkbench() {
                   showToast('Live Multiplayer Sync activated!', 'success');
                 }
               }}
-              className={`min-h-7 px-2.5 py-1 rounded-full text-[0.68rem] font-bold uppercase tracking-wider flex items-center gap-1.5 border ${
+              className={`shrink-0 px-2 py-0.5 rounded-full text-[0.6rem] font-bold uppercase tracking-wider flex items-center gap-1 border ${
                 isRealtimeActive
-                  ? 'bg-emerald-500/12 text-emerald-500 border-emerald-500/30'
+                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
                   : 'bg-page text-muted border-border hover:text-main'
               }`}
             >
-              <Radio size={11} className={isRealtimeActive ? 'animate-pulse' : ''} />
+              <Radio size={10} className={isRealtimeActive ? 'animate-pulse' : ''} />
               {isRealtimeActive ? 'Live Sync' : 'Solo Mode'}
             </button>
           </div>
@@ -748,13 +748,13 @@ export default function ReceiptWorkbench() {
               utils.haptic('light');
               setShowMemberSheet(true);
             }}
-            className="min-h-8 px-2.5 py-1 rounded-lg text-xs font-extrabold text-primary hover:bg-primary/10 flex items-center gap-1.5 transition-colors"
+            className="shrink-0 text-xs font-bold text-primary hover:underline flex items-center gap-1"
           >
-            <UserPlus size={15} /> Add / Squads
+            <UserPlus size={14} /> Add / Squads
           </button>
         </div>
 
-        <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-0.5">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
           {members.map((m) => {
             const owed = liveCalculation.individualBreakdowns[m.id]?.totalOwed || 0;
             const isMe = m.user_id === currentUserId;
@@ -762,13 +762,13 @@ export default function ReceiptWorkbench() {
               <div
                 key={m.id}
                 onClick={() => setShowMemberSheet(true)}
-                className={`shrink-0 min-h-10 px-3.5 py-2 rounded-xl border text-xs sm:text-sm flex items-center gap-2.5 cursor-pointer transition-colors ${
+                className={`shrink-0 px-3 py-1.5 rounded-xl border text-xs flex items-center gap-2 cursor-pointer transition-colors ${
                   isMe
-                    ? 'bg-primary/12 border-primary/35 text-main'
-                    : 'bg-page/90 border-border text-main'
+                    ? 'bg-primary/10 border-primary/30 text-main'
+                    : 'bg-page border-border text-main'
                 }`}
               >
-                <span className="font-bold truncate max-w-32">{m.name}</span>
+                <span className="font-bold truncate max-w-28">{m.name}</span>
                 <span className="font-extrabold text-primary tabular-nums">
                   <AnimatedNumber value={owed} />
                 </span>
@@ -778,23 +778,23 @@ export default function ReceiptWorkbench() {
           <button
             type="button"
             onClick={() => setShowMemberSheet(true)}
-            className="shrink-0 min-h-10 px-3.5 py-2 rounded-xl border border-dashed border-primary/45 text-primary text-xs sm:text-sm font-bold flex items-center gap-1.5 hover:bg-primary/5"
+            className="shrink-0 h-8 px-3 rounded-xl border border-dashed border-primary/40 text-primary text-xs font-bold flex items-center gap-1 hover:bg-primary/5"
           >
-            <Plus size={15} /> Person
+            <Plus size={14} /> Person
           </button>
         </div>
 
         {isHost && members.length <= 1 && savedSquads.length > 0 && (
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-2.5 border-t border-border/50">
-            <span className="text-xs font-bold text-muted shrink-0 pr-1">Squads:</span>
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-border/50">
+            <span className="text-[0.65rem] font-bold text-muted shrink-0 pr-1">Squads:</span>
             {savedSquads.map((squad) => (
               <button
                 key={squad.id}
                 type="button"
                 onClick={() => handleApplySquad(squad)}
-                className="shrink-0 min-h-9 px-3 py-1.5 rounded-xl bg-primary/12 hover:bg-primary/20 text-primary border border-primary/25 text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-transform"
+                className="shrink-0 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-[0.7rem] font-bold flex items-center gap-1 active:scale-95 transition-transform"
               >
-                <Sparkles size={12} /> + {squad.name} ({squad.members.length})
+                <Sparkles size={11} /> + {squad.name} ({squad.members.length})
               </button>
             ))}
           </div>

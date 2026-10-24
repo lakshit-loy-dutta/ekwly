@@ -1,5 +1,10 @@
 /* src/styles/base.css */
 
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -16,7 +21,7 @@
     margin: 0;
     line-height: 1.5;
     width: 100%;
-    height: 100%;
+    min-height: 100dvh;
     overscroll-behavior-y: none;
   }
 
@@ -37,7 +42,6 @@
     user-select: auto;
   }
 
-  /* Placed inside @layer base so Tailwind v4 utility classes (pl-10, h-7, w-auto, px-2) always win */
   input:not([type='checkbox']):not([type='radio']),
   select {
     width: 100%;
@@ -70,7 +74,6 @@
   }
 }
 
-/* Hide scrollbars globally but allow scrolling */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -81,7 +84,6 @@ html {
   scrollbar-width: none;
 }
 
-/* Enforce tabular numerals for financial figures and inputs */
 input[type='number'],
 input[inputmode='decimal'],
 input[inputmode='numeric'],
@@ -90,7 +92,6 @@ input[inputmode='numeric'],
   font-variant-numeric: tabular-nums;
 }
 
-/* GPU-accelerated layer promotion helper for 120Hz-240Hz animations */
 .gpu-layer {
   will-change: transform, opacity;
   transform: translateZ(0);
@@ -106,15 +107,11 @@ select.receipt-select {
   line-height: 1;
 }
 
-/* --- NATIVE MOBILE SAFE AREAS --- */
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .pb-safe {
-    padding-bottom: env(safe-area-inset-bottom) !important;
-  }
-  .pt-safe {
-    padding-top: env(safe-area-inset-top) !important;
-  }
-  .fixed.bottom-0 {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
+/* --- UNIVERSAL SAFE-AREA BOUNDARIES (PWA + ANDROID + iOS) --- */
+.pt-safe {
+  padding-top: var(--safe-top, env(safe-area-inset-top, 0px)) !important;
+}
+
+.pb-safe {
+  padding-bottom: calc(1rem + var(--safe-bottom, env(safe-area-inset-bottom, 0px))) !important;
 }
