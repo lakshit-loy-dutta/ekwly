@@ -87,6 +87,35 @@ export function useSessionMutations(deps: MutationDeps) {
       await supabase.from('tax_presets').insert(payload);
     };
 
+    const addTaxPresetsBatchToDB = async (presets: TaxPreset[]) => {
+      if (!sessionId || presets.length === 0) return;
+      setTaxPresets((prev) => {
+        const existingIds = new Set(prev.map((t) => t.id));
+        const uniqueNew = presets.filter((p) => !existingIds.has(p.id));
+        return [...prev, ...uniqueNew];
+      });
+
+      const payloads = presets.map((p) => ({
+        id: p.id,
+        session_id: sessionId,
+        name: p.name,
+        rate: p.rate,
+        split: p.split,
+      }));
+
+      if (!navigator.onLine) {
+        enqueueMutation('tax_presets', 'UPSERT', payloads);
+        return;
+      }
+
+      const { error } = await supabase.from('tax_presets').insert(payloads);
+      if (error) {
+        const addedIds = new Set(presets.map((p) => p.id));
+        setTaxPresets((prev) => prev.filter((t) => !addedIds.has(t.id)));
+        showToast('Network error: Failed to save detected tax brackets.', 'error');
+      }
+    };
+
     const removeTaxPresetFromDB = async (id: string) => {
       if (!sessionId) return;
       setTaxPresets((prev) => prev.filter((t) => t.id !== id));
@@ -651,6 +680,7 @@ export function useSessionMutations(deps: MutationDeps) {
       createSessionInDB,
       updateSessionRulesInDB,
       addTaxPresetToDB,
+      addTaxPresetsBatchToDB,
       removeTaxPresetFromDB,
       addItemToDB,
       addItemsBatchToDB,

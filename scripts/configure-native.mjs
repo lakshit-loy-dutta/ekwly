@@ -5,17 +5,89 @@ import { execSync } from 'node:child_process';
 
 const rootDir = process.cwd();
 const isWindows = os.platform() === 'win32';
-// Modes: 'patch' | 'keygen' | 'icons' | 'apk-debug' | 'apk-release' | 'aab-release'
+
+// Modes: 'patch' | 'doctor' | 'keygen' | 'icons' | 'apk-debug' | 'apk-release' | 'aab-release'
 const mode = process.argv[2] || 'patch';
 const isFullBuild = process.argv.includes('--full');
 
-// Metadata & Target Versions for Ekwly v1.0.0 (Capacitor 8.5.x)
-const APP_DISPLAY_NAME = process.env.EKWLY_APP_NAME || 'Ekwly';
-const APP_PACKAGE_ID = process.env.EKWLY_APP_ID || 'com.ekwly.app';
-const APP_VERSION_CODE = Number(process.env.EKWLY_VERSION_CODE || 1);
-const APP_VERSION_NAME = process.env.EKWLY_VERSION_NAME || '1.0.0';
-const TARGET_GRADLE_VERSION = '8.14.3';
-const TARGET_AGP_VERSION = '8.13.0';
+// --- 0. LOAD .ENV & READ DYNAMIC PROJECT METADATA FROM PACKAGE.JSON + CAPACITOR.CONFIG.JSON ---
+function loadLocalEnv() {
+  for (const envFile of ['.env', '.env.local']) {
+    const fullPath = path.join(rootDir, envFile);
+    if (!fs.existsSync(fullPath)) continue;
+    for (const rawLine of fs.readFileSync(fullPath, 'utf8').split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eqIdx = line.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = line.slice(0, eqIdx).trim();
+      let val = line.slice(eqIdx + 1).trim();
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      if (!(key in process.env)) process.env[key] = val;
+    }
+  }
+}
+
+loadLocalEnv();
+
+const pkgJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+const capConfig = JSON.parse(fs.readFileSync(path.join(rootDir, 'capacitor.config.json'), 'utf8'));
+
+function semverToVersionCode(versionStr) {
+  const parts = String(versionStr || '1.0.0')
+    .replace(/[^0-9.]/g, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0);
+  const [major = 1, minor = 0, patch = 0] = parts;
+  return Math.max(1, major * 10000 + minor * 100 + patch);
+}
+
+const APP_DISPLAY_NAME = process.env.EKWLY_APP_NAME || capConfig.appName || 'Ekwly';
+const APP_PACKAGE_ID = process.env.EKWLY_APP_ID || capConfig.appId || 'com.ekwly.app';
+const APP_VERSION_NAME = process.env.EKWLY_VERSION_NAME || pkgJson.version || '1.0.0';
+const APP_VERSION_CODE = Number(
+  process.env.EKWLY_VERSION_CODE || semverToVersionCode(APP_VERSION_NAME)
+);
+
+// Official Capacitor 8.x Verified Toolchain Compatibility Matrix (Nov 2026)
+const TOOLCHAIN_MATRIX = {
+  8: {
+    capacitorRange: '8.6.x (Latest Stable)',
+    gradle: '8.14.3',
+    agp: '8.13.0',
+    kotlin: '2.2.20',
+    minSdk: 24,
+    compileSdk: 36,
+    targetSdk: 36,
+    iosDeploymentTarget: '15.0',
+    jdkMajor: 21,
+  },
+};
+
+function getInstalledPackageVersion(pkgName) {
+  try {
+    const p = path.join(rootDir, 'node_modules', ...pkgName.split('/'), 'package.json');
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, 'utf8')).version;
+    }
+  } catch {
+    // Fallback to package.json spec
+  }
+  const raw = pkgJson.dependencies?.[pkgName] || pkgJson.devDependencies?.[pkgName] || '8.6.2';
+  return String(raw).replace(/^[^0-9]*/, '');
+}
+
+const installedCapCore = getInstalledPackageVersion('@capacitor/core');
+const capMajor = parseInt(installedCapCore.split('.')[0], 10) || 8;
+const activeMatrix = TOOLCHAIN_MATRIX[capMajor] || TOOLCHAIN_MATRIX[8];
+
+const TARGET_GRADLE_VERSION = process.env.EKWLY_GRADLE_VERSION || activeMatrix.gradle;
+const TARGET_AGP_VERSION = process.env.EKWLY_AGP_VERSION || activeMatrix.agp;
 
 // Locked v3 Equilibrium Monolith Vector Paths (for Native Android Vector Drawables)
 const E_PATH =
@@ -25,7 +97,7 @@ const EQ_TOP_PATH =
 const EQ_BOT_PATH =
   'M 43.63 60.95 L 72.26 60.95 A 6.00 6.00 0 0 1 78.26 66.95 L 78.26 68.85 A 6.00 6.00 0 0 1 72.26 74.85 L 43.63 74.85 A 6.00 6.00 0 0 1 37.63 68.85 L 37.63 66.95 A 6.00 6.00 0 0 1 43.63 60.95 Z';
 
-// --- 1. AUTO-DETECT ANDROID STUDIO JBR 21 & ANDROID SDK ON WINDOWS ---
+// --- 1. AUTO-DETECT JDK 21 & ANDROID SDK ---
 function findJavaHome() {
   if (process.env.JAVA_HOME && fs.existsSync(process.env.JAVA_HOME)) {
     return process.env.JAVA_HOME;
@@ -38,6 +110,9 @@ function findJavaHome() {
     for (const c of candidates) {
       if (fs.existsSync(path.join(c, 'bin', 'java.exe'))) return c;
     }
+  } else if (os.platform() === 'darwin') {
+    const macJbr = '/Applications/Android Studio.app/Contents/jbr/Contents/Home';
+    if (fs.existsSync(macJbr)) return macJbr;
   }
   return null;
 }
@@ -49,6 +124,9 @@ function findAndroidSdk() {
   if (isWindows) {
     const defaultSdk = path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk');
     if (fs.existsSync(defaultSdk)) return defaultSdk;
+  } else if (os.platform() === 'darwin') {
+    const macSdk = path.join(os.homedir(), 'Library', 'Android', 'sdk');
+    if (fs.existsSync(macSdk)) return macSdk;
   }
   return null;
 }
@@ -57,7 +135,95 @@ const javaHome = findJavaHome();
 const androidSdk = findAndroidSdk();
 const androidDir = path.join(rootDir, 'android');
 
+// --- 2. DOCTOR & LIVE VERSION CHECK MODE ('doctor') ---
+async function runDoctor() {
+  console.log(
+    `\n=== Ekwly Native Toolchain Doctor (${APP_DISPLAY_NAME} v${APP_VERSION_NAME}, code ${APP_VERSION_CODE}) ===\n`
+  );
+
+  const packagesToCheck = [
+    '@capacitor/core',
+    '@capacitor/cli',
+    '@capacitor/android',
+    '@capacitor/ios',
+    '@capacitor/app',
+    '@capacitor/camera',
+    '@capacitor-mlkit/barcode-scanning',
+    '@capgo/capacitor-updater',
+  ];
+
+  console.log('1. Capacitor Package Parity & Live npm Registry Check:');
+  for (const pkg of packagesToCheck) {
+    const localVer = getInstalledPackageVersion(pkg);
+    let latestVer = 'offline';
+    try {
+      const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(pkg)}/latest`);
+      if (res.ok) {
+        const data = await res.json();
+        latestVer = data.version || 'unknown';
+      }
+    } catch {
+      // Offline
+    }
+    const status =
+      latestVer === 'offline'
+        ? '(offline)'
+        : localVer === latestVer
+          ? '✅ up-to-date'
+          : `⬆️  latest: ${latestVer}`;
+    console.log(`   • ${pkg.padEnd(36)} local: ${localVer.padEnd(10)} ${status}`);
+  }
+
+  let latestGradle = 'offline';
+  try {
+    const gRes = await fetch('https://services.gradle.org/versions/current');
+    if (gRes.ok) {
+      const gData = await gRes.json();
+      latestGradle = gData.version || 'unknown';
+    }
+  } catch {
+    // Offline
+  }
+
+  console.log('\n2. Native Build Toolchain & Environment:');
+  console.log(
+    `   • Target Matrix (Cap ${capMajor}.x): Gradle ${TARGET_GRADLE_VERSION} (latest Gradle: ${latestGradle}) | AGP ${TARGET_AGP_VERSION} | SDK ${activeMatrix.compileSdk}`
+  );
+  console.log(
+    `   • JDK 21+:     ${javaHome ? `✅ ${javaHome}` : '⚠️  Not auto-detected (set JAVA_HOME)'}`
+  );
+  console.log(
+    `   • Android SDK: ${
+      androidSdk
+        ? `${fs.existsSync(path.join(androidSdk, 'platforms', `android-${activeMatrix.compileSdk}`)) ? '✅' : '⚠️  Missing platform android-' + activeMatrix.compileSdk} ${androidSdk}`
+        : '⚠️  Not auto-detected (set ANDROID_HOME)'
+    }`
+  );
+  console.log(
+    `   • Release Key: ${
+      process.env.EKWLY_KEYSTORE_PASS
+        ? '✅ EKWLY_KEYSTORE_PASS configured'
+        : '⚠️  EKWLY_KEYSTORE_PASS not set in .env (required for release APK/AAB)'
+    }\n`
+  );
+}
+
+if (mode === 'doctor') {
+  await runDoctor();
+  process.exit(0);
+}
+
+// --- 3. KEYSTORE GENERATOR (NO HARDCODED PASSWORD FALLBACK) ---
 function ensureUploadKeystore() {
+  const password = process.env.EKWLY_KEYSTORE_PASS;
+  if (!password || password.trim().length < 8) {
+    console.error(
+      '[Ekwly Native] ERROR: EKWLY_KEYSTORE_PASS env var (min 8 chars) is required for keystore generation & release builds.'
+    );
+    console.error('Set EKWLY_KEYSTORE_PASS in your local .env or CI secrets and retry.');
+    process.exit(1);
+  }
+
   fs.mkdirSync(androidDir, { recursive: true });
   const keystorePath = path.join(androidDir, 'ekwly-upload-key.jks');
   const propsPath = path.join(androidDir, 'keystore.properties');
@@ -65,8 +231,7 @@ function ensureUploadKeystore() {
   const keytoolBin = javaHome
     ? `"${path.join(javaHome, 'bin', isWindows ? 'keytool.exe' : 'keytool')}"`
     : 'keytool';
-  const password = process.env.EKWLY_KEYSTORE_PASS || 'ekwlyRelease2026!';
-  const alias = 'ekwly-upload';
+  const alias = process.env.EKWLY_KEY_ALIAS || 'ekwly-upload';
   const dname = 'CN=Lakshit Loy Dutta, OU=Ekwly Engineering, O=Ekwly, L=Guwahati, ST=Assam, C=IN';
 
   if (!fs.existsSync(keystorePath)) {
@@ -79,34 +244,22 @@ function ensureUploadKeystore() {
     console.log(`[Ekwly Native] Using upload keystore -> ${keystorePath}`);
   }
 
-  if (!fs.existsSync(propsPath)) {
-    const propsContent = [
-      'storeFile=ekwly-upload-key.jks',
-      `storePassword=${password}`,
-      `keyAlias=${alias}`,
-      `keyPassword=${password}`,
-      '',
-    ].join('\n');
-    fs.writeFileSync(propsPath, propsContent, 'utf8');
-  } else {
-    let existingProps = fs.readFileSync(propsPath, 'utf8');
-    if (existingProps.includes('storeFile=../ekwly-upload-key.jks')) {
-      existingProps = existingProps.replace(
-        'storeFile=../ekwly-upload-key.jks',
-        'storeFile=ekwly-upload-key.jks'
-      );
-      fs.writeFileSync(propsPath, existingProps, 'utf8');
-    }
-  }
+  const propsContent = [
+    'storeFile=ekwly-upload-key.jks',
+    `storePassword=${password}`,
+    `keyAlias=${alias}`,
+    `keyPassword=${password}`,
+    '',
+  ].join('\n');
+  fs.writeFileSync(propsPath, propsContent, 'utf8');
 }
 
-// --- 2. KEYSTORE GENERATOR MODE ('keygen') ---
 if (mode === 'keygen') {
   ensureUploadKeystore();
   process.exit(0);
 }
 
-// --- 3. NATIVE ADAPTIVE ICONS & SPLASH SYNC MODE ('icons') ---
+// --- 4. NATIVE ADAPTIVE ICONS & SPLASH SYNC ('icons') ---
 function syncRasterCapacitorAssetsIfPresent(requireAll = false) {
   const resourcesDir = path.join(rootDir, 'resources');
   const required = [
@@ -117,21 +270,17 @@ function syncRasterCapacitorAssetsIfPresent(requireAll = false) {
     'splash-dark.png',
   ];
   const missing = required.filter((f) => !fs.existsSync(path.join(resourcesDir, f)));
-
   if (missing.length > 0) {
     if (requireAll) {
       console.error(`[Ekwly Native] Missing in resources/: ${missing.join(', ')}`);
       console.error(
-        'Open brand-kit/export-png-and-gif.html, click "2. Download All 5 resources/ PNGs", and place them in resources/.'
+        'Run `node scripts/generate-brand-assets.mjs`, open brand-kit/export-png-and-gif.html, and place the 5 PNGs in resources/.'
       );
       process.exit(1);
     }
     return;
   }
-
-  console.log(
-    '[Ekwly Native] Generating raster mipmap PNGs & Splash Screens via @capacitor/assets...'
-  );
+  console.log('[Ekwly Native] Generating raster mipmaps & splash screens via @capacitor/assets...');
   execSync(
     'pnpm dlx @capacitor/assets generate --iconBackgroundColor "#071226" --iconBackgroundColorDark "#071226" --splashBackgroundColor "#f2f8ff" --splashBackgroundColorDark "#050914"',
     { cwd: rootDir, stdio: 'inherit' }
@@ -142,32 +291,37 @@ if (mode === 'icons') {
   syncRasterCapacitorAssetsIfPresent(true);
 }
 
-// --- 4. OPTIONAL FULL WEB BUILD & CAPACITOR SYNC (--full) ---
+// --- 5. OPTIONAL FULL WEB BUILD & CAPACITOR SYNC (--full) ---
 if (isFullBuild) {
   const buildEnv = { ...process.env, CAPACITOR_BUILD: 'true' };
   console.log('[Ekwly Native] Building static Astro bundle with CAPACITOR_BUILD=true...');
   execSync('pnpm astro build', { cwd: rootDir, stdio: 'inherit', env: buildEnv });
-
   if (!fs.existsSync(androidDir)) {
     console.log('[Ekwly Native] Initializing Capacitor Android platform...');
     execSync('pnpm cap add android', { cwd: rootDir, stdio: 'inherit', env: buildEnv });
   }
-
   console.log('[Ekwly Native] Syncing web assets into Capacitor Android...');
   execSync('pnpm cap sync android', { cwd: rootDir, stdio: 'inherit', env: buildEnv });
-
   syncRasterCapacitorAssetsIfPresent(false);
 }
 
-// Auto-ensure upload keystore exists before any release build
 if (mode === 'aab-release' || mode === 'apk-release') {
   ensureUploadKeystore();
 }
 
-// --- 5. INJECT NATIVE ANDROID VECTOR ADAPTIVE ICON, SPLASH & METADATA ---
+// --- 6. INJECT NATIVE ANDROID VECTOR ADAPTIVE ICON, SPLASH, SAFE INSETS & METADATA ---
 function injectAndroidBrandAndMetadata() {
   const resDir = path.join(androidDir, 'app', 'src', 'main', 'res');
   if (!fs.existsSync(resDir)) return;
+
+  // Remove unused Capacitor template test stubs (com.getcapacitor.myapp)
+  const boilerplateTests = [
+    path.join(androidDir, 'app', 'src', 'androidTest', 'java', 'com', 'getcapacitor', 'myapp'),
+    path.join(androidDir, 'app', 'src', 'test', 'java', 'com', 'getcapacitor', 'myapp'),
+  ];
+  for (const dir of boilerplateTests) {
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  }
 
   const drawableDir = path.join(resDir, 'drawable');
   const valuesDir = path.join(resDir, 'values');
@@ -176,21 +330,17 @@ function injectAndroidBrandAndMetadata() {
   fs.mkdirSync(valuesDir, { recursive: true });
   fs.mkdirSync(anydpiDir, { recursive: true });
 
-  // 5.0 Clean up any conflicting Capacitor template drawables (splash.png in drawable* and v24 foreground)
+  // Clean up conflicting Capacitor template drawables
   for (const entry of fs.readdirSync(resDir)) {
     if (entry.startsWith('drawable')) {
       const candidateSplashPng = path.join(resDir, entry, 'splash.png');
-      if (fs.existsSync(candidateSplashPng)) {
-        fs.unlinkSync(candidateSplashPng);
-      }
+      if (fs.existsSync(candidateSplashPng)) fs.unlinkSync(candidateSplashPng);
       const candidateV24Fg = path.join(resDir, entry, 'ic_launcher_foreground.xml');
-      if (entry !== 'drawable' && fs.existsSync(candidateV24Fg)) {
-        fs.unlinkSync(candidateV24Fg);
-      }
+      if (entry !== 'drawable' && fs.existsSync(candidateV24Fg)) fs.unlinkSync(candidateV24Fg);
     }
   }
 
-  // 5.1 Write Native Vector Adaptive Foreground (108dp canvas, 0.54x scale centered at 54,54 inside 66dp safe circle)
+  // Native Vector Adaptive Foreground
   const fgXml = `<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -216,7 +366,7 @@ function injectAndroidBrandAndMetadata() {
 `;
   fs.writeFileSync(path.join(drawableDir, 'ic_launcher_foreground.xml'), fgXml, 'utf8');
 
-  // 5.2 Write Native Vector Adaptive Background (#071226 -> #0F2342 Deep Slate Gradient)
+  // Native Vector Adaptive Background
   const bgXml = `<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -241,7 +391,6 @@ function injectAndroidBrandAndMetadata() {
 `;
   fs.writeFileSync(path.join(drawableDir, 'ic_launcher_background.xml'), bgXml, 'utf8');
 
-  // 5.3 Point mipmap-anydpi-v26/ic_launcher.xml & ic_launcher_round.xml to our Vector Drawables
   const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
@@ -252,7 +401,6 @@ function injectAndroidBrandAndMetadata() {
   fs.writeFileSync(path.join(anydpiDir, 'ic_launcher.xml'), adaptiveXml, 'utf8');
   fs.writeFileSync(path.join(anydpiDir, 'ic_launcher_round.xml'), adaptiveXml, 'utf8');
 
-  // 5.4 Write Native Vector Boot Splash Screen (drawable/splash.xml)
   const splashXml = `<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
@@ -269,7 +417,6 @@ function injectAndroidBrandAndMetadata() {
 `;
   fs.writeFileSync(path.join(drawableDir, 'splash.xml'), splashXml, 'utf8');
 
-  // 5.5 Write values/strings.xml (App Name, Activity Title & URL Scheme)
   const stringsXml = `<?xml version='1.0' encoding='utf-8'?>
 <resources>
     <string name="app_name">${APP_DISPLAY_NAME}</string>
@@ -280,24 +427,18 @@ function injectAndroidBrandAndMetadata() {
 `;
   fs.writeFileSync(path.join(valuesDir, 'strings.xml'), stringsXml, 'utf8');
 
-  // 5.6 Write values/ic_launcher_background.xml & values/colors.xml (without duplicate color keys)
-  const launcherBgColorXml = `<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="ic_launcher_background">#071226</color>
-</resources>
-`;
-  fs.writeFileSync(path.join(valuesDir, 'ic_launcher_background.xml'), launcherBgColorXml, 'utf8');
+  fs.writeFileSync(
+    path.join(valuesDir, 'ic_launcher_background.xml'),
+    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#071226</color>\n</resources>\n`,
+    'utf8'
+  );
 
-  const colorsXml = `<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="colorPrimary">#0080FF</color>
-    <color name="colorPrimaryDark">#050914</color>
-    <color name="colorAccent">#38BDF8</color>
-</resources>
-`;
-  fs.writeFileSync(path.join(valuesDir, 'colors.xml'), colorsXml, 'utf8');
+  fs.writeFileSync(
+    path.join(valuesDir, 'colors.xml'),
+    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="colorPrimary">#0080FF</color>\n    <color name="colorPrimaryDark">#050914</color>\n    <color name="colorAccent">#38BDF8</color>\n</resources>\n`,
+    'utf8'
+  );
 
-  // 5.7 Write values/styles.xml (True Edge-to-Edge Transparent Status & Navigation Bars)
   const stylesXml = `<?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
@@ -308,15 +449,12 @@ function injectAndroidBrandAndMetadata() {
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
-        <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
     </style>
-
     <style name="AppTheme.NoActionBar" parent="AppTheme">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
     </style>
-
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
         <item name="windowSplashScreenBackground">#050914</item>
@@ -327,7 +465,7 @@ function injectAndroidBrandAndMetadata() {
 `;
   fs.writeFileSync(path.join(valuesDir, 'styles.xml'), stylesXml, 'utf8');
 
-  // 5.8 Patch MainActivity.java for Edge-to-Edge Window Insets (--safe-top / --safe-bottom) & Dynamic Light/Dark Bar Icons
+  // MainActivity.java: Injects --safe-top / --safe-bottom (including display cutouts) AND propagates IME keyboard insets
   const mainActivityPath = path.join(
     androidDir,
     'app',
@@ -383,10 +521,13 @@ public class MainActivity extends BridgeActivity {
             }, "EkwlyNativeBar");
 
             ViewCompat.setOnApplyWindowInsetsListener(webView, (v, windowInsets) -> {
-                Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                Insets bars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+                );
+                Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
                 float density = getResources().getDisplayMetrics().density;
                 int topDp = Math.round(bars.top / density);
-                int bottomDp = Math.round(bars.bottom / density);
+                int bottomDp = Math.round(Math.max(bars.bottom, ime.bottom) / density);
 
                 String js = String.format(
                     "document.documentElement.style.setProperty('--safe-top', '%dpx');" +
@@ -394,7 +535,7 @@ public class MainActivity extends BridgeActivity {
                     topDp, bottomDp
                 );
                 webView.post(() -> webView.evaluateJavascript(js, null));
-                return WindowInsetsCompat.CONSUMED;
+                return ViewCompat.onApplyWindowInsets(v, windowInsets);
             });
         }
     }
@@ -403,26 +544,20 @@ public class MainActivity extends BridgeActivity {
     fs.writeFileSync(mainActivityPath, mainActivityJava, 'utf8');
   }
   console.log(
-    '[Ekwly Native] Injected Vector Adaptive Icon (Android 8-16 + Android 13 Monochrome), Splash & App Metadata.'
+    '[Ekwly Native] Injected Vector Adaptive Icon, Splash, Cutout + IME Keyboard Insets & Metadata.'
   );
 }
 
-// --- 6. ENFORCE LATEST COMPATIBLE GRADLE, AGP, SDK 36, JDK 21 & RELEASE SIGNING ---
+// --- 7. SYNC GRADLE, AGP, SDK & RELEASE SIGNING ---
 if (fs.existsSync(androidDir)) {
   injectAndroidBrandAndMetadata();
+  if (mode === 'icons') process.exit(0);
 
-  if (mode === 'icons') {
-    process.exit(0);
-  }
-
-  // 6a. Link Android SDK in local.properties
   if (androidSdk) {
     const escapedSdk = androidSdk.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
     fs.writeFileSync(path.join(androidDir, 'local.properties'), `sdk.dir=${escapedSdk}\n`, 'utf8');
-    console.log(`[Ekwly Native] Linked Android SDK -> ${androidSdk}`);
   }
 
-  // 6b. Pin Gradle Wrapper to 8.14.3
   const wrapperPropsPath = path.join(androidDir, 'gradle', 'wrapper', 'gradle-wrapper.properties');
   if (fs.existsSync(wrapperPropsPath)) {
     let wrapperProps = fs.readFileSync(wrapperPropsPath, 'utf8');
@@ -431,10 +566,8 @@ if (fs.existsSync(androidDir)) {
       `distributionUrl=https\\://services.gradle.org/distributions/gradle-${TARGET_GRADLE_VERSION}-all.zip`
     );
     fs.writeFileSync(wrapperPropsPath, wrapperProps, 'utf8');
-    console.log(`[Ekwly Native] Pinned Gradle Wrapper -> ${TARGET_GRADLE_VERSION}`);
   }
 
-  // 6c. Upgrade Root build.gradle to AGP 8.13.0
   const rootBuildGradlePath = path.join(androidDir, 'build.gradle');
   if (fs.existsSync(rootBuildGradlePath)) {
     let rootGradle = fs.readFileSync(rootBuildGradlePath, 'utf8');
@@ -443,28 +576,21 @@ if (fs.existsSync(androidDir)) {
       `classpath 'com.android.tools.build:gradle:${TARGET_AGP_VERSION}'`
     );
     fs.writeFileSync(rootBuildGradlePath, rootGradle, 'utf8');
-    console.log(`[Ekwly Native] Pinned Android Gradle Plugin -> ${TARGET_AGP_VERSION}`);
   }
 
-  // 6d. Upgrade variables.gradle to Android SDK 36 & minSdk 24
   const varsGradlePath = path.join(androidDir, 'variables.gradle');
   if (fs.existsSync(varsGradlePath)) {
     let varsGradle = fs.readFileSync(varsGradlePath, 'utf8');
     varsGradle = varsGradle
-      .replace(/minSdkVersion\s*=\s*\d+/g, 'minSdkVersion = 24')
-      .replace(/compileSdkVersion\s*=\s*\d+/g, 'compileSdkVersion = 36')
-      .replace(/targetSdkVersion\s*=\s*\d+/g, 'targetSdkVersion = 36');
+      .replace(/minSdkVersion\s*=\s*\d+/g, `minSdkVersion = ${activeMatrix.minSdk}`)
+      .replace(/compileSdkVersion\s*=\s*\d+/g, `compileSdkVersion = ${activeMatrix.compileSdk}`)
+      .replace(/targetSdkVersion\s*=\s*\d+/g, `targetSdkVersion = ${activeMatrix.targetSdk}`);
     fs.writeFileSync(varsGradlePath, varsGradle, 'utf8');
-    console.log(
-      '[Ekwly Native] Upgraded variables.gradle -> compileSdk 36, targetSdk 36, minSdk 24'
-    );
   }
 
-  // 6e. Self-Healing Patch for android/app/build.gradle (versionCode, versionName & Release Signing)
   const appBuildGradlePath = path.join(androidDir, 'app', 'build.gradle');
   if (fs.existsSync(appBuildGradlePath)) {
     let appGradle = fs.readFileSync(appBuildGradlePath, 'utf8');
-
     appGradle = appGradle
       .replace(/applicationId\s+["'][^"']+["']/g, `applicationId "${APP_PACKAGE_ID}"`)
       .replace(/versionCode\s+\d+/g, `versionCode ${APP_VERSION_CODE}`)
@@ -500,10 +626,6 @@ if (fs.existsSync(androidDir)) {
             }
         }
     }
-    lint {
-        checkReleaseBuilds false
-        abortOnError false
-    }
     buildTypes {`;
 
     appGradle = appGradle.replace(/buildTypes\s*\{/, cleanSigningAndBuildTypes);
@@ -513,32 +635,27 @@ if (fs.existsSync(androidDir)) {
     );
 
     fs.writeFileSync(appBuildGradlePath, appGradle, 'utf8');
-    console.log(
-      `[Ekwly Native] Configured app/build.gradle -> ${APP_PACKAGE_ID} v${APP_VERSION_NAME} (code ${APP_VERSION_CODE}) + Release Signing`
-    );
   }
 
-  // 6f. Link JBR 21 in gradle.properties
+  // Strip any machine-specific org.gradle.java.home line from tracked gradle.properties
   const gradlePropsPath = path.join(androidDir, 'gradle.properties');
   if (fs.existsSync(gradlePropsPath)) {
     let gradleProps = fs.readFileSync(gradlePropsPath, 'utf8');
-    if (javaHome) {
-      const escapedJava = javaHome.replace(/\\/g, '/');
-      if (gradleProps.includes('org.gradle.java.home=')) {
-        gradleProps = gradleProps.replace(
-          /^org\.gradle\.java\.home=.*$/m,
-          `org.gradle.java.home=${escapedJava}`
-        );
-      } else {
-        gradleProps += `\n# Auto-configured by Ekwly configure-native.mjs\norg.gradle.java.home=${escapedJava}\norg.gradle.parallel=true\norg.gradle.caching=true\n`;
-      }
-      fs.writeFileSync(gradlePropsPath, gradleProps, 'utf8');
-      console.log(`[Ekwly Native] Linked Gradle JDK 21 -> ${javaHome}`);
+    gradleProps = gradleProps
+      .replace(/\r?\n?# Auto-configured by Ekwly configure-native\.mjs\r?\n?/g, '\n')
+      .replace(/^org\.gradle\.java\.home=.*\r?\n?/gm, '');
+    if (!gradleProps.includes('org.gradle.parallel=true')) {
+      gradleProps += '\norg.gradle.parallel=true\norg.gradle.caching=true\n';
     }
+    fs.writeFileSync(gradlePropsPath, gradleProps, 'utf8');
   }
+
+  console.log(
+    `[Ekwly Native] Synced Android -> ${APP_PACKAGE_ID} v${APP_VERSION_NAME} (code ${APP_VERSION_CODE}) | Gradle ${TARGET_GRADLE_VERSION} | AGP ${TARGET_AGP_VERSION} | SDK ${activeMatrix.compileSdk}`
+  );
 }
 
-// --- 7. PATCH ANDROID MANIFEST ---
+// --- 8. PATCH ANDROID MANIFEST (PERMISSIONS, UPI/WHATSAPP QUERIES & OAUTH DEEP LINK) ---
 const androidManifestPath = path.join(androidDir, 'app', 'src', 'main', 'AndroidManifest.xml');
 if (fs.existsSync(androidManifestPath)) {
   let manifest = fs.readFileSync(androidManifestPath, 'utf8');
@@ -548,6 +665,16 @@ if (fs.existsSync(androidManifestPath)) {
       '<application',
       '<application\n        android:hardwareAccelerated="true"'
     );
+  }
+
+  if (!manifest.includes(`android:scheme="${APP_PACKAGE_ID}"`)) {
+    const deepLinkFilter = `            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${APP_PACKAGE_ID}" android:host="auth-callback" />
+            </intent-filter>\n        </activity>`;
+    manifest = manifest.replace('</activity>', deepLinkFilter);
   }
 
   if (!manifest.includes('android.permission.CAMERA')) {
@@ -579,12 +706,9 @@ if (fs.existsSync(androidManifestPath)) {
   }
 
   fs.writeFileSync(androidManifestPath, manifest, 'utf8');
-  console.log(
-    '[Ekwly Native] Patched AndroidManifest.xml (240Hz Hardware Acceleration, Camera, Vibrate, ML Kit, UPI & WhatsApp).'
-  );
 }
 
-// --- 8. PATCH iOS INFO.PLIST ---
+// --- 9. PATCH iOS INFO.PLIST (PERMISSIONS, PROMOTION, UPI SCHEMES & DEEP LINK) ---
 const iosPlistPath = path.join(rootDir, 'ios', 'App', 'App', 'Info.plist');
 if (fs.existsSync(iosPlistPath)) {
   let plist = fs.readFileSync(iosPlistPath, 'utf8');
@@ -598,6 +722,17 @@ if (fs.existsSync(iosPlistPath)) {
 \t<string>Ekwly needs permission to save settlement receipts.</string>
 \t<key>CADisableMinimumFrameDurationOnPhone</key>
 \t<true/>
+\t<key>CFBundleURLTypes</key>
+\t<array>
+\t\t<dict>
+\t\t\t<key>CFBundleURLName</key>
+\t\t\t<string>${APP_PACKAGE_ID}</string>
+\t\t\t<key>CFBundleURLSchemes</key>
+\t\t\t<array>
+\t\t\t\t<string>${APP_PACKAGE_ID}</string>
+\t\t\t</array>
+\t\t</dict>
+\t</array>
 \t<key>LSApplicationQueriesSchemes</key>
 \t<array>
 \t\t<string>upi</string>
@@ -608,11 +743,10 @@ if (fs.existsSync(iosPlistPath)) {
 \t</array>\n</dict>`;
     plist = plist.replace(/<\/dict>\s*<\/plist>/, `${iosAdditions}\n</plist>`);
     fs.writeFileSync(iosPlistPath, plist, 'utf8');
-    console.log('[Ekwly Native] Patched iOS Info.plist (120Hz ProMotion, Camera, UPI Schemes).');
   }
 }
 
-// --- 9. CLI APK & PLAY STORE AAB BUNDLE COMPILER (AUTO-RENAMED TO Ekwly.apk / Ekwly.aab) ---
+// --- 10. CLI APK & PLAY STORE AAB COMPILER (OUTPUTS TO GITIGNORED dist/native/) ---
 if (mode === 'apk-debug' || mode === 'apk-release' || mode === 'aab-release') {
   if (!fs.existsSync(androidDir)) {
     console.error('[Ekwly Native] android/ folder not found. Run "pnpm cap add android" first.');
@@ -640,16 +774,14 @@ if (mode === 'apk-debug' || mode === 'apk-release' || mode === 'aab-release') {
         ? path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
         : path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 
+  const nativeOutDir = path.join(rootDir, 'dist', 'native');
+  fs.mkdirSync(nativeOutDir, { recursive: true });
   const cleanFileName = mode === 'aab-release' ? 'Ekwly.aab' : 'Ekwly.apk';
-  const sameDirRenamedPath = path.join(path.dirname(rawOutputPath), cleanFileName);
-  const rootRenamedPath = path.join(rootDir, cleanFileName);
+  const finalArtifactPath = path.join(nativeOutDir, cleanFileName);
 
   if (fs.existsSync(rawOutputPath)) {
-    fs.copyFileSync(rawOutputPath, sameDirRenamedPath);
-    fs.copyFileSync(rawOutputPath, rootRenamedPath);
-    console.log(`\n✅ ${cleanFileName} Ready at:`);
-    console.log(`   1. ${rootRenamedPath} (Project Root)`);
-    console.log(`   2. ${sameDirRenamedPath}`);
+    fs.copyFileSync(rawOutputPath, finalArtifactPath);
+    console.log(`\n✅ ${cleanFileName} Ready at: ${finalArtifactPath}`);
   } else {
     console.log(`\n✅ Build Artifact Ready at: ${rawOutputPath}`);
   }
