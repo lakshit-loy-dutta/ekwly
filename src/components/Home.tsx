@@ -280,8 +280,8 @@ export default function Home({
   };
 
   const processScannedUrl = (scannedUrl: string) => {
-    let sessionId = null;
-    let pin = null;
+    let sessionId: string | null;
+    let pin: string | null;
     try {
       const url = new URL(scannedUrl);
       sessionId = url.searchParams.get('s');

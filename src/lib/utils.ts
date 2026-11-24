@@ -64,7 +64,7 @@ export const utils = {
   },
 
   getSplitNames: (name: string) => {
-    let base = name.trim();
+    const base = name.trim();
     if (/GST/i.test(base)) {
       return {
         cgst: base.replace(/GST/i, 'CGST'),
@@ -111,7 +111,7 @@ export const utils = {
     const formattedAmt = `₹${params.amount.toFixed(2)}`;
     const contextStr = params.venueName ? ` at *${params.venueName}*` : '';
 
-    let message = '';
+    let message: string;
     if (params.isReminder) {
       message = `Hey ${params.debtorName}! 👋 Friendly reminder regarding your pending balance of *${formattedAmt}*${contextStr} owed to ${params.creditorName} on Ekwly.`;
     } else {

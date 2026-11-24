@@ -249,7 +249,7 @@ export default function Friends({ user }: Props) {
   };
 
   const handleScannedFriendUrl = async (scannedText: string) => {
-    let friendId: string | null = null;
+    let friendId: string | null;
     try {
       const url = new URL(scannedText);
       friendId = url.searchParams.get('add_friend');

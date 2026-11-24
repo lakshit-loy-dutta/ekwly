@@ -25,8 +25,8 @@ export default function Lobby({ onClose, onJoin }: Props) {
   };
 
   const handleScannedRoomUrl = (scannedUrl: string) => {
-    let sessionId: string | null = null;
-    let pin: string | null = null;
+    let sessionId: string | null;
+    let pin: string | null;
     try {
       const url = new URL(scannedUrl);
       sessionId = url.searchParams.get('s');

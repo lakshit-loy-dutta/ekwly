@@ -92,16 +92,6 @@ export default function AppRouter() {
   }, [isAuthChecking, currentView]);
 
   useEffect(() => {
-    if (!user || user.is_anonymous || typeof window === 'undefined') return;
-    const lastPruned = Number(localStorage.getItem('ekwly_last_prune_ts') || 0);
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    if (Date.now() - lastPruned > sevenDaysMs) {
-      localStorage.setItem('ekwly_last_prune_ts', String(Date.now()));
-      supabase.rpc('prune_stale_data').then(() => {});
-    }
-  }, [user]);
-
-  useEffect(() => {
     const checkUserOnboardingAndLinks = async (currentUser: User) => {
       const urlParams = new URLSearchParams(window.location.search);
       const friendToAdd = urlParams.get('add_friend');

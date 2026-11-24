@@ -15,6 +15,7 @@ export interface RepomixConfig {
     topFilesLength?: number;
     showLineNumbers?: boolean;
     copyToClipboard?: boolean;
+    splitOutput?: number;
     git?: {
       sortByChanges?: boolean;
       sortByChangesMaxCommits?: number;
@@ -44,14 +45,13 @@ const config: RepomixConfig = {
     directoryStructure: true,
     files: true,
     removeComments: false,
-    removeEmptyLines: false,
+    removeEmptyLines: true,
     compress: false,
     topFilesLength: 10,
     showLineNumbers: false,
     copyToClipboard: false,
     git: {
-      sortByChanges: true,
-      sortByChangesMaxCommits: 100,
+      sortByChanges: false,
       includeDiffs: false,
     },
   },
@@ -67,14 +67,11 @@ const config: RepomixConfig = {
     '.editorconfig',
     '.nvmrc',
     'AGENTS.md',
-    'CLAUDE.md',
     '.github/**/*',
     '.vscode/*',
     'src/**/*',
-    'scripts/*.mjs',
-    'scripts/**/*.mjs',
+    'scripts/configure-native.mjs',
     'supabase/functions/**/*.ts',
-    'supabase/migrations/**/*.sql',
   ],
   ignore: {
     useGitignore: true,
@@ -91,8 +88,13 @@ const config: RepomixConfig = {
       'package-lock.json',
       'pnpm-lock.yaml',
       'yarn.lock',
-      'repomix-output.*',
+      'repomix-output*',
+      '.audit-pack/**',
       '**/*.log',
+      '**/*.sql',
+      'supabase/migrations/**',
+      'scripts/generate-brand-assets.mjs',
+      'CLAUDE.md',
       'public/**',
     ],
   },

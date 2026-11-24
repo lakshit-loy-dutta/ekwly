@@ -1,65 +1,45 @@
 // deno-lint-ignore no-import-prefix
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
-
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-
+Deno.serve(async (req)=>{
+  if (req.method === 'OPTIONS') return new Response('ok', {
+    headers: corsHeaders
+  });
   try {
     const { imageBase64, mimeType = 'image/jpeg', currentRules, currentTaxes } = await req.json();
     if (!imageBase64) throw new Error('No image provided.');
-
     // 1. AUTH & QUOTA CHECK
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('UNAUTHORIZED: Sign in to use Magic Scan.');
-
     const token = authHeader.replace('Bearer ', '');
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseClient.auth.getUser(token);
-    if (userError || !user)
-      throw new Error(`UNAUTHORIZED: ${userError?.message || 'Invalid session.'}`);
-
-    const { data: profile } = await supabaseClient
-      .from('profiles')
-      .select('ai_scans_used, last_scan_reset, pro_expires_at')
-      .eq('id', user.id)
-      .single();
-
+    const supabaseClient = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_ANON_KEY') ?? '', {
+      global: {
+        headers: {
+          Authorization: authHeader
+        }
+      }
+    });
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    if (userError || !user) throw new Error(`UNAUTHORIZED: ${userError?.message || 'Invalid session.'}`);
+    const { data: profile } = await supabaseClient.from('profiles').select('ai_scans_used, last_scan_reset, pro_expires_at').eq('id', user.id).single();
     if (!profile) throw new Error('Profile not found.');
-
     const now = new Date();
     const lastReset = new Date(profile.last_scan_reset || 0);
     let scansUsed = profile.ai_scans_used;
-
-    if (
-      now.getUTCFullYear() > lastReset.getUTCFullYear() ||
-      now.getUTCMonth() > lastReset.getUTCMonth()
-    ) {
+    if (now.getUTCFullYear() > lastReset.getUTCFullYear() || now.getUTCMonth() > lastReset.getUTCMonth()) {
       scansUsed = 0;
-      await supabaseClient
-        .from('profiles')
-        .update({ ai_scans_used: 0, last_scan_reset: now.toISOString() })
-        .eq('id', user.id);
+      await supabaseClient.from('profiles').update({
+        ai_scans_used: 0,
+        last_scan_reset: now.toISOString()
+      }).eq('id', user.id);
     }
-
     const isPro = profile.pro_expires_at && new Date(profile.pro_expires_at) > now;
-
     if (!isPro && scansUsed >= 3) {
       throw new Error('RATE_LIMIT_REACHED');
     }
-
     // 2. GEMINI CALL
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
     const prompt = `
@@ -84,94 +64,141 @@ EXTRACTION RULES:
    - If Service Charge is not taxed at all, set 'scTaxPresetId' to "none".
 7. MATH VERIFICATION: Use the 'reasoning' field to show your step-by-step math. Verify that item discounts, selective pre-tax discounts, taxes, service charge, and post-tax discounts match the printed receipt totals exactly.
 `;
-
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mimeType, data: imageBase64 } },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.0,
-            response_mime_type: 'application/json',
-            response_schema: {
-              type: 'OBJECT',
-              properties: {
-                reasoning: {
-                  type: 'STRING',
-                  description:
-                    'Step-by-step math proving your assigned item discounts, pre/post-tax discounts, and taxes match the receipt exactly.',
-                },
-                sessionRules: {
+    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt
+              },
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: imageBase64
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.0,
+          response_mime_type: 'application/json',
+          response_schema: {
+            type: 'OBJECT',
+            properties: {
+              reasoning: {
+                type: 'STRING',
+                description: 'Step-by-step math proving your assigned item discounts, pre/post-tax discounts, and taxes match the receipt exactly.'
+              },
+              sessionRules: {
+                type: 'OBJECT',
+                properties: {
+                  isScApplicable: {
+                    type: 'BOOLEAN'
+                  },
+                  serviceChargeRate: {
+                    type: 'NUMBER'
+                  },
+                  scTaxPresetId: {
+                    type: 'STRING'
+                  },
+                  discountType: {
+                    type: 'STRING'
+                  },
+                  discountValue: {
+                    type: 'STRING'
+                  },
+                  discountMode: {
+                    type: 'STRING'
+                  },
+                  postTaxDiscountType: {
+                    type: 'STRING'
+                  },
+                  postTaxDiscountValue: {
+                    type: 'STRING'
+                  }
+                }
+              },
+              newTaxPresets: {
+                type: 'ARRAY',
+                items: {
                   type: 'OBJECT',
                   properties: {
-                    isScApplicable: { type: 'BOOLEAN' },
-                    serviceChargeRate: { type: 'NUMBER' },
-                    scTaxPresetId: { type: 'STRING' },
-                    discountType: { type: 'STRING' },
-                    discountValue: { type: 'STRING' },
-                    discountMode: { type: 'STRING' },
-                    postTaxDiscountType: { type: 'STRING' },
-                    postTaxDiscountValue: { type: 'STRING' },
-                  },
-                },
-                newTaxPresets: {
-                  type: 'ARRAY',
-                  items: {
-                    type: 'OBJECT',
-                    properties: {
-                      tempId: { type: 'STRING' },
-                      name: { type: 'STRING' },
-                      rate: { type: 'NUMBER' },
-                      split: { type: 'BOOLEAN' },
+                    tempId: {
+                      type: 'STRING'
                     },
-                  },
-                },
-                items: {
-                  type: 'ARRAY',
-                  items: {
-                    type: 'OBJECT',
-                    properties: {
-                      name: { type: 'STRING' },
-                      qty: { type: 'NUMBER' },
-                      price: { type: 'NUMBER' },
-                      taxPresetId: { type: 'STRING' },
-                      applySC: { type: 'BOOLEAN' },
-                      applyDiscount: { type: 'BOOLEAN' },
-                      discountType: { type: 'STRING' },
-                      discountValue: { type: 'NUMBER' },
+                    name: {
+                      type: 'STRING'
                     },
-                    required: ['name', 'qty', 'price'],
-                  },
-                },
+                    rate: {
+                      type: 'NUMBER'
+                    },
+                    split: {
+                      type: 'BOOLEAN'
+                    }
+                  }
+                }
               },
-              required: ['reasoning', 'items'],
+              items: {
+                type: 'ARRAY',
+                items: {
+                  type: 'OBJECT',
+                  properties: {
+                    name: {
+                      type: 'STRING'
+                    },
+                    qty: {
+                      type: 'NUMBER'
+                    },
+                    price: {
+                      type: 'NUMBER'
+                    },
+                    taxPresetId: {
+                      type: 'STRING'
+                    },
+                    applySC: {
+                      type: 'BOOLEAN'
+                    },
+                    applyDiscount: {
+                      type: 'BOOLEAN'
+                    },
+                    discountType: {
+                      type: 'STRING'
+                    },
+                    discountValue: {
+                      type: 'NUMBER'
+                    }
+                  },
+                  required: [
+                    'name',
+                    'qty',
+                    'price'
+                  ]
+                }
+              }
             },
-          },
-        }),
-      }
-    );
-
+            required: [
+              'reasoning',
+              'items'
+            ]
+          }
+        }
+      })
+    });
     if (!geminiResponse.ok) {
       const errText = await geminiResponse.text();
       throw new Error(`Google API Error: ${errText}`);
     }
-
     const geminiData = await geminiResponse.json();
     if (!geminiData.candidates || geminiData.candidates.length === 0) {
       throw new Error('AI failed to read the image. Ensure the receipt is clear.');
     }
-
     const rawText = geminiData.candidates[0].content.parts[0].text;
-
     let parsedJson;
     try {
       parsedJson = JSON.parse(rawText);
@@ -181,22 +208,27 @@ EXTRACTION RULES:
     } catch (_parseError) {
       throw new Error('AI could not extract valid items. Your quota was NOT charged.');
     }
-
     // 3. CHARGE QUOTA ONLY UPON SUCCESS
-    await supabaseClient
-      .from('profiles')
-      .update({ ai_scans_used: scansUsed + 1 })
-      .eq('id', user.id);
-
+    await supabaseClient.from('profiles').update({
+      ai_scans_used: scansUsed + 1
+    }).eq('id', user.id);
     return new Response(JSON.stringify(parsedJson), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      },
+      status: 200
     });
   } catch (error) {
     const errMessage = error instanceof Error ? error.message : String(error);
-    return new Response(JSON.stringify({ error: errMessage }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    return new Response(JSON.stringify({
+      error: errMessage
+    }), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      },
+      status: 200
     });
   }
 });

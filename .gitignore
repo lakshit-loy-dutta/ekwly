@@ -37,8 +37,14 @@ logs/
 
 # repomix
 repomix-output*.xml
+.audit-pack/
 
 # supabase temp files
 supabase/.temp/*
 supabase/.temp/**/*
 schema_dump.sql
+
+# Local audit & reproducible media outputs
+gemini-supabase-audit/
+brand-kit/
+*.ipa
