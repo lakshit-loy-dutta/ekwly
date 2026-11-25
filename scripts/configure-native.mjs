@@ -215,6 +215,18 @@ if (mode === 'doctor') {
 
 // --- 3. KEYSTORE GENERATOR (NO HARDCODED PASSWORD FALLBACK) ---
 function ensureUploadKeystore() {
+  fs.mkdirSync(androidDir, { recursive: true });
+  const keystorePath = path.join(androidDir, 'ekwly-upload-key.jks');
+  const propsPath = path.join(androidDir, 'keystore.properties');
+
+  // Reuse existing local signing config without requiring EKWLY_KEYSTORE_PASS in .env
+  if (fs.existsSync(keystorePath) && fs.existsSync(propsPath) && !process.env.EKWLY_KEYSTORE_PASS) {
+    console.log(
+      `[Ekwly Native] Using existing upload keystore & keystore.properties -> ${keystorePath}`
+    );
+    return;
+  }
+
   const password = process.env.EKWLY_KEYSTORE_PASS;
   if (!password || password.trim().length < 8) {
     console.error(
@@ -223,10 +235,6 @@ function ensureUploadKeystore() {
     console.error('Set EKWLY_KEYSTORE_PASS in your local .env or CI secrets and retry.');
     process.exit(1);
   }
-
-  fs.mkdirSync(androidDir, { recursive: true });
-  const keystorePath = path.join(androidDir, 'ekwly-upload-key.jks');
-  const propsPath = path.join(androidDir, 'keystore.properties');
 
   const keytoolBin = javaHome
     ? `"${path.join(javaHome, 'bin', isWindows ? 'keytool.exe' : 'keytool')}"`

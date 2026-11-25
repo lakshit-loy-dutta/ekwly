@@ -159,7 +159,7 @@ if (skipDb) {
 } else {
   console.log('\n[Ekwly Audit Pack] Dumping Supabase roles & schema...');
   const dbUrl = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
-  const targetFlag = dbUrl ? `--db-url "${dbUrl}"` : '--linked';
+  const targetFlag = dbUrl ? `--db-url "${dbUrl}"` : '--remote';
 
   const rolesTmp = path.join(outDir, '.tmp-roles.sql');
   const schemaTmp = path.join(outDir, '.tmp-schema.sql');
