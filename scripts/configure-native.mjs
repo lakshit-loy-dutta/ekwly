@@ -677,16 +677,6 @@ if (fs.existsSync(androidManifestPath)) {
     manifest = manifest.replace('</activity>', deepLinkFilter);
   }
 
-  if (!manifest.includes(`android:scheme="${APP_PACKAGE_ID}"`)) {
-    const deepLinkFilter = `            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="${APP_PACKAGE_ID}" android:host="auth-callback" />
-            </intent-filter>\n        </activity>`;
-    manifest = manifest.replace('</activity>', deepLinkFilter);
-  }
-
   if (!manifest.includes('android.permission.CAMERA')) {
     manifest = manifest.replace(
       '</manifest>',

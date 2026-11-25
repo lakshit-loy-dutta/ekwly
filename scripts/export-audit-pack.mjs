@@ -7,7 +7,6 @@ const outDir = path.join(rootDir, '.audit-pack');
 const skipDb = process.argv.includes('--skip-db');
 const isWindows = process.platform === 'win32';
 
-// Load .env / .env.local automatically (without overriding existing shell env vars)
 function loadLocalEnv() {
   for (const envFile of ['.env', '.env.local']) {
     const fullPath = path.join(rootDir, envFile);
@@ -37,11 +36,9 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
-// Clean & recreate .audit-pack/
 fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 
-// Isolated Repomix config (explicitly omits splitOutput so each partition is 1 single file)
 const tmpRepomixConfigPath = path.join(outDir, '.repomix-part.config.json');
 fs.writeFileSync(
   tmpRepomixConfigPath,
@@ -82,7 +79,7 @@ fs.writeFileSync(
           '**/*.sql',
           'supabase/migrations/**',
           'scripts/generate-brand-assets.mjs',
-          'CLAUDE.md',
+          'brand-kit/**',
           'public/**',
         ],
       },
@@ -94,26 +91,29 @@ fs.writeFileSync(
   'utf8'
 );
 
-// 3 balanced partitions (~45-70 KB each, 1 file per partition)
 const REPOMIX_PARTS = [
   {
-    file: '1-config-pages-edge.xml',
-    label: 'Configs, CI/CD, Native Scripts, Astro Pages, Styles & Edge Functions',
+    file: '1-config-docs-pages-edge.xml',
+    label: 'Configs, Docs, CI/CD, Native Scripts, Astro Pages, Styles & Edge Functions',
     include: [
       'README.md',
+      'AGENTS.md',
+      'docs/**/*.md',
       'package.json',
+      'pnpm-workspace.yaml',
       'tsconfig.json',
       'astro.config.*',
       'capacitor.config.*',
+      'eslint.config.*',
       'repomix.config.ts',
-      '.eslint.cjs',
+      '.gitignore',
       '.prettierrc',
       '.editorconfig',
       '.nvmrc',
-      'AGENTS.md',
       '.github/**/*',
       '.vscode/*',
       'scripts/configure-native.mjs',
+      'supabase/config.toml',
       'supabase/functions/**/*.ts',
       'src/pages/**/*',
       'src/layouts/**/*',
@@ -133,7 +133,7 @@ const REPOMIX_PARTS = [
   },
 ];
 
-console.log('[Ekwly Audit Pack] Generating 3 single-file Repomix bundles...\n');
+console.log('[Ekwly Audit Pack] Generating 3 single-file Repomix bundles (including docs/)...\n');
 
 const generatedFiles = [];
 
@@ -151,7 +151,7 @@ for (const part of REPOMIX_PARTS) {
 
 fs.rmSync(tmpRepomixConfigPath, { force: true });
 
-// Automated Supabase Schema + Roles Dump
+// Automated Supabase Schema + Roles Dump (uses globally installed `supabase` CLI)
 const finalSqlPath = path.join(outDir, '4-supabase-audit.sql');
 
 if (skipDb) {
@@ -169,12 +169,12 @@ if (skipDb) {
       console.log('  (SUPABASE_DB_URL not set in .env — using linked Supabase CLI project)');
     }
 
-    execSync(`pnpm dlx supabase db dump ${targetFlag} --role-only -f "${rolesTmp}"`, {
+    execSync(`supabase db dump ${targetFlag} --role-only -f "${rolesTmp}"`, {
       cwd: rootDir,
       stdio: 'inherit',
     });
 
-    execSync(`pnpm dlx supabase db dump ${targetFlag} -f "${schemaTmp}"`, {
+    execSync(`supabase db dump ${targetFlag} -f "${schemaTmp}"`, {
       cwd: rootDir,
       stdio: 'inherit',
     });
@@ -203,11 +203,10 @@ if (skipDb) {
     console.warn(
       '   1. Set SUPABASE_DB_URL="postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres" in .env'
     );
-    console.warn('   2. Or run `pnpm dlx supabase link --project-ref <your-ref>` once.');
+    console.warn('   2. Or run `supabase link --project-ref <your-ref>` once.');
   }
 }
 
-// Create single ZIP archive containing the 4 files
 const zipPath = path.join(outDir, 'ekwly-audit-pack.zip');
 if (generatedFiles.length > 0) {
   console.log('\n[Ekwly Audit Pack] Creating ekwly-audit-pack.zip...');
@@ -223,7 +222,6 @@ if (generatedFiles.length > 0) {
   }
 }
 
-// Print summary
 console.log('\n✅ Audit Pack Ready in .audit-pack/:\n');
 for (const fileName of fs.readdirSync(outDir).sort()) {
   const stats = fs.statSync(path.join(outDir, fileName));

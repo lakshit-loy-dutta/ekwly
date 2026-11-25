@@ -20,7 +20,6 @@ import {
   CreditCard,
   ShieldCheck,
   Sparkles,
-  Image as ImageIcon,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import ToggleSwitch from '../ui/ToggleSwitch';
@@ -66,10 +65,10 @@ export default function DebtMatrix(props: Props) {
       );
       if (creditorIds.length === 0) return;
 
-      const { data } = await supabase.from('profiles').select('id, upi_id').in('id', creditorIds);
+      const { data } = await supabase.rpc('get_related_profiles', { p_user_ids: creditorIds });
       const map: Record<string, string> = {};
       const verifiedMap: Record<string, boolean> = {};
-      data?.forEach((p) => {
+      ((data || []) as { id: string; upi_id: string | null }[]).forEach((p) => {
         if (p.upi_id) {
           map[p.id] = p.upi_id;
           verifiedMap[p.id] = true;

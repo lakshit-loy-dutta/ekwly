@@ -68,5 +68,26 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ekwly requires camera access to scan and join split sessions.</string>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.ekwly.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.ekwly.app</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>upi</string>
+		<string>gpay</string>
+		<string>phonepe</string>
+		<string>paytmmp</string>
+		<string>whatsapp</string>
+	</array>
 </dict>
 </plist>

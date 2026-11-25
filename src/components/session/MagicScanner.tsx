@@ -235,7 +235,7 @@ export default function MagicScanner({ onScanComplete }: Props) {
       // 2. Apply extracted sessionRules & detected Venue Name
       const rules = data.sessionRules || {};
       const scRateRaw = Number(rules.serviceChargeRate ?? 0);
-      const normScRate = scRateRaw > 1 ? scRateRaw / 100 : scRateRaw;
+      const normScRate = scRateRaw >= 0.5 ? scRateRaw / 100 : scRateRaw;
       const isScOn =
         rules.isScApplicable !== undefined ? Boolean(rules.isScApplicable) : normScRate > 0;
 

@@ -41,10 +41,13 @@ public class MainActivity extends BridgeActivity {
             }, "EkwlyNativeBar");
 
             ViewCompat.setOnApplyWindowInsetsListener(webView, (v, windowInsets) -> {
-                Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                Insets bars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+                );
+                Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
                 float density = getResources().getDisplayMetrics().density;
                 int topDp = Math.round(bars.top / density);
-                int bottomDp = Math.round(bars.bottom / density);
+                int bottomDp = Math.round(Math.max(bars.bottom, ime.bottom) / density);
 
                 String js = String.format(
                     "document.documentElement.style.setProperty('--safe-top', '%dpx');" +
@@ -52,7 +55,7 @@ public class MainActivity extends BridgeActivity {
                     topDp, bottomDp
                 );
                 webView.post(() -> webView.evaluateJavascript(js, null));
-                return WindowInsetsCompat.CONSUMED;
+                return ViewCompat.onApplyWindowInsets(v, windowInsets);
             });
         }
     }

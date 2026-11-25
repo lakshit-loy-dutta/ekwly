@@ -1,64 +1,55 @@
 # Ekwly — Database Schema, Views, Triggers & RLS Model
 
-> **Source of Truth:** Verified against live export `supabase-complete-audit.sql` and baseline migration `supabase/migrations/20261123111109_remote_schema.sql`.
+> **Source of Truth:** Verified against live export `4-supabase-audit.sql` (Post-Stage 2, November 25, 2026).
 
 ---
 
 ## 1. Tables & Constraints (`public` Schema)
 
-| Table             | Primary Key            | Key Foreign Keys & Cascades                                                                              | Constraints & Replica Identity                                                                                                                                                                                                                                    |
-| :---------------- | :--------------------- | :------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`profiles`**    | `id` (`uuid`)          | `id -> auth.users(id) ON DELETE CASCADE`                                                                 | Columns: `name`, `avatar_url`, `upi_id`, `phone`, `email`, `ai_scans_used` (0), `pro_expires_at`, `last_scan_reset`, timestamps                                                                                                                                   |
-| **`sessions`**    | `id` (`text`)          | `host_id -> auth.users(id) ON DELETE CASCADE` _(target Stage 2: `ON DELETE SET NULL`)_                   | Columns: `name`, `venue_name`, `pin`, `status` (default `'draft'`), `is_sc_applicable`, `service_charge_rate`, `sc_tax_preset_id`, `discount_type`, `discount_value`, `discount_mode` (default `'post-tax'`), `post_tax_discount_type`, `post_tax_discount_value` |
-| **`tax_presets`** | `id` (`uuid`)          | `session_id -> sessions(id) ON DELETE CASCADE`                                                           | `CHECK (rate >= 0 AND rate <= 100)`; `REPLICA IDENTITY FULL`                                                                                                                                                                                                      |
-| **`items`**       | `id` (`uuid`)          | `session_id -> sessions(id) ON DELETE CASCADE`; `tax_preset_id -> tax_presets(id) ON DELETE SET NULL`    | `CHECK (qty > 0)`, `CHECK (price >= 0)`; `REPLICA IDENTITY FULL`                                                                                                                                                                                                  |
-| **`members`**     | `id` (`uuid`)          | `session_id -> sessions(id) ON DELETE CASCADE`; `user_id -> profiles(id) ON DELETE SET NULL`             | `paid_amount` default `0`; `REPLICA IDENTITY FULL`                                                                                                                                                                                                                |
-| **`claims`**      | `(item_id, member_id)` | `item_id -> items(id) CASCADE`; `member_id -> members(id) CASCADE`; `session_id -> sessions(id) CASCADE` | `value` (`text`, stores decimals or fractions like `'1/3'`); `REPLICA IDENTITY FULL`                                                                                                                                                                              |
-| **`ledger`**      | `id` (`uuid`)          | `session_id -> sessions(id) CASCADE`; `creditor_id`/`debtor_id -> profiles(id) SET NULL`                 | `CHECK (amount >= 0)`, `settled` default `false`, fallback name columns                                                                                                                                                                                           |
-| **`connections`** | `(user_id, friend_id)` | `user_id`/`friend_id -> auth.users(id) CASCADE`                                                          | Unique unordered pair index `idx_connections_unique_pair`                                                                                                                                                                                                         |
-| **`venues`**      | `id` (`uuid`)          | None                                                                                                     | Unique `name` and unique `normalized_name`, `service_charge_rate`, `tax_presets` (`jsonb`), `times_used`                                                                                                                                                          |
+| Table                      | Primary Key             | Key Foreign Keys & Cascades                                                       | Constraints & Replica Identity                                                                                      |
+| :------------------------- | :---------------------- | :-------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------ |
+| **`profiles`**             | `id` (`uuid`)           | `id -> auth.users(id) ON DELETE CASCADE`                                          | Billing/quota columns locked to `service_role` by `trigger_protect_profile_billing`                                 |
+| **`sessions`**             | `id` (`text`)           | `host_id -> auth.users(id) ON DELETE SET NULL`                                    | Preserves shared rooms/ledgers when a host deletes their account; plaintext `pin` cleared                           |
+| **`session_participants`** | `(session_id, user_id)` | `session_id -> sessions(id) CASCADE`; `user_id -> auth.users(id) CASCADE`         | `role CHECK IN ('host', 'member')`; indexed on `user_id`; governs room-scoped RLS                                   |
+| **`session_secrets`**      | `session_id` (`text`)   | `session_id -> sessions(id) ON DELETE CASCADE`                                    | Stores room `pin`; readable/writable strictly by room host or `SECURITY DEFINER` RPCs                               |
+| **`tax_presets`**          | `id` (`uuid`)           | `session_id -> sessions(id) ON DELETE CASCADE`                                    | `CHECK (rate >= 0 AND rate <= 100)`; `REPLICA IDENTITY FULL`                                                        |
+| **`items`**                | `id` (`uuid`)           | `session_id -> sessions(id) CASCADE`; `tax_preset_id -> tax_presets(id) SET NULL` | `CHECK (qty > 0)`, `CHECK (price >= 0)`; `REPLICA IDENTITY FULL`                                                    |
+| **`members`**              | `id` (`uuid`)           | `session_id -> sessions(id) CASCADE`; `user_id -> profiles(id) SET NULL`          | `paid_amount` protected by `trigger_protect_member_payment`; `REPLICA IDENTITY FULL`                                |
+| **`claims`**               | `(item_id, member_id)`  | `item_id`, `member_id`, `session_id` `ON DELETE CASCADE`                          | `REPLICA IDENTITY FULL`                                                                                             |
+| **`ledger`**               | `id` (`uuid`)           | `session_id CASCADE`; `creditor_id`/`debtor_id SET NULL`                          | `CHECK (amount >= 0)`; amounts/counterparties locked by `trigger_protect_ledger_immutable`; `REPLICA IDENTITY FULL` |
+| **`connections`**          | `(user_id, friend_id)`  | `user_id`/`friend_id -> auth.users(id) CASCADE`                                   | Unique unordered pair index `idx_connections_unique_pair`                                                           |
+| **`venues`**               | `id` (`uuid`)           | None                                                                              | Unique `normalized_name` (redundant `venues_name_key` removed)                                                      |
+| **`payment_events`**       | `id` (`uuid`)           | `user_id -> profiles(id) ON DELETE SET NULL`                                      | `UNIQUE(provider_payment_id)`, `CHECK (amount_paise > 0)`; `service_role` only                                      |
 
 ---
 
 ## 2. Views (`security_invoker = true`, `anon` Revoked)
 
-- **`public.global_ledger`:** Aggregates unsettled (`settled = false`) `public.ledger` rows grouped by `(debtor_id, creditor_id)` with `COALESCE(profile.name, fallback_name)` resolution.
-- **`public.personal_analytics`:** Unions settled debtor ledger amounts with locked-session net payer spend (`GREATEST(0, paid_amount - sum(creditor ledger))`), grouped by `(user_id, venue_name)`.
+- **`public.global_ledger`:** Aggregates unsettled (`settled = false`) `public.ledger` rows using `public.get_profile_display_name(uuid)` + fallback names while preserving `security_invoker = true`.
+- **`public.personal_analytics`:** Unions settled debtor ledger spend with locked-session net payer spend per `(user_id, venue_name)`.
 
 ---
 
-## 3. Functions, Triggers & Extensions
+## 3. Functions, RPCs & Triggers (`SET search_path TO 'public'`)
 
-- **Extensions:** `pg_trgm` (in `public`), `pgcrypto`, `uuid-ossp`, `pg_stat_statements` (in `extensions`), `supabase_vault` (in `vault`).
-- **Triggers:**
-  - `on_auth_user_created` (`AFTER INSERT ON auth.users`) -> `handle_new_user()` (auto-creates `profiles` row).
-  - `trigger_lock_guard_items`, `trigger_lock_guard_claims`, `trigger_lock_guard_tax_presets` (`BEFORE INSERT/UPDATE/DELETE`) -> `enforce_session_lock_integrity()` (blocks edits when `sessions.status = 'locked'`).
-  - `trigger_harvest_venue` (`AFTER UPDATE ON sessions`) -> `harvest_venue_data()` (upserts venue tax/SC rules into `venues` when transitioning to `'locked'`).
-  - `trigger_protect_profile_billing` (`BEFORE UPDATE ON profiles`) -> `protect_profile_billing_columns()` (**bypassable via `last_scan_reset` — fixed in Stage 1 `AUD-03`**).
-  - DDL Event Trigger `ensure_rls` -> `rls_auto_enable()`.
-- **RPC Functions (`SECURITY DEFINER`, `search_path = 'public'`):**
-  - `verify_session_pin(p_session_id, p_pin)`
-  - `search_venues(search_term)` & `search_venue_items(p_venue_name, p_search_term)`
-  - `delete_user_account()` (revoked from `PUBLIC`/`anon`, granted to `authenticated`)
-  - `prune_stale_data()` (**over-granted to `authenticated` — fixed in Stage 1 `AUD-04`**)
-
----
-
-## 4. Indexes (18 Current) & Realtime Publication
-
-- **Current Indexes:** `idx_claims_session_id`, `idx_connections_friend_id`, `idx_connections_unique_pair`, `idx_items_name_trgm` (GIN), `idx_items_session_id`, `idx_items_tax_preset_id`, `idx_ledger_creditor_unsettled`, `idx_ledger_debtor_unsettled`, `idx_ledger_debtor_settled`, `idx_ledger_session_id`, `idx_members_session_id`, `idx_members_user_id`, `idx_profiles_name_trgm` (GIN), `idx_sessions_host_id` _(redundant with `idx_sessions_host_created`)_, `idx_sessions_host_created`, `idx_sessions_venue_name`, `idx_tax_presets_session_id`, `idx_venues_name_trgm` (GIN).
-- **Planned Additions (Stage 5 — `AUD-13`):** Add `idx_claims_member_id` and functional index on `LOWER(trim(sessions.venue_name))`; drop redundant `idx_sessions_host_id`.
-- **Realtime Publication (`supabase_realtime`):** Exported schema includes only `public.connections` and `public.profiles`. Missing all 6 session tables (`sessions`, `items`, `members`, `claims`, `tax_presets`, `ledger`) — fixed in Stage 1 (`AUD-05`).
+- **Authorization & Room Lifecycle RPCs (`authenticated` + `service_role`):**
+  - `create_session_room(p_id, p_pin, p_name)` — atomic session, secret, host participant, host member, and default tax presets creation.
+  - `join_session_with_pin(p_session_id, p_pin)` (and alias `verify_session_pin`) — re-admits enrolled participants or verifies `session_secrets.pin` and enrolls caller.
+  - `get_host_session_pin(p_session_id)` — returns PIN strictly if `host_id = auth.uid()`.
+  - `is_session_host(p_session_id)` & `is_session_participant(p_session_id)` — non-recursive RLS helper predicates.
+- **Safe Profile & Discovery RPCs (`authenticated` + `service_role`):**
+  - `search_public_profiles(p_query)` — returns `(id, name, avatar_url)` only (never `upi_id`, `email`, or `phone`).
+  - `get_related_profiles(p_user_ids)` — returns `(id, name, avatar_url, upi_id)` strictly for self, friends, shared-room participants, or ledger counterparties.
+  - `get_profile_display_name(p_user_id)` — display-name resolver for `global_ledger`.
+  - `search_venues(search_term)` & `search_venue_items(p_venue_name, p_search_term)` (locked rooms only, `authenticated` only).
+- **Privileged `service_role`-Only RPCs (`PUBLIC`/`anon`/`authenticated` Revoked):**
+  - `consume_ai_scan_quota(p_user_id, p_monthly_limit)` (`FOR UPDATE` row-locked monthly reset & increment) and `refund_ai_scan_quota(p_user_id)`.
+  - `prune_stale_data()` (scheduled server-side via `pg_cron`).
+- **Triggers:** `on_auth_user_created`, `trigger_enroll_session_host`, `trigger_enroll_linked_member`, `trigger_harvest_venue`, `trigger_lock_guard_{items,claims,tax_presets}`, `trigger_protect_profile_billing`, `trigger_protect_ledger_immutable`, `trigger_protect_member_payment`, and DDL event trigger `ensure_rls`.
 
 ---
 
-## 5. RLS Posture (Current vs. Stage 2 Target)
+## 4. RLS, Least-Privilege Grants & Realtime Publication
 
-| Table                       | Current Exported Policy Risk                                                                                                 | Stage 2 Target Policy                                                                                                                                         |
-| :-------------------------- | :--------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **`sessions`**              | `SELECT USING (true)` exposes all rooms + plaintext `pin`; `UPDATE` permits `host_id IS NULL` without auth check (`AUD-02`). | Isolate `pin` into `session_secrets`; scope `SELECT` to `host_id = auth.uid()` or `is_session_participant(id)`; disallow `host_id IS NULL`.                   |
-| **`items` / `tax_presets`** | `SELECT USING (true)` exposes all rooms (`AUD-02`).                                                                          | Scope `SELECT` to `is_session_participant(session_id)`; retain host-only mutation + lock trigger.                                                             |
-| **`members` / `claims`**    | `SELECT USING (true)`; any authenticated/anon user can insert members or mutate any room's claims (`AUD-02`).                | Scope `SELECT` and `claims` mutation strictly to `is_session_participant(session_id)`; restrict `members` writes to host (plus self-claim/self-leave).        |
-| **`ledger`**                | `SELECT USING (auth.uid() IS NOT NULL)` exposes all users' debts; debtors can update `amount` (`AUD-02`).                    | Scope `SELECT` to `creditor_id = auth.uid() OR debtor_id = auth.uid() OR is_host`; lock immutable columns (`amount`, `creditor_id`, `debtor_id`) via trigger. |
-| **`profiles`**              | `SELECT USING (auth.uid() IS NOT NULL)` exposes `email`, `phone`, `upi_id` globally (`AUD-02`).                              | Restrict direct `SELECT` to `id = auth.uid()`; expose a column-safe view/RPC for search, connections, and co-diners.                                          |
-| **Table Grants**            | `GRANT ALL` grants `TRUNCATE`/`TRIGGER`/`REFERENCES` to `anon`/`authenticated` (`AUD-11`).                                   | Revoke `TRUNCATE`, `TRIGGER`, `REFERENCES`, `MAINTAIN` from `anon` and `authenticated` (Stage 1).                                                             |
+- **RLS Enforcement:** All 12 public tables enforce RLS. `anon` has zero table-level privileges on user/session tables (anonymous guests operate under Supabase's `authenticated` role with `is_anonymous = true`). `TRUNCATE`, `TRIGGER`, `REFERENCES`, and `MAINTAIN` are revoked from `anon` and `authenticated`.
+- **Realtime Publication (`supabase_realtime`):** All 8 live tables are published — `sessions`, `items`, `members`, `claims`, `tax_presets`, `ledger`, `connections`, and `profiles`.

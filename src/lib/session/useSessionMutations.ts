@@ -128,101 +128,15 @@ export function useSessionMutations(deps: MutationDeps) {
     };
 
     const createSessionInDB = async (id: string, pin: string, name?: string | null) => {
-      const [
-        {
-          data: { session: authSession },
-        },
-        { data: existingSession },
-      ] = await Promise.all([
-        supabase.auth.getSession(),
-        supabase.from('sessions').select('id').eq('id', id).maybeSingle(),
-      ]);
-
-      const user = authSession?.user || null;
-
-      // Fast path for brand-new rooms: insert session + host member + default tax presets in parallel
-      if (!existingSession) {
-        const defaultTaxes = [
-          { id: utils.generateId(), session_id: id, name: 'Food GST', rate: 5, split: true },
-          { id: utils.generateId(), session_id: id, name: 'Alcohol VAT', rate: 6, split: false },
-          { id: utils.generateId(), session_id: id, name: 'Exempt', rate: 0, split: false },
-        ];
-        setTaxPresets((prev) => (prev.length > 0 ? prev : defaultTaxes));
-
-        let newHostMember: DBMember | null = null;
-        if (user) {
-          const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
-          newHostMember = {
-            id: utils.generateId(),
-            session_id: id,
-            name: hostName,
-            user_id: user.id,
-            paid_amount: 0,
-          };
-          setMembers((prev) =>
-            prev.some((m) => m.user_id === user.id) ? prev : [...prev, newHostMember!]
-          );
-        }
-
-        // 1. Insert parent session row first (required by foreign keys on members & tax_presets)
-        await supabase.from('sessions').insert({
-          id,
-          name: name || null,
-          status: 'draft',
-          pin,
-          host_id: user?.id || null,
-          discount_mode: 'pre-tax',
-        });
-
-        // 2. Insert host member & default tax presets concurrently
-        await Promise.all([
-          newHostMember ? supabase.from('members').insert(newHostMember) : Promise.resolve(),
-          supabase.from('tax_presets').upsert(defaultTaxes),
-        ]);
-        return;
+      const { error } = await supabase.rpc('create_session_room', {
+        p_id: id,
+        p_pin: pin,
+        p_name: name || null,
+      });
+      if (error) {
+        console.error('create_session_room failed:', error);
+        showToast('Could not initialize session room.', 'error');
       }
-
-      // Existing room revisit: verify host member & tax presets concurrently
-      const [hostCheck, taxCheck] = await Promise.all([
-        user
-          ? supabase
-              .from('members')
-              .select('id')
-              .eq('session_id', id)
-              .eq('user_id', user.id)
-              .maybeSingle()
-          : Promise.resolve({ data: null }),
-        supabase.from('tax_presets').select('id').eq('session_id', id).limit(1),
-      ]);
-
-      const tasks: PromiseLike<any>[] = [];
-
-      if (user && !hostCheck.data) {
-        const hostName = user.user_metadata?.full_name?.split(' ')[0] || 'Host';
-        const newHostMember: DBMember = {
-          id: utils.generateId(),
-          session_id: id,
-          name: hostName,
-          user_id: user.id,
-          paid_amount: 0,
-        };
-        setMembers((prev) =>
-          prev.some((m) => m.user_id === user.id) ? prev : [...prev, newHostMember]
-        );
-        tasks.push(supabase.from('members').insert(newHostMember));
-      }
-
-      if (!taxCheck.data || taxCheck.data.length === 0) {
-        const defaultTaxes = [
-          { id: utils.generateId(), session_id: id, name: 'Food GST', rate: 5, split: true },
-          { id: utils.generateId(), session_id: id, name: 'Alcohol VAT', rate: 6, split: false },
-          { id: utils.generateId(), session_id: id, name: 'Exempt', rate: 0, split: false },
-        ];
-        setTaxPresets((prev) => (prev.length > 0 ? prev : defaultTaxes));
-        tasks.push(supabase.from('tax_presets').upsert(defaultTaxes));
-      }
-
-      if (tasks.length > 0) await Promise.all(tasks);
     };
 
     const addMemberToDB = async (name: string, overrideUserId?: string) => {
@@ -506,7 +420,7 @@ export function useSessionMutations(deps: MutationDeps) {
         apply_discount: item.applyDiscount !== false,
         discount_type: item.discountType || 'none',
         discount_value: item.discountValue || 0,
-        tax_preset_id: item.taxPresetId,
+        tax_preset_id: item.taxPresetId || null,
       }));
 
       if (!navigator.onLine) {
@@ -558,7 +472,7 @@ export function useSessionMutations(deps: MutationDeps) {
         apply_discount: item.applyDiscount !== false,
         discount_type: item.discountType || 'none',
         discount_value: item.discountValue || 0,
-        tax_preset_id: item.taxPresetId,
+        tax_preset_id: item.taxPresetId || null,
       };
 
       if (!navigator.onLine) {
@@ -583,7 +497,7 @@ export function useSessionMutations(deps: MutationDeps) {
         apply_discount: item.applyDiscount !== false,
         discount_type: item.discountType || 'none',
         discount_value: item.discountValue || 0,
-        tax_preset_id: item.taxPresetId,
+        tax_preset_id: item.taxPresetId || null,
       }));
 
       if (!navigator.onLine) {

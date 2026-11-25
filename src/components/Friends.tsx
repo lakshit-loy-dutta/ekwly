@@ -128,10 +128,9 @@ export default function Friends({ user }: Props) {
 
     let loadedFriends: FriendProfile[] = [];
     if (friendIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, upi_id')
-        .in('id', friendIds);
+      const { data: profiles } = await supabase.rpc('get_related_profiles', {
+        p_user_ids: friendIds,
+      });
       if (profiles) loadedFriends = profiles;
     }
     setFriends(loadedFriends);
@@ -164,12 +163,11 @@ export default function Friends({ user }: Props) {
 
       const candidateIds = Array.from(coDinerCounts.keys()).slice(0, 8);
       if (candidateIds.length > 0) {
-        const { data: candidateProfiles } = await supabase
-          .from('profiles')
-          .select('id, name, avatar_url, upi_id')
-          .in('id', candidateIds);
+        const { data: candidateProfiles } = await supabase.rpc('get_related_profiles', {
+          p_user_ids: candidateIds,
+        });
 
-        builtSuggestions = (candidateProfiles || [])
+        builtSuggestions = ((candidateProfiles || []) as FriendProfile[])
           .filter((p) => p.name && !/^Guest\s+[0-9a-f]{5}$/i.test(p.name))
           .map((p) => ({
             id: p.id,
@@ -206,14 +204,14 @@ export default function Friends({ user }: Props) {
 
     const timer = setTimeout(async () => {
       setIsSearchingUsers(true);
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, upi_id')
-        .ilike('name', `%${searchQuery.trim()}%`)
-        .limit(6);
-
-      const filtered = (data || []).filter(
-        (p) => p.id !== user?.id && p.name && !/^Guest\s+[0-9a-f]{5}$/i.test(p.name)
+      const { data } = await supabase.rpc('search_public_profiles', {
+        p_query: searchQuery.trim(),
+      });
+      const filtered: FriendProfile[] = (data || []).map(
+        (p: { id: string; name: string; avatar_url: string | null }) => ({
+          ...p,
+          upi_id: null,
+        })
       );
       setSearchResults(filtered);
       setIsSearchingUsers(false);

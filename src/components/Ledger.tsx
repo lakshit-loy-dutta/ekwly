@@ -120,11 +120,8 @@ export default function Ledger({ user }: Props) {
     );
     const upiMap: Record<string, string> = {};
     if (creditorIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, upi_id')
-        .in('id', creditorIds);
-      profiles?.forEach((p) => {
+      const { data } = await supabase.rpc('get_related_profiles', { p_user_ids: creditorIds });
+      ((data || []) as { id: string; upi_id: string | null }[]).forEach((p) => {
         if (p.upi_id) upiMap[p.id] = p.upi_id;
       });
       setCreditorUpiMap(upiMap);

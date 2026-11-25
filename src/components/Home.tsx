@@ -131,7 +131,7 @@ export default function Home({
       const [sessionRes, creditorRes, debtorRes, profileRes] = await Promise.all([
         supabase
           .from('sessions')
-          .select('id, name, venue_name, host_id, pin, status, created_at')
+          .select('id, name, venue_name, host_id, status, created_at')
           .eq('host_id', user.id)
           .order('created_at', { ascending: false })
           .limit(20),

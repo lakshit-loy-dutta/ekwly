@@ -140,17 +140,25 @@ export default function AppRouter() {
           const sId = urlParams.get('s');
           const pin = urlParams.get('p');
 
-          if (sId && pin) {
-            const { data: isValid } = await supabase.rpc('verify_session_pin', {
+          if (sId) {
+            const { data: isValid } = await supabase.rpc('join_session_with_pin', {
               p_session_id: sId,
-              p_pin: pin,
+              p_pin: pin || null,
             });
             if (isValid) {
+              let resolvedPin = pin || localStorage.getItem('ekwly_pin_' + sId) || '';
+              if (!resolvedPin) {
+                const { data: hostPin } = await supabase.rpc('get_host_session_pin', {
+                  p_session_id: sId,
+                });
+                if (hostPin) resolvedPin = hostPin;
+              }
+              if (resolvedPin) localStorage.setItem('ekwly_pin_' + sId, resolvedPin);
               setActiveSessionId(sId);
-              setActiveSessionPin(pin);
+              setActiveSessionPin(resolvedPin || null);
               setIsHost(localStorage.getItem('ekwly_host_' + sId) === 'true');
               setCurrentView('session');
-              window.history.replaceState({ view: 'session' }, '', window.location.search);
+              window.history.replaceState({ view: 'session' }, '', `?s=${sId}`);
               return;
             } else {
               showToast('Invalid Room ID or PIN.', 'error');
@@ -273,7 +281,7 @@ export default function AppRouter() {
     setActiveSessionPin(generatedPin);
     setActiveSessionName(customInitialName || null);
     setIsHost(true);
-    navigateTo('session', `?s=${newId}&p=${generatedPin}`);
+    navigateTo('session', `?s=${newId}`);
     return newId;
   };
 
@@ -293,17 +301,22 @@ export default function AppRouter() {
   };
 
   const handleJoinSession = async (id: string, pin: string) => {
-    const { data: isValid } = await supabase.rpc('verify_session_pin', {
+    const { data: isValid } = await supabase.rpc('join_session_with_pin', {
       p_session_id: id,
-      p_pin: pin,
+      p_pin: pin || null,
     });
     if (isValid) {
-      localStorage.setItem('ekwly_pin_' + id, pin);
+      let resolvedPin = pin;
+      if (!resolvedPin) {
+        const { data: hostPin } = await supabase.rpc('get_host_session_pin', { p_session_id: id });
+        if (hostPin) resolvedPin = hostPin;
+      }
+      if (resolvedPin) localStorage.setItem('ekwly_pin_' + id, resolvedPin);
       setActiveSessionId(id);
-      setActiveSessionPin(pin);
+      setActiveSessionPin(resolvedPin || null);
       setActiveSessionName(null);
       setIsHost(localStorage.getItem('ekwly_host_' + id) === 'true');
-      navigateTo('session', `?s=${id}&p=${pin}`);
+      navigateTo('session', `?s=${id}`);
     } else {
       showToast('Invalid Room ID or PIN!', 'error');
     }

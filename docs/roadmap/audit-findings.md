@@ -1,43 +1,43 @@
 # Ekwly — Master Codebase & Security Audit Findings (`AUD-01` – `AUD-33`)
 
-> **Audit Baseline:** November 24, 2026 (100% static source + live PostgreSQL schema dump coverage)
+> **Last Verified:** November 25, 2026 (Stages 0, 1 & 2 Completed & Verified Against Live Pack)
 
 ## P0 — Critical Security, Billing, OCR & App-Breaking Defects
 
-- [ ] **AUD-01 (CRITICAL — Billing/Webhook):** `razorpay-webhook/index.ts` permits ₹1 yearly Pro spoofing (`planType === 'pro_yearly' || amountPaise >= 79900`), lacks server-created Razorpay Orders, lacks event idempotency (double/triple-credit), and uses non-constant-time HMAC comparison. _(Stage 1)_
-- [ ] **AUD-02 (CRITICAL — RLS/RBAC):** `sessions` (including plaintext `pin`), `items`, `members`, `claims`, `tax_presets` allow public `SELECT`; `ledger` and `profiles` (`email`, `phone`, `upi_id`) readable by any authenticated/anon user; cross-session writes on `claims`/`members`; debtors can mutate `ledger.amount`. _(Stage 2)_
-- [ ] **AUD-03 (CRITICAL — Quota Trigger):** `protect_profile_billing_columns()` allows clients to backdate `last_scan_reset` and reset `ai_scans_used = 0` infinitely. _(Stage 1)_
-- [ ] **AUD-04 + AUD-23 (CRITICAL — Admin RPC / Client Cron):** `prune_stale_data()` (`SECURITY DEFINER`) is granted to `authenticated` and invoked from client browsers in `AppRouter.tsx`. _(Stage 1)_
-- [ ] **AUD-05 (CRITICAL — Realtime):** `supabase_realtime` publication in live schema dump omits all 6 session tables (`sessions`, `items`, `members`, `claims`, `tax_presets`, `ledger`). _(Stage 1)_
-- [ ] **AUD-16 (CRITICAL — OTA CI/CD):** `deploy.yml` zips the `/ekwly/` GitHub Pages build into `ota-bundle.zip`, breaking root `/` Capacitor WebViews on OTA update; also omits `PUBLIC_RAZORPAY_KEY_ID`. _(Stage 1)_
-- [ ] **AUD-24 (CRITICAL — OCR Edge Function):** `scan-receipt/index.ts` allows anonymous users (infinite free Gemini API abuse), has a TOCTOU quota race, updates quota with user JWT instead of `service_role`, lacks image size/MIME/prompt bounds, passes `GEMINI_API_KEY` in URL query string, uses superseded `gemini-3.5-flash-lite` + aggressive `1400px` max-height compression + missing CGST/SGST merge logic, and returns HTTP `200` on all errors. _(Stage 1)_
-- [ ] **AUD-25 (CRITICAL — Native Auth):** `supabase/config.toml` has `additional_redirect_urls = []`, breaking Capacitor OAuth and Magic Link returns. _(Stage 4)_
-- [ ] **AUD-17 (HIGH — DB Corruption):** `MagicScanner.tsx` calls destructive `replaceTaxPresetsInDB`, triggering `ON DELETE SET NULL` and wiping `tax_preset_id` on pre-existing items. _(Stage 1)_
-- [ ] **AUD-26 (HIGH — PWA/Capacitor):** `astro.config.mjs` unconditionally bundles & auto-registers Workbox SW in Capacitor builds (fighting OTA); `index.astro` outputs duplicate `<link rel="manifest">` tags. _(Stage 1)_
+- [x] **AUD-01 (CRITICAL — Billing/Webhook):** Added server-signed `create-razorpay-order` Edge Function, `payment_events` idempotency table, exact `amountPaise` + `INR` + `order_id` verification, constant-time HMAC-SHA256, and profile rollback on failure. _(Stage 1C)_
+- [x] **AUD-02 (CRITICAL — RLS/RBAC):** Implemented `session_participants`, `session_secrets` (PIN isolation), `create_session_room` / `join_session_with_pin`, own-row `profiles` RLS + `search_public_profiles` / `get_related_profiles` RPCs, and immutable-column triggers on `ledger` and `members`; revoked `anon` table grants. _(Stage 2)_
+- [x] **AUD-03 (CRITICAL — Quota Trigger):** Locked `pro_expires_at`, `ai_scans_used`, and `last_scan_reset` exclusively to `service_role` in `protect_profile_billing_columns()`. _(Stage 1A)_
+- [x] **AUD-04 + AUD-23 (CRITICAL — Admin RPC / Client Cron):** Revoked `prune_stale_data()` from `authenticated` (now `service_role` only) and removed client browser cron from `AppRouter.tsx`. _(Stage 1A)_
+- [x] **AUD-05 (CRITICAL — Realtime):** Added `sessions`, `items`, `members`, `claims`, `tax_presets`, and `ledger` (`REPLICA IDENTITY FULL`) to `supabase_realtime`. _(Stage 1A)_
+- [x] **AUD-16 (CRITICAL — OTA CI/CD):** Split `deploy.yml` to build a dedicated `CAPACITOR_BUILD=true` root `/` OTA bundle (asserting zero `/ekwly/_astro/` paths & zero `sw.js`), added `pnpm check` & `pnpm lint` CI gates, and wired `PUBLIC_RAZORPAY_KEY_ID`. _(Stage 1D)_
+- [x] **AUD-24 (CRITICAL — OCR Edge Function):** Upgraded `scan-receipt` to `gemini-4-hydrogen` (`x-goog-api-key`, `MEDIA_RESOLUTION_HIGH`, `thinkingLevel: HIGH`, image-first), blocked anonymous users (`403`), enforced size/MIME/context limits, wired atomic `consume_ai_scan_quota` / `refund_ai_scan_quota` RPCs, added venue DB lookup + CGST/SGST reconciliation + Pass 2 math self-correction, and upgraded `MagicScanner.tsx` short-edge compression (`1400×3000`, `URL.createObjectURL`). _(Stage 1B)_
+- [x] **AUD-17 (HIGH — DB Corruption):** Replaced destructive `replaceTaxPresetsInDB` in `MagicScanner.tsx` with additive `addTaxPresetsBatchToDB` (split-aware matching). _(Stage 1B)_
+- [x] **AUD-26 (HIGH — PWA/Capacitor):** Disabled `AstroPWA` & `sitemap()` on `CAPACITOR_BUILD=true` with virtual module stubs, split `PwaUpdater.tsx` into web vs. native updaters, and removed duplicate `<link rel="manifest">` in `index.astro`. _(Stage 1D)_
+- [ ] **AUD-25 (CRITICAL — Native Auth):** Deep-link intent/URL scheme patched in `configure-native.mjs`; still needs Supabase Auth `additional_redirect_urls` + `@capacitor/browser` PKCE callback handler in `Auth.tsx`/`AppRouter.tsx`. _(Stage 4)_
 
 ## P1 — High-Priority Reliability, Native Compliance & UX Defects
 
-- [ ] **AUD-06 (HIGH — Privacy/Cascade):** `sessions.host_id ON DELETE CASCADE` wipes shared bills/ledgers on host deletion, contradicting `delete-account.astro`. _(Stage 2)_
-- [ ] **AUD-07 (HIGH — Offline/Mutations):** `offlineQueue.ts` ignores Supabase `{ error }` returns and drops failed/concurrent tasks; ~15 mutations lack rollback; `saveLedgerToDB` and `replaceTaxPresetsInDB` are non-atomic. _(Stage 3)_
-- [ ] **AUD-08 (HIGH — Base-Path Bug):** `LegalLayout.astro` regex `replace(/\/\$/, '')` emits `//` URLs; `privacy.astro` hardcodes `/ekwly/delete-account`. _(Stage 3)_
-- [ ] **AUD-09 (HIGH — Store Compliance):** `razorpay.ts` uses `mailto:` for paid digital Pro activation on native Capacitor builds (Play/App Store IAP policy violation). _(Stage 4)_
-- [ ] **AUD-10 (HIGH — Native Security/Insets):** Unsigned OTA bundles, `MainActivity.java` `WindowInsetsCompat.CONSUMED` blocking Android soft keyboard resize, hardcoded fallback release keystore password `'ekwlyRelease2026!'` in `configure-native.mjs`. _(Stage 4)_
-- [ ] **AUD-11 (HIGH — DB Hardening):** `GRANT ALL` grants `TRUNCATE`/`TRIGGER`/`REFERENCES` to `anon`/`authenticated`; `harvest_venue_data` last-write-wins overwrite & `venues_name_key` collision risk; `search_venue_items` leaks draft items to `anon`. _(Stage 1)_
-- [ ] **AUD-18 (HIGH — Session Race/UUID):** Concurrent `createSessionInDB` vs `fetchSessionData` race wipes default presets; invalid `'tx-1'` fallback crashes PostgreSQL `uuid` column. _(Stage 3)_
-- [ ] **AUD-19 (HIGH — Router Freeze/Leak):** `AppRouter.tsx` `handlePopState` stale `user = null` closure freezes Back navigation on boot loader; unawaited `CapApp.addListener` cleanup leaks listeners. _(Stage 3)_
-- [ ] **AUD-20 (HIGH — Authz UI/Privacy):** Non-hosts see member add/delete controls in `ReceiptWorkbench.tsx`; PINs stored in URLs; `Friends.tsx` global search exposes `upi_id`. _(Stage 2)_
-- [ ] **AUD-27 (HIGH — Domain Math):** `SessionContext` ignores `isScApplicable`; Step 6 pre-rounds item shares & Step 7 caps drift at `₹0.05`; negative `parseQty` and zero-divider `getFractionString` unguarded. _(Stage 3)_
-- [ ] **AUD-28 (HIGH — Native Exports):** `<a download>` / `doc.save()` fails in iOS WKWebView and some Android WebViews; `pdf.ts` uses WinAnsi-only `helvetica` font. _(Stage 4)_
-- [ ] **AUD-29 (HIGH — Ledger Loop/Wildcards):** `Ledger.tsx` zeroed-balance auto-settle can infinite-loop on DB error; `.ilike` lacks `%`/`_` escaping; Splitwise import is non-atomic. _(Stage 3)_
-- [ ] **AUD-30 (HIGH — Home/Profile UX):** `Home.tsx` omits joined sessions and settles trips without confirmation; `Profile.tsx` allows empty UPI trapping onboarding loop; account deletion leaves `localStorage` keys. _(Stage 3)_
-- [ ] **AUD-31 (HIGH — WCAG AA):** `index.astro` blocks zoom (`user-scalable=0`); `.premium-gradient-card::before` animates `left` infinitely; `showToast` lacks `aria-live="polite"`. _(Stage 5)_
-- [ ] **AUD-12 & AUD-21 (MEDIUM — UI/Hook Bugs):** `Payments` `localVal` effect loop, closed `WorkbenchRuleDrawers` 3x split recompute, unthrottled `focus` refetch, `MagicScanner` HTTP 402 check (`error.context?.status`), `ActiveSession` title & portal mount, `DebtMatrix` name-based breakdown lookup. _(Stage 3)_
+- [x] **AUD-06 (HIGH — Privacy/Cascade):** Changed `sessions.host_id` FK from `ON DELETE CASCADE` to `ON DELETE SET NULL`. _(Stage 2)_
+- [x] **AUD-11 (HIGH — DB Hardening):** Revoked `TRUNCATE`/`TRIGGER`/`REFERENCES`/`MAINTAIN` from `anon`/`authenticated`, dropped redundant `venues_name_key`, and scoped `search_venue_items` to locked sessions for `authenticated`. _(Stage 1A)_
+- [x] **AUD-20 (HIGH — Authz UI/Privacy):** Gated host-only member add/remove UI in `ReceiptWorkbench.tsx`, stripped `?p=` from browser URLs after joining, and stripped `upi_id` from global profile search via `search_public_profiles`. _(Stage 2)_
+- [ ] **AUD-07 (HIGH — Offline/Mutations):** Harden `offlineQueue.ts` (ID-keyed tasks, `{ error }` checks, retain failed/concurrent items), add rollbacks to `useSessionMutations.ts`, and replace non-atomic `saveLedgerToDB`/`replaceTaxPresetsInDB` with RPCs. _(Stage 3)_
+- [ ] **AUD-08 (HIGH — Base-Path Bug):** Fix `LegalLayout.astro` regex `replace(/\/\$/, '')` and hardcoded `/ekwly/delete-account` in `privacy.astro`. _(Stage 3)_
+- [ ] **AUD-09 (HIGH — Store Compliance):** Native `mailto:` bypass removed in Stage 1C; integrate Google Play Billing / StoreKit 2 for native Pro purchases. _(Stage 4)_
+- [ ] **AUD-10 (HIGH — Native Security/Insets):** Hardcoded keystore password removed & Android `MainActivity.java` cutout + IME insets fixed in `configure-native.mjs`; add cryptographic OTA bundle verification / runtime testing. _(Stage 4)_
+- [ ] **AUD-18 (HIGH — Session Race/UUID):** Eliminate concurrent `createSessionInDB` vs. `fetchSessionData` mount race and remove remaining `'tx-1'` fallbacks. _(Stage 3)_
+- [ ] **AUD-19 (HIGH — Router Freeze/Leak):** Fix `AppRouter.tsx` stale `user` closure in `handlePopState` and await `CapApp.addListener` cleanup handle. _(Stage 3)_
+- [ ] **AUD-27 (HIGH — Domain Math):** Enforce `isScApplicable` in `SessionContext`, fix per-item rounding drift & 100%-claim guard in `mathEngine.ts`, clamp `parseQty` and guard `dividers === 0` in `utils.ts`. _(Stage 3)_
+- [ ] **AUD-28 (HIGH — Native Exports):** Add `@capacitor/filesystem` + `@capacitor/share` native export adapter and UTF-8-safe PDF handling. _(Stage 4)_
+- [ ] **AUD-29 (HIGH — Ledger Loop/Wildcards):** Guard `Ledger.tsx` zeroed-balance auto-settle against error loops, escape `.ilike` wildcards, and make Splitwise import atomic. _(Stage 3)_
+- [ ] **AUD-30 (HIGH — Home/Profile UX):** Include joined rooms on `Home.tsx`, add `<ConfirmSheet>` + ID-based netting for Trip Folders, fix `Profile.tsx` empty-UPI onboarding loop, and wipe `ekwly_*` storage on account deletion. _(Stage 3)_
+- [ ] **AUD-31 (HIGH — WCAG AA):** Remove `user-scalable=0` in `index.astro`, switch `.premium-gradient-card::before` shine to `transform` with reduced motion, and add `aria-live="polite"` to `showToast`. _(Stage 5)_
+- [ ] **AUD-12 & AUD-21 (MEDIUM — UI/Hook Bugs):** Fix `Payments` `localVal` effect, short-circuit closed `WorkbenchRuleDrawers` previews, throttle `useSessionSync` focus refetch, fix `ActiveSession` title/portal and `DebtMatrix` ID-based breakdown lookup. _(Stage 3)_
 
 ## P2 — Performance, Tooling, Accessibility & Maintainability
 
-- [x] **AUD-32 (MEDIUM — Tooling/Linting):** Replaced broken `.eslint.cjs` with ESLint 10 `eslint.config.mjs`, added `@astrojs/check`, pinned `typescript@^6.0.0`, added `lint`/`check`/`format:check` scripts, moved `@types/*` to `devDependencies`. _(Completed in Stage 0)_
-- [ ] **AUD-13 (MEDIUM — SQL Indexes & Analytics):** Add `claims(member_id)` & `LOWER(trim(venue_name))` indexes, drop `idx_sessions_host_id`, add enum/non-negative `CHECK` constraints, move `Analytics` category audit into a SQL RPC. _(Stage 5)_
+- [x] **AUD-32 (MEDIUM — Tooling/Linting):** Migrated to ESLint 10 flat config (`eslint.config.mjs`), `@astrojs/check`, `typescript@^6.0.3`, added `check`/`lint`/`format:check`, cleared all errors & hints. _(Stage 0 & Stage 2)_
+- [ ] **AUD-13 (MEDIUM — SQL Indexes & Analytics):** Add `claims(member_id)` & `LOWER(trim(venue_name))` indexes, drop `idx_sessions_host_id`, add `CHECK` constraints, move `Analytics` category audit into a SQL RPC. _(Stage 5)_
 - [ ] **AUD-14 (MEDIUM — A11y & Motion):** Dialog focus traps + `Escape` + ARIA roles, `useId()` in `BrandLogo`, global `<MotionConfig reducedMotion="user">`, replace inline `💡` emoji in `SpotlightTour`. _(Stage 5)_
-- [ ] **AUD-15 (MEDIUM — Maintainability):** Generate `database.types.ts` to eliminate `any`, revoke `URL.createObjectURL` blobs, add TTL to `swrCache` / adopt TanStack Query, decompose monolithic components (`ReceiptWorkbench`, `Friends`, `DebtMatrix`, `AppRouter`). _(Stage 5)_
+- [ ] **AUD-15 (MEDIUM — Maintainability):** Generate `database.types.ts` to eliminate remaining `any` warnings, revoke blob URLs, add TTL/TanStack Query, decompose monolithic components. _(Stage 5)_
 - [ ] **AUD-22 (MEDIUM — Network Efficiency):** Stop re-fetching quota on `items.length`, batch `assignSinglePayer`, move `Friends` dossier into a single RPC. _(Stage 5)_
-- [ ] **AUD-33 (MEDIUM — Typography & Hydration):** Bundle Inter (or `system-ui` fallback), single React root + static boot shell in `index.astro`, unify `ekwly_theme` key in legal pages, remove dead `.toggle-label`. _(Stage 5)_
+- [ ] **AUD-33 (MEDIUM — Typography & Hydration):** Bundle Inter (or `system-ui` fallback), single React root + static boot shell in `index.astro`, unify `ekwly_theme` in legal pages, remove dead `.toggle-label`. _(Stage 5)_

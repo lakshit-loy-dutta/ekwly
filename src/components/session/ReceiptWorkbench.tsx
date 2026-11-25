@@ -289,33 +289,30 @@ export default function ReceiptWorkbench() {
         .or(`user_id.eq.${currentUserId},friend_id.eq.${currentUserId}`);
       if (!conns || conns.length === 0) return;
       const friendIds = conns.map((c) => (c.user_id === currentUserId ? c.friend_id : c.user_id));
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url')
-        .in('id', friendIds);
-      if (profiles) setMyFriends(profiles);
+      const { data: profiles } = await supabase.rpc('get_related_profiles', {
+        p_user_ids: friendIds,
+      });
+      if (profiles) setMyFriends(profiles as FriendQuickChip[]);
     };
     loadFriends();
   }, [currentUserId]);
 
   // Search global Ekwly profiles when typing a member name
   useEffect(() => {
-    if (newMemberName.trim().length < 2) {
+    if (!isHost || newMemberName.trim().length < 2) {
       setProfileSearchResults([]);
       return;
     }
     const timer = setTimeout(async () => {
       setIsSearchingProfiles(true);
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url')
-        .ilike('name', `%${newMemberName.trim()}%`)
-        .limit(5);
-      setProfileSearchResults(data || []);
+      const { data } = await supabase.rpc('search_public_profiles', {
+        p_query: newMemberName.trim(),
+      });
+      setProfileSearchResults((data || []) as FriendQuickChip[]);
       setIsSearchingProfiles(false);
     }, 300);
     return () => clearTimeout(timer);
-  }, [newMemberName]);
+  }, [isHost, newMemberName]);
 
   // Search crowdsourced venue menu items for price autocomplete
   useEffect(() => {
@@ -750,7 +747,15 @@ export default function ReceiptWorkbench() {
             }}
             className="shrink-0 text-xs font-bold text-primary hover:underline flex items-center gap-1"
           >
-            <UserPlus size={14} /> Add / Squads
+            {isHost ? (
+              <>
+                <UserPlus size={14} /> Add / Squads
+              </>
+            ) : (
+              <>
+                <Users size={14} /> Table Roster
+              </>
+            )}
           </button>
         </div>
 
@@ -775,13 +780,15 @@ export default function ReceiptWorkbench() {
               </div>
             );
           })}
-          <button
-            type="button"
-            onClick={() => setShowMemberSheet(true)}
-            className="shrink-0 h-8 px-3 rounded-xl border border-dashed border-primary/40 text-primary text-xs font-bold flex items-center gap-1 hover:bg-primary/5"
-          >
-            <Plus size={14} /> Person
-          </button>
+          {isHost && (
+            <button
+              type="button"
+              onClick={() => setShowMemberSheet(true)}
+              className="shrink-0 h-8 px-3 rounded-xl border border-dashed border-primary/40 text-primary text-xs font-bold flex items-center gap-1 hover:bg-primary/5"
+            >
+              <Plus size={14} /> Person
+            </button>
+          )}
         </div>
 
         {isHost && members.length <= 1 && savedSquads.length > 0 && (
@@ -1737,110 +1744,141 @@ export default function ReceiptWorkbench() {
         title="People at the Table"
       >
         <div className="flex flex-col gap-5 pb-4">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newMemberName}
-              onChange={(e) => setNewMemberName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newMemberName.trim()) {
-                  actions.addMemberToDB(newMemberName.trim());
-                  setNewMemberName('');
-                }
-              }}
-              placeholder="Type name or search Ekwly user..."
-              className="flex-1 min-h-12 bg-page border border-border rounded-xl px-4 text-sm font-semibold"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (!newMemberName.trim()) return;
-                actions.addMemberToDB(newMemberName.trim());
-                setNewMemberName('');
-              }}
-              className="min-h-12 px-4 bg-primary text-white rounded-xl font-bold text-xs shrink-0"
-            >
-              Add Guest
-            </button>
-          </div>
-
-          {profileSearchResults.length > 0 && (
-            <div className="bg-page border border-border rounded-xl divide-y divide-border overflow-hidden">
-              {profileSearchResults.map((p) => {
-                const alreadyAdded = members.some((m) => m.user_id === p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    disabled={alreadyAdded}
-                    onClick={() => {
-                      actions.addMemberToDB(p.name, p.id);
+          {isHost ? (
+            <>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newMemberName.trim()) {
+                      actions.addMemberToDB(newMemberName.trim());
                       setNewMemberName('');
-                      setProfileSearchResults([]);
-                    }}
-                    className="w-full min-h-11 flex items-center justify-between px-4 py-2.5 text-left hover:bg-subtle disabled:opacity-50"
-                  >
-                    <span className="font-bold text-sm text-main">{p.name}</span>
-                    <span className="text-xs font-bold text-primary">
-                      {alreadyAdded ? 'Added' : '+ Link User'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {savedSquads.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
-                <Sparkles size={12} className="text-primary" /> 1-Tap Add Saved Squad
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {savedSquads.map((squad) => (
-                  <button
-                    key={squad.id}
-                    type="button"
-                    onClick={() => handleApplySquad(squad)}
-                    className="min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 transition-all active:scale-95"
-                  >
-                    + {squad.name} ({squad.members.length})
-                  </button>
-                ))}
+                    }
+                  }}
+                  placeholder="Type name or search Ekwly user..."
+                  className="flex-1 min-h-12 bg-page border border-border rounded-xl px-4 text-sm font-semibold"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newMemberName.trim()) return;
+                    actions.addMemberToDB(newMemberName.trim());
+                    setNewMemberName('');
+                  }}
+                  className="min-h-12 px-4 bg-primary text-white rounded-xl font-bold text-xs shrink-0"
+                >
+                  Add Guest
+                </button>
               </div>
-            </div>
-          )}
-
-          {myFriends.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted">
-                1-Tap Add from Your Friends
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {myFriends.map((f) => {
-                  const inRoom = members.some(
-                    (m) => m.user_id === f.id || m.name.toLowerCase() === f.name.toLowerCase()
-                  );
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      disabled={inRoom}
-                      onClick={() => {
-                        utils.haptic('light');
-                        actions.addMemberToDB(f.name, f.id);
-                      }}
-                      className={`min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                        inRoom
-                          ? 'bg-primary/10 border-primary/30 text-primary opacity-60'
-                          : 'bg-page border-border text-main hover:border-primary'
-                      }`}
-                    >
-                      {inRoom ? `✓ ${f.name}` : `+ ${f.name}`}
-                    </button>
-                  );
-                })}
+              {profileSearchResults.length > 0 && (
+                <div className="bg-page border border-border rounded-xl divide-y divide-border overflow-hidden">
+                  {profileSearchResults.map((p) => {
+                    const alreadyAdded = members.some((m) => m.user_id === p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={alreadyAdded}
+                        onClick={() => {
+                          actions.addMemberToDB(p.name, p.id);
+                          setNewMemberName('');
+                          setProfileSearchResults([]);
+                        }}
+                        className="w-full min-h-11 flex items-center justify-between px-4 py-2.5 text-left hover:bg-subtle disabled:opacity-50"
+                      >
+                        <span className="font-bold text-sm text-main">{p.name}</span>
+                        <span className="text-xs font-bold text-primary">
+                          {alreadyAdded ? 'Added' : '+ Link User'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {savedSquads.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                    <Sparkles size={12} className="text-primary" /> 1-Tap Add Saved Squad
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {savedSquads.map((squad) => (
+                      <button
+                        key={squad.id}
+                        type="button"
+                        onClick={() => handleApplySquad(squad)}
+                        className="min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 transition-all active:scale-95"
+                      >
+                        + {squad.name} ({squad.members.length})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {myFriends.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted">
+                    1-Tap Add from Your Friends
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {myFriends.map((f) => {
+                      const inRoom = members.some(
+                        (m) => m.user_id === f.id || m.name.toLowerCase() === f.name.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={f.id}
+                          type="button"
+                          disabled={inRoom}
+                          onClick={() => {
+                            utils.haptic('light');
+                            actions.addMemberToDB(f.name, f.id);
+                          }}
+                          className={`min-h-9 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                            inRoom
+                              ? 'bg-primary/10 border-primary/30 text-primary opacity-60'
+                              : 'bg-page border-border text-main hover:border-primary'
+                          }`}
+                        >
+                          {inRoom ? `✓ ${f.name}` : `+ ${f.name}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            currentUserId &&
+            !members.some((m) => m.user_id === currentUserId) && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newMemberName.trim()) {
+                      actions.addMemberToDB(newMemberName.trim(), currentUserId);
+                      setNewMemberName('');
+                    }
+                  }}
+                  placeholder="Your display name to join table..."
+                  className="flex-1 min-h-12 bg-page border border-border rounded-xl px-4 text-sm font-semibold"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newMemberName.trim()) return;
+                    actions.addMemberToDB(newMemberName.trim(), currentUserId);
+                    setNewMemberName('');
+                  }}
+                  className="min-h-12 px-4 bg-primary text-white rounded-xl font-bold text-xs shrink-0"
+                >
+                  Join Table
+                </button>
               </div>
-            </div>
+            )
           )}
 
           <div className="flex flex-col gap-2.5">
@@ -1909,13 +1947,16 @@ export default function ReceiptWorkbench() {
                         </button>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => actions.removeMemberFromDB(m.id)}
-                      className="p-2 text-muted hover:text-danger"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {(isHost || isMe) && (
+                      <button
+                        type="button"
+                        onClick={() => actions.removeMemberFromDB(m.id)}
+                        aria-label={isMe && !isHost ? 'Leave table' : `Remove ${m.name}`}
+                        className="p-2 text-muted hover:text-danger"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 );
               })}
