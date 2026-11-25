@@ -130,7 +130,7 @@ function simulateBillTotal(params: {
   const { items, presetsById, rules } = params;
   const scTaxId = params.scTaxPresetIdOverride ?? (rules.scTaxPresetId || 'inherit');
   const rawScRate = Number(rules.serviceChargeRate ?? 0);
-  const scRate = rules.isScApplicable ? (rawScRate > 1 ? rawScRate / 100 : rawScRate) : 0;
+  const scRate = rules.isScApplicable ? (rawScRate >= 0.5 ? rawScRate / 100 : rawScRate) : 0;
 
   // 1. Item-level discounts & eligible pre-tax base
   let eligiblePreTaxBase = 0;
@@ -196,16 +196,24 @@ function simulateBillTotal(params: {
   const grossTotal = subTotal + serviceCharge + totalTax;
 
   // 4. Post-Tax Coupon / App Discount
-  const postTaxVal = parseFloat(String(rules.postTaxDiscountValue || '0')) || 0;
-  let postTaxDisc = 0;
-  if (
+  const hasExplicitPostTax =
     rules.postTaxDiscountType &&
     rules.postTaxDiscountType !== 'none' &&
-    postTaxVal > 0 &&
-    grossTotal > 0
-  ) {
+    (parseFloat(String(rules.postTaxDiscountValue || '0')) || 0) > 0;
+  const activePostType = hasExplicitPostTax
+    ? rules.postTaxDiscountType
+    : rules.discountType && rules.discountType !== 'none' && rules.discountMode === 'post-tax'
+      ? rules.discountType
+      : 'none';
+  const postTaxVal = hasExplicitPostTax
+    ? parseFloat(String(rules.postTaxDiscountValue || '0')) || 0
+    : rules.discountMode === 'post-tax'
+      ? parseFloat(String(rules.discountValue || '0')) || 0
+      : 0;
+  let postTaxDisc = 0;
+  if (activePostType !== 'none' && postTaxVal > 0 && grossTotal > 0) {
     postTaxDisc =
-      rules.postTaxDiscountType === 'percentage'
+      activePostType === 'percentage'
         ? grossTotal * (postTaxVal / 100)
         : Math.min(grossTotal, postTaxVal);
   }
@@ -258,7 +266,9 @@ function reconcileAndVerifyReceipt(params: {
     const split = Boolean(fp.split);
     const tid = String(fp.tempId || `tax_${rate}_${finalNewPresets.length}`);
 
-    const existingMatch = existingTaxes.find((t) => Math.abs(t.rate - rate) < 0.15);
+    const existingMatch = existingTaxes.find(
+      (t) => Math.abs(t.rate - rate) < 0.15 && Boolean(t.split) === split
+    );
     if (existingMatch) {
       tempIdRemap.set(tid, existingMatch.id);
     } else {

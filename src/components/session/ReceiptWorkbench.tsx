@@ -421,7 +421,7 @@ export default function ReceiptWorkbench() {
     setNewItemQty(next.toString());
   };
 
-  const handleSaveItem = (e?: React.FormEvent) => {
+  const handleSaveItem = (e?: React.SubmitEvent<HTMLFormElement>) => {
     e?.preventDefault();
     const qtyParsed = parseFloat(newItemQty) || 0;
     const priceParsed = parseFloat(newItemPrice);

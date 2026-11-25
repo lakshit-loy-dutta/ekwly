@@ -190,7 +190,7 @@ export default function Home({
     }
   };
 
-  const handleCreateTripFolder = (e: React.FormEvent) => {
+  const handleCreateTripFolder = (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmed = newTripName.trim();
     if (!trimmed) return showToast('Enter a trip or event name (e.g. Goa Oct 26)', 'error');

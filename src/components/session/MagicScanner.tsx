@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Camera, MediaTypeSelection } from '@capacitor/camera';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '../../lib/supabase';
 import { useSessionContext } from '../../lib/SessionContext';
@@ -75,57 +75,57 @@ export default function MagicScanner({ onScanComplete }: Props) {
    */
   const compressImageToBase64 = (fileOrBlob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_SHORT_EDGE = 1400;
-          const MAX_LONG_EDGE = 3000;
+      const objectUrl = URL.createObjectURL(fileOrBlob);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const canvas = document.createElement('canvas');
+        const MAX_SHORT_EDGE = 1400;
+        const MAX_LONG_EDGE = 3000;
 
-          let width = img.width;
-          let height = img.height;
-          const shortEdge = Math.min(width, height);
-          const longEdge = Math.max(width, height);
+        let width = img.width;
+        let height = img.height;
+        const shortEdge = Math.min(width, height);
+        const longEdge = Math.max(width, height);
 
-          let scale = 1;
-          if (shortEdge > MAX_SHORT_EDGE) {
-            scale = Math.min(scale, MAX_SHORT_EDGE / shortEdge);
-          }
-          if (longEdge * scale > MAX_LONG_EDGE) {
-            scale = MAX_LONG_EDGE / longEdge;
-          }
+        let scale = 1;
+        if (shortEdge > MAX_SHORT_EDGE) {
+          scale = Math.min(scale, MAX_SHORT_EDGE / shortEdge);
+        }
+        if (longEdge * scale > MAX_LONG_EDGE) {
+          scale = MAX_LONG_EDGE / longEdge;
+        }
 
-          width = Math.max(1, Math.round(width * scale));
-          height = Math.max(1, Math.round(height * scale));
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
 
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return reject(new Error('Canvas context unavailable'));
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas context unavailable'));
 
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, width, height);
-          if ('filter' in ctx) {
-            ctx.filter = 'grayscale(1) contrast(1.14)';
-          }
-          ctx.drawImage(img, 0, 0, width, height);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        if ('filter' in ctx) {
+          ctx.filter = 'grayscale(1) contrast(1.14)';
+        }
+        ctx.drawImage(img, 0, 0, width, height);
 
-          let dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-          let base64Clean = dataUrl.split(',')[1] || '';
+        let dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        let base64Clean = dataUrl.split(',')[1] || '';
 
-          if (base64Clean.length > 3_800_000) {
-            dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-            base64Clean = dataUrl.split(',')[1] || '';
-          }
+        if (base64Clean.length > 3_800_000) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          base64Clean = dataUrl.split(',')[1] || '';
+        }
 
-          resolve(base64Clean);
-        };
-        img.onerror = () => reject(new Error('Failed to decode receipt image'));
-        img.src = event.target?.result as string;
+        resolve(base64Clean);
       };
-      reader.onerror = () => reject(new Error('Failed to read image file'));
-      reader.readAsDataURL(fileOrBlob);
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Failed to decode receipt image'));
+      };
+      img.src = objectUrl;
     });
   };
 
@@ -207,7 +207,10 @@ export default function MagicScanner({ onScanComplete }: Props) {
       if (Array.isArray(data.newTaxPresets)) {
         for (const tp of data.newTaxPresets) {
           const rateNum = Number(tp.rate);
-          const existing = allPresets.find((p) => Math.abs(p.rate - rateNum) < 0.15);
+          const shouldSplit = tp.split !== false;
+          const existing = allPresets.find(
+            (p) => Math.abs(p.rate - rateNum) < 0.15 && Boolean(p.split) === shouldSplit
+          );
           if (existing) {
             if (tp.tempId) tempIdToRealId.set(tp.tempId, existing.id);
           } else if (Number.isFinite(rateNum) && rateNum >= 0) {
@@ -331,16 +334,22 @@ export default function MagicScanner({ onScanComplete }: Props) {
     }
   };
 
-  const handleNativeCamera = async (source: CameraSource) => {
+  const handleNativeCamera = async (mode: 'camera' | 'gallery') => {
     try {
-      const photo = await Camera.getPhoto({
-        quality: 92,
-        allowEditing: false,
-        resultType: CameraResultType.Uri,
-        source,
-      });
-      if (!photo.webPath) return;
-      const response = await fetch(photo.webPath);
+      let webPath: string | undefined;
+      if (mode === 'camera') {
+        const photo = await Camera.takePhoto({ quality: 92 });
+        webPath = photo.webPath;
+      } else {
+        const { results } = await Camera.chooseFromGallery({
+          mediaType: MediaTypeSelection.Photo,
+          allowMultipleSelection: false,
+          quality: 92,
+        });
+        webPath = results?.[0]?.webPath;
+      }
+      if (!webPath) return;
+      const response = await fetch(webPath);
       const blob = await response.blob();
       const base64 = await compressImageToBase64(blob);
       await processBase64Receipt(base64);
@@ -399,7 +408,7 @@ export default function MagicScanner({ onScanComplete }: Props) {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => handleNativeCamera(CameraSource.Camera)}
+                onClick={() => handleNativeCamera('camera')}
                 className="h-24 premium-gradient-card text-white rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-2 shadow-sm active:scale-95 transition-transform"
               >
                 <CameraIcon size={24} />
@@ -407,7 +416,7 @@ export default function MagicScanner({ onScanComplete }: Props) {
               </button>
               <button
                 type="button"
-                onClick={() => handleNativeCamera(CameraSource.Photos)}
+                onClick={() => handleNativeCamera('gallery')}
                 className="h-24 bg-page hover:bg-subtle text-main border border-border rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-2 shadow-2xs active:scale-95 transition-transform"
               >
                 <ImageIcon size={24} className="text-primary" />

@@ -97,7 +97,7 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
     const trimmedName = name.trim();

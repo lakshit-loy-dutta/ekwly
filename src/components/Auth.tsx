@@ -43,7 +43,7 @@ export default function Auth({ onContinueAsGuest }: Props) {
     }
   };
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  const handleEmailAuth = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     const cleanEmail = email.trim();
     if (!cleanEmail || !cleanEmail.includes('@')) return showToast('Enter a valid email', 'error');

@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { supabase } from './supabase';
 import { showToast, utils } from './utils';
 import { swrCache } from './swrCache';
 
@@ -44,6 +45,20 @@ export const EKWLY_PLANS: EkwlyPlanSpec[] = [
   },
 ];
 
+interface CreateOrderResponse {
+  orderId?: string;
+  amount?: number;
+  currency?: string;
+  keyId?: string;
+  error?: string;
+}
+
+interface RazorpayFailureResponse {
+  error?: {
+    description?: string;
+  };
+}
+
 let checkoutScriptPromise: Promise<boolean> | null = null;
 
 function loadRazorpayScript(): Promise<boolean> {
@@ -75,48 +90,62 @@ export async function launchProCheckout(params: {
 }) {
   const plan = EKWLY_PLANS.find((p) => p.id === params.planId) || EKWLY_PLANS[1];
 
-  // Google Play Store Compliance Guard: Native Android/iOS builds cannot open third-party web payment gateways
+  // Store Policy Guard (Stage 4 will integrate native Play Billing / StoreKit 2)
   if (Capacitor.isNativePlatform()) {
-    const subject = encodeURIComponent(`Ekwly ${plan.name} Activation`);
-    const body = encodeURIComponent(
-      `Hi, I would like to activate ${plan.name} (₹${plan.priceInr}) on my Ekwly account.\n\nRegistered Email: ${params.userEmail || ''}\nUser ID: ${params.userId || ''}`
+    showToast(
+      'In-app Pro upgrades are coming soon on mobile. Pro unlocked on web syncs automatically.',
+      'default'
     );
-    window.location.href = `mailto:lloy.dutta@gmail.com?subject=${subject}&body=${body}`;
     return;
   }
 
-  const keyId = import.meta.env.PUBLIC_RAZORPAY_KEY_ID;
-  if (!keyId) {
-    // Graceful fallback before PUBLIC_RAZORPAY_KEY_ID is added to .env
-    const subject = encodeURIComponent(`Ekwly ${plan.name} Upgrade Request (₹${plan.priceInr})`);
-    const body = encodeURIComponent(
-      `Hi, I would like to upgrade my account to ${plan.name} (₹${plan.priceInr}).\n\nRegistered Email: ${params.userEmail || ''}\nUser ID: ${params.userId || ''}`
-    );
-    showToast('Opening upgrade request...', 'default');
-    window.location.href = `mailto:lloy.dutta@gmail.com?subject=${subject}&body=${body}`;
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token || session.user?.is_anonymous) {
+    showToast('Sign in with Google or Email before upgrading to Ekwly Pro.', 'error');
     return;
   }
 
-  const loaded = await loadRazorpayScript();
+  const [loaded, orderResult] = await Promise.all([
+    loadRazorpayScript(),
+    supabase.functions.invoke<CreateOrderResponse>('create-razorpay-order', {
+      body: { planId: plan.id },
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    }),
+  ]);
+
   if (!loaded || !window.Razorpay) {
     showToast('Could not load Razorpay Checkout. Check your connection.', 'error');
     return;
   }
 
+  if (orderResult.error || orderResult.data?.error || !orderResult.data?.orderId) {
+    const errMsg =
+      orderResult.data?.error ||
+      orderResult.error?.message ||
+      'Payment checkout is temporarily unavailable.';
+    showToast(errMsg, 'error');
+    return;
+  }
+
+  const keyId = orderResult.data.keyId || import.meta.env.PUBLIC_RAZORPAY_KEY_ID;
+  if (!keyId) {
+    showToast('Payment gateway key is not configured.', 'error');
+    return;
+  }
+
   const rzp = new window.Razorpay({
     key: keyId,
-    amount: plan.amountPaise,
-    currency: 'INR',
+    order_id: orderResult.data.orderId,
+    amount: orderResult.data.amount ?? plan.amountPaise,
+    currency: orderResult.data.currency ?? 'INR',
     name: 'Ekwly',
     description: `${plan.name} (${plan.periodLabel})`,
     prefill: {
       name: params.userName || '',
-      email: params.userEmail || '',
-    },
-    notes: {
-      user_id: params.userId || '',
-      email: params.userEmail || '',
-      plan_type: plan.id,
+      email: params.userEmail || session.user.email || '',
     },
     theme: {
       color: '#0080FF',
@@ -125,13 +154,14 @@ export async function launchProCheckout(params: {
       utils.haptic('heavy');
       swrCache.invalidate('analytics_');
       swrCache.invalidate('profile_');
-      showToast(`${plan.name} activated! Refreshing your Pro status...`, 'success');
+      showToast(`${plan.name} payment received! Activating Pro status...`, 'success');
       if (params.onSuccess) params.onSuccess();
     },
   });
 
-  rzp.on('payment.failed', (resp: any) => {
-    showToast(resp?.error?.description || 'Payment was not completed.', 'error');
+  rzp.on('payment.failed', (resp: unknown) => {
+    const failed = resp as RazorpayFailureResponse;
+    showToast(failed?.error?.description || 'Payment was not completed.', 'error');
   });
 
   rzp.open();

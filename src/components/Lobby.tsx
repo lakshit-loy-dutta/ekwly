@@ -16,7 +16,7 @@ export default function Lobby({ onClose, onJoin }: Props) {
   const [joinPin, setJoinPin] = useState('');
   const [isScanningQr, setIsScanningQr] = useState(false);
 
-  const handleJoin = (e: React.FormEvent) => {
+  const handleJoin = (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!joinId.trim() || !joinPin.trim())
       return showToast('Enter Room ID and 4-digit PIN', 'error');

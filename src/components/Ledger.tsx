@@ -24,7 +24,6 @@ import {
   Smartphone,
   QrCode,
   ArrowLeftRight,
-  Image as ImageIcon,
 } from 'lucide-react';
 
 interface CachedLedgerData {

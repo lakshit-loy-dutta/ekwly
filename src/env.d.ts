@@ -3,6 +3,8 @@
 /// <reference types="vite-plugin-pwa/client" />
 /// <reference types="vite-plugin-pwa/info" />
 
+declare const __APP_BUILD_SHA__: string;
+
 interface ImportMetaEnv {
   readonly PUBLIC_SUPABASE_URL: string;
   readonly PUBLIC_SUPABASE_ANON_KEY: string;
@@ -15,12 +17,9 @@ interface ImportMeta {
 
 interface Window {
   toggleTheme?: () => void;
-  jspdf?: {
-    jsPDF: any;
-  };
   Razorpay?: new (options: Record<string, unknown>) => {
     open: () => void;
-    on: (event: string, callback: (response: any) => void) => void;
+    on: (event: string, callback: (response: unknown) => void) => void;
   };
 }
 

@@ -18,7 +18,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -37,18 +36,44 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Unit Tests
-        run: pnpm test
+      - name: Run Quality Gates (Tests, Typecheck & Lint)
+        run: |
+          pnpm test
+          pnpm check
+          pnpm lint
 
-      - name: Build Astro & Generate OTA Bundle
+      - name: Build Dedicated Native Capacitor OTA Bundle (Root '/' — Zero Service Worker)
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
           PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          CAPACITOR_BUILD: 'true'
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          pnpm astro build
+          # Verify OTA bundle uses root '/' paths and excludes web service workers
+          if grep -q '/ekwly/_astro/' dist/index.html; then
+            echo "ERROR: OTA bundle contains /ekwly/ asset paths!" >&2
+            exit 1
+          fi
+          if [ -f dist/sw.js ]; then
+            echo "ERROR: OTA bundle unexpectedly contains sw.js!" >&2
+            exit 1
+          fi
+          rm -rf ota-dist
+          mv dist ota-dist
+
+      - name: Build Web PWA Bundle (/ekwly/) & Attach Verified Native OTA Artifact
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          PUBLIC_RAZORPAY_KEY_ID: ${{ secrets.PUBLIC_RAZORPAY_KEY_ID }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
           pnpm run build
-          cd dist
-          zip -r -q ota-bundle.zip . -x "ota-bundle.zip" "version.json"
-          printf '{"version":"%s","bundleUrl":"https://lakshit-loy-dutta.github.io/ekwly/ota-bundle.zip","timestamp":%s}\n' "${{ github.sha }}" "$(date +%s)" > version.json
+          (cd ota-dist && zip -r -q ../dist/ota-bundle.zip .)
+          SHA256=$(sha256sum dist/ota-bundle.zip | awk '{print $1}')
+          printf '{"version":"%s","target":"capacitor","sha256":"%s","bundleUrl":"https://lakshit-loy-dutta.github.io/ekwly/ota-bundle.zip","timestamp":%s}\n' "${{ github.sha }}" "$SHA256" "$(date +%s)" > dist/version.json
+          rm -rf ota-dist
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -58,11 +83,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

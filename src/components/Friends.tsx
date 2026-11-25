@@ -284,7 +284,7 @@ export default function Friends({ user }: Props) {
   };
 
   // --- SAVED SQUADS HANDLERS ---
-  const handleCreateSquad = (e: React.FormEvent) => {
+  const handleCreateSquad = (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmedName = newSquadName.trim();
     if (!trimmedName) return showToast('Enter a squad name (e.g. Friday Crew).', 'error');

@@ -477,7 +477,7 @@ export function useSessionMutations(deps: MutationDeps) {
         apply_discount: item.applyDiscount !== false,
         discount_type: item.discountType || 'none',
         discount_value: item.discountValue || 0,
-        tax_preset_id: item.taxPresetId,
+        tax_preset_id: item.taxPresetId || null,
       };
 
       if (!navigator.onLine) {

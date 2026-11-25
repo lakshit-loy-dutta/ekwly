@@ -1,95 +1,219 @@
 // deno-lint-ignore no-import-prefix
-import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
-async function verifyRazorpaySignature(rawBody, signature, secret) {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), {
-    name: 'HMAC',
-    hash: 'SHA-256'
-  }, false, [
-    'sign'
-  ]);
-  const mac = await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody));
-  const computedHex = Array.from(new Uint8Array(mac)).map((b)=>b.toString(16).padStart(2, '0')).join('');
-  return computedHex === signature;
+import { createClient } from 'npm:@supabase/supabase-js@2.119.2';
+
+const PLAN_CATALOG = {
+  trip_pass_7d: { amountPaise: 4900, days: 7 },
+  pro_monthly: { amountPaise: 9900, days: 30 },
+  pro_yearly: { amountPaise: 79900, days: 365 },
+} as const;
+
+type PlanId = keyof typeof PLAN_CATALOG;
+
+function jsonResponse(body: Record<string, unknown>, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { 'Content-Type': 'application/json' },
+    status,
+  });
 }
-Deno.serve(async (req)=>{
-  if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', {
-      status: 405
-    });
+
+function hexToBytes(hex: string): Uint8Array | null {
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hex)) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
+  return bytes;
+}
+
+/** Constant-time HMAC-SHA256 verification */
+async function verifyRazorpaySignature(
+  rawBody: string,
+  signatureHex: string,
+  secret: string
+): Promise<boolean> {
+  const providedBytes = hexToBytes(signatureHex.trim());
+  if (!providedBytes) return false;
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody)));
+
+  if (mac.length !== providedBytes.length) return false;
+
+  let diff = 0;
+  for (let i = 0; i < mac.length; i++) {
+    diff |= mac[i] ^ providedBytes[i];
+  }
+  return diff === 0;
+}
+
+interface RazorpayPaymentEntity {
+  id?: string;
+  order_id?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  email?: string;
+  notes?: Record<string, string>;
+}
+
+interface RazorpayOrderEntity {
+  id?: string;
+  notes?: Record<string, string>;
+}
+
+interface RazorpayWebhookEvent {
+  event?: string;
+  payload?: {
+    payment?: { entity?: RazorpayPaymentEntity };
+    order?: { entity?: RazorpayOrderEntity };
+  };
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== 'POST') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  const webhookSecret = Deno.env.get('RAZORPAY_WEBHOOK_SECRET') ?? '';
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+  if (!webhookSecret || !supabaseUrl || !serviceRoleKey) {
+    return jsonResponse({ error: 'Webhook server misconfigured.' }, 500);
+  }
+
   try {
     const signature = req.headers.get('x-razorpay-signature');
-    const webhookSecret = Deno.env.get('RAZORPAY_WEBHOOK_SECRET');
-    if (!signature || !webhookSecret) {
-      throw new Error('Missing Razorpay webhook signature or secret.');
+    if (!signature) {
+      return jsonResponse({ error: 'Missing webhook signature.' }, 401);
     }
+
     const rawBody = await req.text();
     const isValid = await verifyRazorpaySignature(rawBody, signature, webhookSecret);
     if (!isValid) {
-      return new Response(JSON.stringify({
-        error: 'Invalid signature'
-      }), {
-        status: 401
-      });
+      return jsonResponse({ error: 'Invalid signature.' }, 401);
     }
-    const event = JSON.parse(rawBody);
+
+    const event = JSON.parse(rawBody) as RazorpayWebhookEvent;
     const eventType = event.event || '';
-    if (eventType === 'payment.captured' || eventType === 'subscription.charged' || eventType === 'order.paid') {
-      const entity = event.payload?.payment?.entity || event.payload?.subscription?.entity || event.payload?.order?.entity;
-      const email = entity?.email || entity?.notes?.email;
-      const userId = entity?.notes?.user_id;
-      const planType = entity?.notes?.plan_type || 'pro_monthly';
-      const amountPaise = Number(entity?.amount || 0);
-      // Determine duration: 7 days for ₹49 Trip Pass, 365 days for Annual, 30 days default
-      let daysToAdd = 30;
-      if (planType === 'trip_pass_7d' || amountPaise === 4900) {
-        daysToAdd = 7;
-      } else if (planType === 'pro_yearly' || amountPaise >= 79900) {
-        daysToAdd = 365;
-      }
-      const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
-      let profileQuery = supabaseAdmin.from('profiles').select('id, pro_expires_at');
-      if (userId) profileQuery = profileQuery.eq('id', userId);
-      else if (email) profileQuery = profileQuery.eq('email', email);
-      else throw new Error('No user_id or email present in payment payload.');
-      const { data: profile } = await profileQuery.maybeSingle();
-      if (!profile) throw new Error('Matching user profile not found.');
-      const now = new Date();
-      const baseDate = profile.pro_expires_at && new Date(profile.pro_expires_at) > now ? new Date(profile.pro_expires_at) : now;
-      const newExpiry = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
-      await supabaseAdmin.from('profiles').update({
-        pro_expires_at: newExpiry.toISOString()
-      }).eq('id', profile.id);
-      return new Response(JSON.stringify({
-        status: 'ok',
-        userId: profile.id,
-        pro_expires_at: newExpiry
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+
+    // Handle captured payment events (order.paid also carries payment.entity, deduplicated via payment.id)
+    if (eventType !== 'payment.captured' && eventType !== 'order.paid') {
+      return jsonResponse({ status: 'ignored', event: eventType }, 200);
     }
-    return new Response(JSON.stringify({
-      status: 'ignored',
-      event: eventType
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      }
+
+    const payment = event.payload?.payment?.entity;
+    const order = event.payload?.order?.entity;
+    if (!payment?.id) {
+      return jsonResponse({ error: 'Missing payment entity in webhook payload.' }, 400);
+    }
+
+    // Enforce server-created Order, captured status, and INR currency
+    if (payment.status !== 'captured') {
+      return jsonResponse({ status: 'ignored_not_captured', paymentStatus: payment.status }, 200);
+    }
+    if (payment.currency !== 'INR') {
+      return jsonResponse({ error: 'Unsupported currency.' }, 400);
+    }
+    if (!payment.order_id) {
+      return jsonResponse({ error: 'Missing server-signed order_id.' }, 400);
+    }
+
+    const notes = { ...(order?.notes || {}), ...(payment.notes || {}) };
+    const planType = notes.plan_type as PlanId | undefined;
+    const userId = notes.user_id?.trim() || '';
+    const amountPaise = Number(payment.amount || 0);
+
+    if (!planType || !(planType in PLAN_CATALOG)) {
+      return jsonResponse({ error: 'Invalid or missing plan_type.' }, 400);
+    }
+
+    const expectedPlan = PLAN_CATALOG[planType];
+    if (amountPaise !== expectedPlan.amountPaise) {
+      console.error(
+        `Amount mismatch for payment ${payment.id}: expected ${expectedPlan.amountPaise}, got ${amountPaise}`
+      );
+      return jsonResponse({ error: 'Payment amount does not match selected plan price.' }, 400);
+    }
+
+    if (!userId) {
+      return jsonResponse({ error: 'Missing user_id in order notes.' }, 400);
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+
+    // Verify user profile exists before recording payment event
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from('profiles')
+      .select('id, pro_expires_at')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (profileErr) {
+      console.error('Profile lookup error:', profileErr);
+      return jsonResponse({ error: 'Database lookup failed.' }, 500);
+    }
+    if (!profile) {
+      return jsonResponse({ error: 'Matching user profile not found.' }, 404);
+    }
+
+    // Atomic idempotency claim via UNIQUE(provider_payment_id) on public.payment_events
+    const { error: eventInsertErr } = await supabaseAdmin.from('payment_events').insert({
+      provider: 'razorpay',
+      provider_payment_id: payment.id,
+      provider_order_id: payment.order_id,
+      user_id: profile.id,
+      plan_id: planType,
+      amount_paise: amountPaise,
+      currency: payment.currency,
+      event_type: eventType,
     });
+
+    if (eventInsertErr) {
+      if (eventInsertErr.code === '23505') {
+        return jsonResponse({ status: 'duplicate_ignored', paymentId: payment.id }, 200);
+      }
+      console.error('payment_events insert failed:', eventInsertErr);
+      return jsonResponse({ error: 'Could not record payment event.' }, 500);
+    }
+
+    // Credit Pro entitlement; rollback idempotency claim if profile update fails so Razorpay retries cleanly
+    const now = new Date();
+    const baseDate =
+      profile.pro_expires_at && new Date(profile.pro_expires_at) > now
+        ? new Date(profile.pro_expires_at)
+        : now;
+    const newExpiry = new Date(baseDate.getTime() + expectedPlan.days * 24 * 60 * 60 * 1000);
+
+    const { error: updateErr } = await supabaseAdmin
+      .from('profiles')
+      .update({ pro_expires_at: newExpiry.toISOString(), updated_at: now.toISOString() })
+      .eq('id', profile.id);
+
+    if (updateErr) {
+      console.error('Profile Pro update failed, rolling back payment_events:', updateErr);
+      await supabaseAdmin.from('payment_events').delete().eq('provider_payment_id', payment.id);
+      return jsonResponse({ error: 'Failed to activate Pro entitlement.' }, 500);
+    }
+
+    return jsonResponse(
+      {
+        status: 'ok',
+        paymentId: payment.id,
+        userId: profile.id,
+        pro_expires_at: newExpiry.toISOString(),
+      },
+      200
+    );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({
-      error: message
-    }), {
-      status: 400,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    console.error('razorpay-webhook error:', err);
+    return jsonResponse({ error: 'Invalid webhook payload.' }, 400);
   }
 });

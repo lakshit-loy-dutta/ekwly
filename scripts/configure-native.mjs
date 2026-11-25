@@ -667,6 +667,16 @@ if (fs.existsSync(androidManifestPath)) {
     );
   }
 
+  if (!manifest.includes('android:host="auth-callback"')) {
+    const deepLinkFilter = `            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${APP_PACKAGE_ID}" android:host="auth-callback" />
+            </intent-filter>\n        </activity>`;
+    manifest = manifest.replace('</activity>', deepLinkFilter);
+  }
+
   if (!manifest.includes(`android:scheme="${APP_PACKAGE_ID}"`)) {
     const deepLinkFilter = `            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -712,38 +722,43 @@ if (fs.existsSync(androidManifestPath)) {
 const iosPlistPath = path.join(rootDir, 'ios', 'App', 'App', 'Info.plist');
 if (fs.existsSync(iosPlistPath)) {
   let plist = fs.readFileSync(iosPlistPath, 'utf8');
+  const inserts = [];
 
   if (!plist.includes('NSCameraUsageDescription')) {
-    const iosAdditions = `\t<key>NSCameraUsageDescription</key>
-\t<string>Ekwly needs camera access to scan restaurant receipts and room QR codes.</string>
-\t<key>NSPhotoLibraryUsageDescription</key>
-\t<string>Ekwly needs photo library access so you can upload receipt images for Magic Scan.</string>
-\t<key>NSPhotoLibraryAddUsageDescription</key>
-\t<string>Ekwly needs permission to save settlement receipts.</string>
-\t<key>CADisableMinimumFrameDurationOnPhone</key>
-\t<true/>
-\t<key>CFBundleURLTypes</key>
-\t<array>
-\t\t<dict>
-\t\t\t<key>CFBundleURLName</key>
-\t\t\t<string>${APP_PACKAGE_ID}</string>
-\t\t\t<key>CFBundleURLSchemes</key>
-\t\t\t<array>
-\t\t\t\t<string>${APP_PACKAGE_ID}</string>
-\t\t\t</array>
-\t\t</dict>
-\t</array>
-\t<key>LSApplicationQueriesSchemes</key>
-\t<array>
-\t\t<string>upi</string>
-\t\t<string>gpay</string>
-\t\t<string>phonepe</string>
-\t\t<string>paytmmp</string>
-\t\t<string>whatsapp</string>
-\t</array>\n</dict>`;
-    plist = plist.replace(/<\/dict>\s*<\/plist>/, `${iosAdditions}\n</plist>`);
+    inserts.push(
+      `\t<key>NSCameraUsageDescription</key>\n\t<string>Ekwly needs camera access to scan restaurant receipts and room QR codes.</string>\n\t<key>NSPhotoLibraryUsageDescription</key>\n\t<string>Ekwly needs photo library access so you can upload receipt images for Magic Scan.</string>\n\t<key>NSPhotoLibraryAddUsageDescription</key>\n\t<string>Ekwly needs permission to save settlement receipts.</string>`
+    );
+  }
+  if (!plist.includes('CADisableMinimumFrameDurationOnPhone')) {
+    inserts.push(`\t<key>CADisableMinimumFrameDurationOnPhone</key>\n\t<true/>`);
+  }
+  if (!plist.includes('CFBundleURLTypes')) {
+    inserts.push(
+      `\t<key>CFBundleURLTypes</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>CFBundleURLName</key>\n\t\t\t<string>${APP_PACKAGE_ID}</string>\n\t\t\t<key>CFBundleURLSchemes</key>\n\t\t\t<array>\n\t\t\t\t<string>${APP_PACKAGE_ID}</string>\n\t\t\t</array>\n\t\t</dict>\n\t</array>`
+    );
+  }
+  if (!plist.includes('LSApplicationQueriesSchemes')) {
+    inserts.push(
+      `\t<key>LSApplicationQueriesSchemes</key>\n\t<array>\n\t\t<string>upi</string>\n\t\t<string>gpay</string>\n\t\t<string>phonepe</string>\n\t\t<string>paytmmp</string>\n\t\t<string>whatsapp</string>\n\t</array>`
+    );
+  }
+
+  if (inserts.length > 0) {
+    plist = plist.replace(/<\/dict>\s*<\/plist>/, `${inserts.join('\n')}\n</dict>\n</plist>`);
     fs.writeFileSync(iosPlistPath, plist, 'utf8');
   }
+}
+
+const iosPbxprojPath = path.join(rootDir, 'ios', 'App', 'App.xcodeproj', 'project.pbxproj');
+if (fs.existsSync(iosPbxprojPath)) {
+  let pbx = fs.readFileSync(iosPbxprojPath, 'utf8');
+  pbx = pbx
+    .replace(/MARKETING_VERSION\s*=\s*[^;]+;/g, `MARKETING_VERSION = ${APP_VERSION_NAME};`)
+    .replace(
+      /CURRENT_PROJECT_VERSION\s*=\s*[^;]+;/g,
+      `CURRENT_PROJECT_VERSION = ${APP_VERSION_CODE};`
+    );
+  fs.writeFileSync(iosPbxprojPath, pbx, 'utf8');
 }
 
 // --- 10. CLI APK & PLAY STORE AAB COMPILER (OUTPUTS TO GITIGNORED dist/native/) ---
