@@ -19,7 +19,8 @@ export default function QrScannerModal({
   onScanSuccess,
 }: Props) {
   const qrRef = useRef<Html5Qrcode | null>(null);
-
+  const callbacksRef = useRef({ onClose, onScanSuccess });
+  callbacksRef.current = { onClose, onScanSuccess };
   useEffect(() => {
     if (!isOpen) return;
 
@@ -30,19 +31,19 @@ export default function QrScannerModal({
         const { camera } = await BarcodeScanner.requestPermissions();
         if (camera !== 'granted') {
           showToast('Camera permission denied.', 'error');
-          onClose();
+          callbacksRef.current.onClose();
           return;
         }
         const { barcodes } = await BarcodeScanner.scan();
         if (isMounted) {
-          onClose();
+          callbacksRef.current.onClose();
           if (barcodes.length > 0 && barcodes[0].displayValue) {
-            onScanSuccess(barcodes[0].displayValue);
+            callbacksRef.current.onScanSuccess(barcodes[0].displayValue);
           }
         }
       } catch {
         if (isMounted) {
-          onClose();
+          callbacksRef.current.onClose();
           showToast('Scanner closed or unavailable.', 'default');
         }
       }
@@ -60,8 +61,8 @@ export default function QrScannerModal({
           { fps: 10, qrbox: { width: 250, height: 250 } },
           (decodedText) => {
             stopWebScanner().then(() => {
-              onClose();
-              onScanSuccess(decodedText);
+              callbacksRef.current.onClose();
+              callbacksRef.current.onScanSuccess(decodedText);
             });
           },
           () => {}
@@ -69,7 +70,7 @@ export default function QrScannerModal({
       } catch {
         if (isMounted) {
           showToast('Camera permission denied or unavailable.', 'error');
-          onClose();
+          callbacksRef.current.onClose();
         }
       }
     };

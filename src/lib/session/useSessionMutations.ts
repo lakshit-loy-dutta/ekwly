@@ -10,6 +10,10 @@ interface MutationDeps {
   sessionId: string | null;
   items: BillItem[];
   members: DBMember[];
+  sessionRules: SessionRules;
+  taxPresets: TaxPreset[];
+  claims: DBClaim[];
+  ledger: any[];
   setSessionStatus: Dispatch<SetStateAction<'draft' | 'locked' | 'archived'>>;
   setSessionRules: Dispatch<SetStateAction<SessionRules>>;
   setTaxPresets: Dispatch<SetStateAction<TaxPreset[]>>;
@@ -31,12 +35,27 @@ export function useSessionMutations(deps: MutationDeps) {
     setLedger,
   } = deps;
 
-  const latestRef = useRef({ items: deps.items, members: deps.members });
-  latestRef.current = { items: deps.items, members: deps.members };
+  const latestRef = useRef({
+    items: deps.items,
+    members: deps.members,
+    sessionRules: deps.sessionRules,
+    taxPresets: deps.taxPresets,
+    claims: deps.claims,
+    ledger: deps.ledger,
+  });
+  latestRef.current = {
+    items: deps.items,
+    members: deps.members,
+    sessionRules: deps.sessionRules,
+    taxPresets: deps.taxPresets,
+    claims: deps.claims,
+    ledger: deps.ledger,
+  };
 
   return useMemo(() => {
     const updateSessionRulesInDB = async (updates: Partial<SessionRules>) => {
       if (!sessionId) return;
+      const prevRules = latestRef.current.sessionRules;
       setSessionRules((prev) => ({ ...prev, ...updates }));
       const payload: any = {
         venue_name: updates.venueName,
@@ -65,7 +84,11 @@ export function useSessionMutations(deps: MutationDeps) {
         enqueueMutation('sessions', 'UPDATE', payload, { id: sessionId });
         return;
       }
-      await supabase.from('sessions').update(payload).eq('id', sessionId);
+      const { error } = await supabase.from('sessions').update(payload).eq('id', sessionId);
+      if (error) {
+        setSessionRules(prevRules);
+        showToast(error.message || 'Could not update bill rules.', 'error');
+      }
     };
 
     const addTaxPresetToDB = async (preset: TaxPreset) => {
@@ -84,7 +107,11 @@ export function useSessionMutations(deps: MutationDeps) {
         enqueueMutation('tax_presets', 'UPSERT', payload);
         return;
       }
-      await supabase.from('tax_presets').insert(payload);
+      const { error } = await supabase.from('tax_presets').insert(payload);
+      if (error) {
+        setTaxPresets((prev) => prev.filter((t) => t.id !== preset.id));
+        showToast(error.message || 'Could not add tax bracket.', 'error');
+      }
     };
 
     const addTaxPresetsBatchToDB = async (presets: TaxPreset[]) => {
@@ -118,13 +145,18 @@ export function useSessionMutations(deps: MutationDeps) {
 
     const removeTaxPresetFromDB = async (id: string) => {
       if (!sessionId) return;
+      const prevPresets = latestRef.current.taxPresets;
       setTaxPresets((prev) => prev.filter((t) => t.id !== id));
 
       if (!navigator.onLine) {
         enqueueMutation('tax_presets', 'DELETE', null, { id });
         return;
       }
-      await supabase.from('tax_presets').delete().eq('id', id);
+      const { error } = await supabase.from('tax_presets').delete().eq('id', id);
+      if (error) {
+        setTaxPresets(prevPresets);
+        showToast(error.message || 'Could not remove tax bracket.', 'error');
+      }
     };
 
     const createSessionInDB = async (id: string, pin: string, name?: string | null) => {
@@ -247,19 +279,29 @@ export function useSessionMutations(deps: MutationDeps) {
       if (latestRef.current.members.some((m) => m.user_id === user.id)) {
         return showToast('You are already at this table.', 'error');
       }
-
+      const prevMembers = latestRef.current.members;
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, user_id: user.id } : m)));
-      showToast('Profile linked successfully!', 'success');
 
       if (!navigator.onLine) {
         enqueueMutation('members', 'UPDATE', { user_id: user.id }, { id: memberId });
+        showToast('Profile linked (pending sync).', 'success');
         return;
       }
-      await supabase.from('members').update({ user_id: user.id }).eq('id', memberId);
+      const { error } = await supabase
+        .from('members')
+        .update({ user_id: user.id })
+        .eq('id', memberId);
+      if (error) {
+        setMembers(prevMembers);
+        showToast(error.message || 'Could not claim member slot.', 'error');
+      } else {
+        showToast('Profile linked successfully!', 'success');
+      }
     };
 
     const updateMemberPaymentInDB = async (memberId: string, amount: number) => {
       if (!sessionId) return;
+      const prevMembers = latestRef.current.members;
       setMembers((prev) =>
         prev.map((m) => (m.id === memberId ? { ...m, paid_amount: amount } : m))
       );
@@ -268,11 +310,51 @@ export function useSessionMutations(deps: MutationDeps) {
         enqueueMutation('members', 'UPDATE', { paid_amount: amount }, { id: memberId });
         return;
       }
-      await supabase.from('members').update({ paid_amount: amount }).eq('id', memberId);
+      const { error } = await supabase
+        .from('members')
+        .update({ paid_amount: amount })
+        .eq('id', memberId);
+      if (error) {
+        setMembers(prevMembers);
+        showToast(error.message || 'Could not save payment amount.', 'error');
+      }
+    };
+
+    const batchUpdateMemberPaymentsInDB = async (
+      updates: { memberId: string; amount: number }[]
+    ) => {
+      if (!sessionId || updates.length === 0) return;
+      const prevMembers = latestRef.current.members;
+      const amountMap = new Map(updates.map((u) => [u.memberId, u.amount]));
+      setMembers((prev) =>
+        prev.map((m) => (amountMap.has(m.id) ? { ...m, paid_amount: amountMap.get(m.id)! } : m))
+      );
+
+      const payloads = prevMembers
+        .filter((m) => amountMap.has(m.id))
+        .map((m) => ({
+          id: m.id,
+          session_id: sessionId,
+          name: m.name,
+          user_id: m.user_id || null,
+          paid_amount: amountMap.get(m.id)!,
+        }));
+
+      if (!navigator.onLine) {
+        enqueueMutation('members', 'UPSERT', payloads);
+        return;
+      }
+
+      const { error } = await supabase.from('members').upsert(payloads);
+      if (error) {
+        setMembers(prevMembers);
+        showToast('Could not save cashier payment split.', 'error');
+      }
     };
 
     const updateClaimInDB = async (memberId: string, itemId: string, value: string) => {
       if (!sessionId) return;
+      const prevClaims = latestRef.current.claims;
       const newClaim: DBClaim = {
         session_id: sessionId,
         member_id: memberId,
@@ -299,9 +381,22 @@ export function useSessionMutations(deps: MutationDeps) {
       }
 
       if (isEmpty) {
-        await supabase.from('claims').delete().match({ member_id: memberId, item_id: itemId });
+        const { error } = await supabase
+          .from('claims')
+          .delete()
+          .match({ member_id: memberId, item_id: itemId });
+        if (error) {
+          setClaims(prevClaims);
+          showToast(error.message || 'Could not clear claim.', 'error');
+        }
       } else {
-        await supabase.from('claims').upsert(newClaim, { onConflict: 'item_id,member_id' });
+        const { error } = await supabase
+          .from('claims')
+          .upsert(newClaim, { onConflict: 'item_id,member_id' });
+        if (error) {
+          setClaims(prevClaims);
+          showToast(error.message || 'Could not save claim.', 'error');
+        }
       }
     };
 
@@ -309,6 +404,7 @@ export function useSessionMutations(deps: MutationDeps) {
       claimUpdates: { memberId: string; itemId: string; value: string }[]
     ) => {
       if (!sessionId || claimUpdates.length === 0) return;
+      const prevClaims = latestRef.current.claims;
       const newClaims: DBClaim[] = [];
       const toDelete: { member_id: string; item_id: string }[] = [];
 
@@ -374,7 +470,12 @@ export function useSessionMutations(deps: MutationDeps) {
         }
       }
 
-      await Promise.all(dbTasks);
+      const results = await Promise.all(dbTasks);
+      const failed = results.find((r) => r?.error);
+      if (failed?.error) {
+        setClaims(prevClaims);
+        showToast(failed.error.message || 'Could not update item split.', 'error');
+      }
     };
 
     const addItemToDB = async (item: BillItem) => {
@@ -438,30 +539,40 @@ export function useSessionMutations(deps: MutationDeps) {
 
     const replaceTaxPresetsInDB = async (newPresets: TaxPreset[]) => {
       if (!sessionId) return;
+      const prevPresets = latestRef.current.taxPresets;
       setTaxPresets(newPresets);
-
-      const payloads = newPresets.map((p) => ({
-        id: p.id,
-        session_id: sessionId,
-        name: p.name,
-        rate: p.rate,
-        split: p.split,
-      }));
 
       if (!navigator.onLine) {
         enqueueMutation('tax_presets', 'DELETE', null, { session_id: sessionId });
-        if (payloads.length > 0) enqueueMutation('tax_presets', 'UPSERT', payloads);
+        if (newPresets.length > 0) {
+          enqueueMutation(
+            'tax_presets',
+            'UPSERT',
+            newPresets.map((p) => ({
+              id: p.id,
+              session_id: sessionId,
+              name: p.name,
+              rate: p.rate,
+              split: p.split,
+            }))
+          );
+        }
         return;
       }
 
-      await supabase.from('tax_presets').delete().eq('session_id', sessionId);
-      if (payloads.length > 0) {
-        await supabase.from('tax_presets').insert(payloads);
+      const { error } = await supabase.rpc('replace_session_tax_presets', {
+        p_session_id: sessionId,
+        p_presets: newPresets,
+      });
+      if (error) {
+        setTaxPresets(prevPresets);
+        showToast(error.message || 'Could not update tax brackets.', 'error');
       }
     };
 
     const updateItemInDB = async (item: BillItem) => {
       if (!sessionId) return;
+      const prevItems = latestRef.current.items;
       setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
 
       const payload = {
@@ -479,11 +590,16 @@ export function useSessionMutations(deps: MutationDeps) {
         enqueueMutation('items', 'UPDATE', payload, { id: item.id });
         return;
       }
-      await supabase.from('items').update(payload).eq('id', item.id);
+      const { error } = await supabase.from('items').update(payload).eq('id', item.id);
+      if (error) {
+        setItems(prevItems);
+        showToast(error.message || 'Could not update item.', 'error');
+      }
     };
 
     const batchUpdateItemsInDB = async (updatedItems: BillItem[]) => {
       if (!sessionId || updatedItems.length === 0) return;
+      const prevItems = latestRef.current.items;
       const updateMap = new Map(updatedItems.map((i) => [i.id, i]));
       setItems((prev) => prev.map((i) => updateMap.get(i.id) || i));
 
@@ -504,7 +620,11 @@ export function useSessionMutations(deps: MutationDeps) {
         enqueueMutation('items', 'UPSERT', payloads);
         return;
       }
-      await supabase.from('items').upsert(payloads);
+      const { error } = await supabase.from('items').upsert(payloads);
+      if (error) {
+        setItems(prevItems);
+        showToast(error.message || 'Could not update items.', 'error');
+      }
     };
 
     const removeItemFromDB = async (itemId: string) => {
@@ -528,49 +648,56 @@ export function useSessionMutations(deps: MutationDeps) {
 
     const saveLedgerToDB = async (transactions: Transaction[]) => {
       if (!sessionId) return;
-
-      await supabase.from('ledger').delete().eq('session_id', sessionId);
-
-      const ledgerEntries = transactions.map((t) => ({
-        session_id: sessionId,
+      const entries = transactions.map((t) => ({
         creditor_id: t.creditor_id || null,
         creditor_fallback_name: t.creditor_name,
         debtor_id: t.debtor_id || null,
         debtor_fallback_name: t.debtor_name,
         amount: t.amount,
-        settled: false,
       }));
 
-      if (ledgerEntries.length > 0) {
-        const { data, error } = await supabase.from('ledger').insert(ledgerEntries).select();
-
-        if (data) {
-          const mappedData = data.map((l: any) => ({
-            ...l,
-            creditor_name: l.creditor_fallback_name,
-            debtor_name: l.debtor_fallback_name,
-          }));
-          setLedger(mappedData);
-        }
-        if (error) {
-          console.error('Ledger save error:', error);
-        }
-      } else {
-        setLedger([]);
+      const { data, error } = await supabase.rpc('replace_session_ledger', {
+        p_session_id: sessionId,
+        p_entries: entries,
+      });
+      if (error) {
+        console.error('Ledger save error:', error);
+        showToast('Failed to save settlement ledger.', 'error');
+        return;
       }
+      const rows = Array.isArray(data) ? data : [];
+      setLedger(
+        rows.map((l: Record<string, unknown>) => ({
+          ...l,
+          creditor_name: l.creditor_fallback_name,
+          debtor_name: l.debtor_fallback_name,
+        }))
+      );
     };
 
     const lockSessionInDB = async () => {
       if (!sessionId) return;
       setSessionStatus('locked');
-      await supabase.from('sessions').update({ status: 'locked' }).eq('id', sessionId);
+      const { error } = await supabase
+        .from('sessions')
+        .update({ status: 'locked' })
+        .eq('id', sessionId);
+      if (error) {
+        setSessionStatus('draft');
+        showToast(error.message || 'Could not lock session.', 'error');
+      }
     };
 
     const unlockSessionInDB = async () => {
       if (!sessionId) return;
       setSessionStatus('draft');
-      await supabase.from('sessions').update({ status: 'draft' }).eq('id', sessionId);
-      await supabase.from('ledger').delete().eq('session_id', sessionId);
+      const { error } = await supabase.rpc('unlock_session_room', { p_session_id: sessionId });
+      if (error) {
+        setSessionStatus('locked');
+        showToast('Failed to unlock room.', 'error');
+        return;
+      }
+      setLedger([]);
     };
 
     const deleteActiveSessionInDB = async () => {
@@ -579,6 +706,7 @@ export function useSessionMutations(deps: MutationDeps) {
     };
 
     const toggleLedgerSettledInDB = async (ledgerId: string, currentStatus: boolean) => {
+      const prevLedger = latestRef.current.ledger;
       setLedger((prev) =>
         prev.map((l) => (l.id === ledgerId ? { ...l, settled: !currentStatus } : l))
       );
@@ -587,7 +715,14 @@ export function useSessionMutations(deps: MutationDeps) {
         enqueueMutation('ledger', 'UPDATE', { settled: !currentStatus }, { id: ledgerId });
         return;
       }
-      await supabase.from('ledger').update({ settled: !currentStatus }).eq('id', ledgerId);
+      const { error } = await supabase
+        .from('ledger')
+        .update({ settled: !currentStatus })
+        .eq('id', ledgerId);
+      if (error) {
+        setLedger(prevLedger);
+        showToast(error.message || 'Could not update payment status.', 'error');
+      }
     };
 
     return {
@@ -609,6 +744,7 @@ export function useSessionMutations(deps: MutationDeps) {
       updateClaimInDB,
       batchUpdateClaimsInDB,
       updateMemberPaymentInDB,
+      batchUpdateMemberPaymentsInDB,
       saveLedgerToDB,
       lockSessionInDB,
       unlockSessionInDB,

@@ -88,6 +88,11 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
       const { error } = await supabase.rpc('delete_user_account');
       if (error) throw error;
       swrCache.clearAll();
+      if (typeof window !== 'undefined') {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('ekwly_'))
+          .forEach((k) => localStorage.removeItem(k));
+      }
       await supabase.auth.signOut();
       showToast('Your account has been permanently deleted.', 'success');
       onBack();
@@ -103,6 +108,9 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
     const trimmedName = name.trim();
     const trimmedUpi = upiId.trim().toLowerCase();
     if (!trimmedName) return showToast('Display name is required', 'error');
+    if (trimmedUpi && !/^[\w.-]+@[\w.-]+$/i.test(trimmedUpi)) {
+      return showToast('Enter a valid UPI ID (e.g. name@okhdfcbank) or leave it blank.', 'error');
+    }
 
     setIsSaving(true);
     const { error } = await supabase.from('profiles').upsert({
@@ -120,6 +128,9 @@ export default function Profile({ user, onBack, isOnboarding = false, onComplete
       utils.haptic('medium');
       setName(trimmedName);
       setUpiId(trimmedUpi);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`ekwly_onboarded_${user.id}`, 'true');
+      }
       swrCache.set<CachedProfileData>(cacheKey, {
         name: trimmedName,
         upiId: trimmedUpi,

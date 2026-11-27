@@ -1,5 +1,7 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro';
+
+const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
 <LegalLayout title="Privacy Policy" updated="October 21, 2026">
@@ -65,7 +67,7 @@ import LegalLayout from '../layouts/LegalLayout.astro';
     You can permanently delete your Ekwly account and wipe your profile, friend connections, and
     personal ledger records at any time directly inside the app (
     <strong>Profile &rarr; Delete Account Permanently</strong>) or on our web portal at{' '}
-    <a href="/ekwly/delete-account">/delete-account</a>.
+    <a href={`${baseUrl}/delete-account`}>/delete-account</a>.
   </p>
 
   <h2>6. Grievance Officer &amp; Contact</h2>

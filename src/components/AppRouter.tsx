@@ -62,7 +62,8 @@ export default function AppRouter() {
 
   const viewRef = useRef(currentView);
   viewRef.current = currentView;
-
+  const userRef = useRef<User | null>(user);
+  userRef.current = user;
   const modalsRef = useRef({ isProfileOpen, showInviteModal, showTour, showProSheet });
   modalsRef.current = { isProfileOpen, showInviteModal, showTour, showProSheet };
 
@@ -117,6 +118,12 @@ export default function AppRouter() {
         .maybeSingle();
 
       if (!profile || !profile.upi_id) {
+        const alreadyOnboarded =
+          localStorage.getItem(`ekwly_onboarded_${currentUser.id}`) === 'true';
+        if (alreadyOnboarded) {
+          setIsOnboarding(false);
+          return false;
+        }
         setIsOnboarding(true);
         return true;
       }
@@ -224,7 +231,7 @@ export default function AppRouter() {
       }
       if (e.state && e.state.view) {
         setCurrentView(e.state.view);
-      } else if (user) {
+      } else if (userRef.current) {
         setCurrentView('home');
       } else {
         setCurrentView('auth');
@@ -232,9 +239,10 @@ export default function AppRouter() {
     };
     window.addEventListener('popstate', handlePopState);
 
-    let backButtonListener: any;
+    let isDisposed = false;
+    let backListenerHandle: { remove: () => Promise<void> } | null = null;
     if (Capacitor.isNativePlatform()) {
-      backButtonListener = CapApp.addListener('backButton', () => {
+      CapApp.addListener('backButton', () => {
         if (modalsRef.current.isProfileOpen) {
           setIsProfileOpen(false);
         } else if (modalsRef.current.showInviteModal) {
@@ -248,13 +256,17 @@ export default function AppRouter() {
         } else {
           CapApp.exitApp();
         }
+      }).then((handle) => {
+        if (isDisposed) handle.remove();
+        else backListenerHandle = handle;
       });
     }
 
     return () => {
+      isDisposed = true;
       subscription.unsubscribe();
       window.removeEventListener('popstate', handlePopState);
-      if (backButtonListener) backButtonListener.remove();
+      if (backListenerHandle) backListenerHandle.remove();
     };
   }, []);
 
@@ -272,11 +284,29 @@ export default function AppRouter() {
     }
   };
 
-  const handleInstantCreateSession = (customInitialName?: string | null) => {
+  const handleInstantCreateSession = async (
+    customInitialName?: string | null,
+    pendingSquadMembers?: SavedSquad['members']
+  ) => {
     const newId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     localStorage.setItem('ekwly_host_' + newId, 'true');
     localStorage.setItem('ekwly_pin_' + newId, generatedPin);
+    if (pendingSquadMembers && pendingSquadMembers.length > 0) {
+      localStorage.setItem(`ekwly_pending_squad_${newId}`, JSON.stringify(pendingSquadMembers));
+    }
+    if (navigator.onLine) {
+      const { error } = await supabase.rpc('create_session_room', {
+        p_id: newId,
+        p_pin: generatedPin,
+        p_name: customInitialName || null,
+      });
+      if (error) {
+        console.error('create_session_room failed:', error);
+        showToast('Could not create room. Please try again.', 'error');
+        return null;
+      }
+    }
     setActiveSessionId(newId);
     setActiveSessionPin(generatedPin);
     setActiveSessionName(customInitialName || null);
@@ -286,9 +316,8 @@ export default function AppRouter() {
   };
 
   // 1-Tap Launch with a Saved Squad directly from the Home Dashboard
-  const handleLaunchSquadSession = (squad: SavedSquad) => {
-    const newId = handleInstantCreateSession(`${squad.name} Split`);
-    localStorage.setItem(`ekwly_pending_squad_${newId}`, JSON.stringify(squad.members));
+  const handleLaunchSquadSession = async (squad: SavedSquad) => {
+    await handleInstantCreateSession(`${squad.name} Split`, squad.members);
   };
 
   const handleOpenLobby = (mode: 'create' | 'join', customTitle?: string) => {

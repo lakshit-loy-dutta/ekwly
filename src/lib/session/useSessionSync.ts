@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabase';
 import { processOfflineQueue } from './offlineQueue';
 import type { BillItem, TaxPreset } from '../types';
@@ -14,7 +14,7 @@ function mapDbItemToBillItem(dbItem: any): BillItem {
     applyDiscount: dbItem.apply_discount !== false,
     discountType: dbItem.discount_type || 'none',
     discountValue: Number(dbItem.discount_value || 0),
-    taxPresetId: dbItem.tax_preset_id || 'tx-1',
+    taxPresetId: dbItem.tax_preset_id || '',
     taxRate: 0,
     totalBase: Number(dbItem.qty) * Number(dbItem.price),
   };
@@ -34,7 +34,7 @@ function mapDbSessionRules(sessionRow: any): SessionRules {
     venueName: sessionRow.venue_name || '',
     isScApplicable: Boolean(sessionRow.is_sc_applicable),
     serviceChargeRate: Number(
-      (sessionRow.service_charge_rate || 0) > 1
+      (sessionRow.service_charge_rate || 0) >= 0.5
         ? sessionRow.service_charge_rate / 100
         : sessionRow.service_charge_rate || 0
     ),
@@ -170,6 +170,7 @@ export function useSessionSync(sessionId: string | null) {
     [sessionId]
   );
 
+  const lastWakeFetchRef = useRef<number>(0);
   useEffect(() => {
     if (!sessionId) {
       setIsLoading(false);
@@ -177,18 +178,27 @@ export function useSessionSync(sessionId: string | null) {
     }
     fetchSessionData(false);
 
-    const handleWakeUp = async () => {
+    const handleWakeUp = async (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastWakeFetchRef.current < 10_000) return;
+      lastWakeFetchRef.current = now;
       if (navigator.onLine) {
         await processOfflineQueue();
       }
       await fetchSessionData(true);
     };
-    window.addEventListener('focus', handleWakeUp);
-    window.addEventListener('online', handleWakeUp);
+    const onFocus = () => {
+      void handleWakeUp(false);
+    };
+    const onOnline = () => {
+      void handleWakeUp(true);
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
 
     return () => {
-      window.removeEventListener('focus', handleWakeUp);
-      window.removeEventListener('online', handleWakeUp);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
     };
   }, [sessionId, fetchSessionData]);
 

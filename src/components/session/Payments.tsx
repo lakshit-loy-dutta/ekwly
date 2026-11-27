@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { utils } from '../../lib/utils';
 import type { DBMember } from '../../lib/useSession';
 import { AlertCircle, CheckCircle2, Sparkles, RotateCcw } from 'lucide-react';
@@ -8,6 +8,7 @@ interface Props {
   members: DBMember[];
   grandTotal: number;
   handleUpdatePayment: (memberId: string, amount: string) => void;
+  handleBatchUpdatePayments?: (updates: { memberId: string; amount: number }[]) => void;
 }
 
 function PaymentInput({
@@ -20,13 +21,13 @@ function PaymentInput({
   onChange: (val: string) => void;
 }) {
   const [localVal, setLocalVal] = useState(m.paid_amount ? m.paid_amount.toString() : '');
+  const isFocusedRef = useRef(false);
 
   useEffect(() => {
-    const parsedLocal = parseFloat(localVal) || 0;
-    if (Math.abs(parsedLocal - (m.paid_amount || 0)) > 0.01) {
+    if (!isFocusedRef.current) {
       setLocalVal(m.paid_amount ? m.paid_amount.toString() : '');
     }
-  }, [m.paid_amount, localVal]);
+  }, [m.paid_amount]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setLocalVal(e.target.value);
@@ -44,6 +45,13 @@ function PaymentInput({
         disabled={!isHost}
         value={localVal}
         onChange={handleChange}
+        onFocus={() => {
+          isFocusedRef.current = true;
+        }}
+        onBlur={() => {
+          isFocusedRef.current = false;
+          setLocalVal(m.paid_amount ? m.paid_amount.toString() : '');
+        }}
         placeholder="0.00"
         className="w-full h-10 bg-page border border-border rounded-xl pl-7 pr-3 font-extrabold text-sm text-main tabular-nums disabled:opacity-75"
       />
@@ -70,21 +78,29 @@ export default function Payments(props: Props) {
     utils.haptic('medium');
     const baseShare = Math.floor((props.grandTotal / props.members.length) * 100) / 100;
     let allocated = 0;
-    props.members.forEach((m, idx) => {
+    const updates = props.members.map((m, idx) => {
       if (idx === props.members.length - 1) {
         const lastShare = utils.round2(props.grandTotal - allocated);
-        props.handleUpdatePayment(m.id, lastShare.toString());
-      } else {
-        allocated = utils.round2(allocated + baseShare);
-        props.handleUpdatePayment(m.id, baseShare.toString());
+        return { memberId: m.id, amount: lastShare };
       }
+      allocated = utils.round2(allocated + baseShare);
+      return { memberId: m.id, amount: baseShare };
     });
+    if (props.handleBatchUpdatePayments) {
+      props.handleBatchUpdatePayments(updates);
+    } else {
+      updates.forEach((u) => props.handleUpdatePayment(u.memberId, u.amount.toString()));
+    }
   };
 
   const handleClearAllPayments = () => {
     if (!props.isHost) return;
     utils.haptic('light');
-    props.members.forEach((m) => props.handleUpdatePayment(m.id, '0'));
+    if (props.handleBatchUpdatePayments) {
+      props.handleBatchUpdatePayments(props.members.map((m) => ({ memberId: m.id, amount: 0 })));
+    } else {
+      props.members.forEach((m) => props.handleUpdatePayment(m.id, '0'));
+    }
   };
 
   return (

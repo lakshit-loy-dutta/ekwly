@@ -101,6 +101,7 @@ export default function Home({
   const [tripNettedDebts, setTripNettedDebts] = useState<
     { from: string; to: string; amount: number }[]
   >([]);
+  const [confirmSettleTrip, setConfirmSettleTrip] = useState(false);
   const [isLoadingTripStats, setIsLoadingTripStats] = useState(false);
 
   // Unified Workspace Filter ('all' | 'draft' | 'locked' | 'trips')
@@ -132,7 +133,6 @@ export default function Home({
         supabase
           .from('sessions')
           .select('id, name, venue_name, host_id, status, created_at')
-          .eq('host_id', user.id)
           .order('created_at', { ascending: false })
           .limit(20),
         supabase.from('global_ledger').select('*').eq('creditor_id', user.id),
@@ -226,20 +226,28 @@ export default function Home({
         .in('session_id', trip.sessionIds)
         .eq('settled', false);
 
-      const netByPerson = new Map<string, number>();
+      const netByKey = new Map<string, { name: string; bal: number }>();
+      const addDelta = (uid: string | null, fallbackName: string, delta: number) => {
+        const cleanName = fallbackName.trim() || 'Guest';
+        const key = uid ? `id:${uid}` : `name:${cleanName.toLowerCase()}`;
+        const existing = netByKey.get(key);
+        if (existing) {
+          existing.bal += delta;
+        } else {
+          netByKey.set(key, { name: cleanName, bal: delta });
+        }
+      };
       (ledgerRows || []).forEach((row: any) => {
-        const creditor = (row.creditor_fallback_name || 'Host').trim();
-        const debtor = (row.debtor_fallback_name || 'Guest').trim();
         const amt = Number(row.amount || 0);
-        netByPerson.set(creditor, (netByPerson.get(creditor) || 0) + amt);
-        netByPerson.set(debtor, (netByPerson.get(debtor) || 0) - amt);
+        addDelta(row.creditor_id || null, row.creditor_fallback_name || 'Host', amt);
+        addDelta(row.debtor_id || null, row.debtor_fallback_name || 'Guest', -amt);
       });
 
       const debtors: { name: string; bal: number }[] = [];
       const creditors: { name: string; bal: number }[] = [];
-      netByPerson.forEach((bal, name) => {
-        if (bal < -0.05) debtors.push({ name, bal });
-        else if (bal > 0.05) creditors.push({ name, bal });
+      netByKey.forEach((entry) => {
+        if (entry.bal < -0.05) debtors.push({ name: entry.name, bal: entry.bal });
+        else if (entry.bal > 0.05) creditors.push({ name: entry.name, bal: entry.bal });
       });
 
       debtors.sort((a, b) => a.bal - b.bal);
@@ -268,11 +276,15 @@ export default function Home({
   const handleSettleEntireTrip = async () => {
     if (!activeTripFolder || activeTripFolder.sessionIds.length === 0) return;
     utils.haptic('heavy');
-    await supabase
+    const { error } = await supabase
       .from('ledger')
       .update({ settled: true })
       .in('session_id', activeTripFolder.sessionIds)
       .eq('settled', false);
+    if (error) {
+      showToast(error.message || 'Could not settle trip balances.', 'error');
+      return;
+    }
     swrCache.invalidate('home_');
     swrCache.invalidate('ledger_');
     setTripNettedDebts([]);
@@ -388,7 +400,19 @@ export default function Home({
         confirmLabel="Delete Room"
         variant="danger"
       />
-
+      <ConfirmSheet
+        isOpen={confirmSettleTrip}
+        onClose={() => setConfirmSettleTrip(false)}
+        onConfirm={handleSettleEntireTrip}
+        title="Settle Entire Trip?"
+        description={
+          activeTripFolder
+            ? `Mark all unsettled balances across "${activeTripFolder.name}" as paid?`
+            : ''
+        }
+        confirmLabel="Mark All Paid"
+        variant="success"
+      />
       <div className="absolute inset-0 bg-grid-pattern z-0" />
 
       <div className="w-full flex flex-col gap-4 px-4 py-5 md:px-8 relative z-10">
@@ -694,6 +718,7 @@ export default function Home({
                       const title = getSessionTitle(session);
                       const isEditing = editingSessionId === session.id;
                       const isLocked = session.status === 'locked';
+                      const isRoomHost = session.host_id === user?.id;
                       const hasDistinctVenue = Boolean(
                         session.venue_name &&
                         (!session.name ||
@@ -782,6 +807,11 @@ export default function Home({
                                       {isLocked ? <Lock size={9} /> : <FileEdit size={9} />}
                                       {isLocked ? 'Locked' : 'Draft'}
                                     </span>
+                                    {!isRoomHost && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-primary/12 text-primary text-[0.6rem] font-bold uppercase tracking-wider shrink-0">
+                                        Joined
+                                      </span>
+                                    )}
                                   </div>
 
                                   {/* LINE 2: Venue • Date • Short Room Code */}
@@ -798,7 +828,7 @@ export default function Home({
                             </div>
                           </div>
 
-                          {!isEditing && (
+                          {!isEditing && isRoomHost && (
                             <div className="flex items-center gap-0.5 shrink-0">
                               <button
                                 type="button"
@@ -1002,7 +1032,7 @@ export default function Home({
                 {tripNettedDebts.length > 0 && (
                   <button
                     type="button"
-                    onClick={handleSettleEntireTrip}
+                    onClick={() => setConfirmSettleTrip(true)}
                     className="w-full min-h-12 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm"
                   >
                     <CheckCircle2 size={16} /> Mark Entire Trip Settled

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import QRCode from 'react-qr-code';
 import { supabase } from '../lib/supabase';
@@ -55,47 +55,48 @@ export default function Ledger({ user }: Props) {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const nudgeQrRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const attemptedZeroKeysRef = useRef<Set<string>>(new Set());
   const [parsedCsv, setParsedCsv] = useState<SplitwiseParseResult | null>(null);
   const [selectedSelfName, setSelectedSelfName] = useState<string>('');
   const [isImporting, setIsImporting] = useState(false);
 
-  const settleBothDirectionsInDB = async (row: NettedBalanceRow, currentUserId: string) => {
-    const tasks: PromiseLike<any>[] = [];
+  const settleBothDirectionsInDB = useCallback(
+    async (row: NettedBalanceRow, currentUserId: string) => {
+      const escapeIlike = (val: string) => val.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+      const tasks: PromiseLike<any>[] = [];
+      const safeGuestName = escapeIlike(row.counterpartyName.trim());
+      let qCreditor = supabase
+        .from('ledger')
+        .update({ settled: true })
+        .eq('settled', false)
+        .eq('creditor_id', currentUserId);
+      if (row.counterpartyId) {
+        qCreditor = qCreditor.eq('debtor_id', row.counterpartyId);
+      } else {
+        qCreditor = qCreditor.is('debtor_id', null).ilike('debtor_fallback_name', safeGuestName);
+      }
+      tasks.push(qCreditor);
+      let qDebtor = supabase
+        .from('ledger')
+        .update({ settled: true })
+        .eq('settled', false)
+        .eq('debtor_id', currentUserId);
+      if (row.counterpartyId) {
+        qDebtor = qDebtor.eq('creditor_id', row.counterpartyId);
+      } else {
+        qDebtor = qDebtor.is('creditor_id', null).ilike('creditor_fallback_name', safeGuestName);
+      }
+      tasks.push(qDebtor);
+      const results = await Promise.all(tasks);
+      const failed = results.find((r) => r?.error);
+      if (failed?.error) {
+        throw failed.error;
+      }
+    },
+    []
+  );
 
-    let qCreditor = supabase
-      .from('ledger')
-      .update({ settled: true })
-      .eq('settled', false)
-      .eq('creditor_id', currentUserId);
-
-    if (row.counterpartyId) {
-      qCreditor = qCreditor.eq('debtor_id', row.counterpartyId);
-    } else {
-      qCreditor = qCreditor
-        .is('debtor_id', null)
-        .ilike('debtor_fallback_name', row.counterpartyName);
-    }
-    tasks.push(qCreditor);
-
-    let qDebtor = supabase
-      .from('ledger')
-      .update({ settled: true })
-      .eq('settled', false)
-      .eq('debtor_id', currentUserId);
-
-    if (row.counterpartyId) {
-      qDebtor = qDebtor.eq('creditor_id', row.counterpartyId);
-    } else {
-      qDebtor = qDebtor
-        .is('creditor_id', null)
-        .ilike('creditor_fallback_name', row.counterpartyName);
-    }
-    tasks.push(qDebtor);
-
-    await Promise.all(tasks);
-  };
-
-  const fetchLedger = async () => {
+  const fetchLedger = useCallback(async () => {
     if (!user || user.is_anonymous) {
       setIsLoading(false);
       return;
@@ -135,11 +136,11 @@ export default function Ledger({ user }: Props) {
     });
 
     setIsLoading(false);
-  };
+  }, [user, cacheKey]);
 
   useEffect(() => {
     fetchLedger();
-  }, [user, cacheKey]);
+  }, [fetchLedger]);
 
   const netted = useMemo(
     () => utils.netBilateralBalances(rawOwedToMe, rawIOwe),
@@ -149,16 +150,25 @@ export default function Ledger({ user }: Props) {
   // Automatically settle mutually offset ₹0.00 bilateral balances
   useEffect(() => {
     if (!user || netted.zeroedCounterparties.length === 0) return;
+    const unattempted = netted.zeroedCounterparties.filter(
+      (row) => !attemptedZeroKeysRef.current.has(row.counterpartyKey)
+    );
+    if (unattempted.length === 0) return;
+    unattempted.forEach((row) => attemptedZeroKeysRef.current.add(row.counterpartyKey));
     const clearZeroed = async () => {
-      for (const zeroRow of netted.zeroedCounterparties) {
-        await settleBothDirectionsInDB(zeroRow, user.id);
+      try {
+        for (const zeroRow of unattempted) {
+          await settleBothDirectionsInDB(zeroRow, user.id);
+        }
+        swrCache.invalidate('home_');
+        showToast('Equal opposing balances were automatically netted & settled!', 'success');
+        await fetchLedger();
+      } catch (err) {
+        console.error('Auto-nettle zeroed balances failed:', err);
       }
-      swrCache.invalidate('home_');
-      showToast('Equal opposing balances were automatically netted & settled!', 'success');
-      fetchLedger();
     };
     clearZeroed();
-  }, [netted.zeroedCounterparties, user]);
+  }, [netted.zeroedCounterparties, user, fetchLedger, settleBothDirectionsInDB]);
 
   const executeSettleUp = async () => {
     if (!pendingSettle || !user) return;
@@ -211,40 +221,16 @@ export default function Ledger({ user }: Props) {
         'sw-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
       const myDisplayName = user.user_metadata?.full_name || selectedSelfName;
 
-      const { error: sessionErr } = await supabase.from('sessions').insert({
-        id: migrationSessionId,
-        name: 'Splitwise Import',
-        venue_name: 'Splitwise CSV Migration',
-        status: 'locked',
-        pin: '0000',
-        host_id: user.id,
+      const { error: importErr } = await supabase.rpc('import_splitwise_balances', {
+        p_session_id: migrationSessionId,
+        p_entries: debts.map((d) => ({
+          direction: d.direction,
+          self_name: myDisplayName,
+          counterparty_name: d.counterpartyName,
+          amount: d.amount,
+        })),
       });
-      if (sessionErr) throw sessionErr;
-
-      const ledgerPayload = debts.map((d) =>
-        d.direction === 'owed_to_me'
-          ? {
-              session_id: migrationSessionId,
-              creditor_id: user.id,
-              creditor_fallback_name: myDisplayName,
-              debtor_id: null,
-              debtor_fallback_name: d.counterpartyName,
-              amount: d.amount,
-              settled: false,
-            }
-          : {
-              session_id: migrationSessionId,
-              creditor_id: null,
-              creditor_fallback_name: d.counterpartyName,
-              debtor_id: user.id,
-              debtor_fallback_name: myDisplayName,
-              amount: d.amount,
-              settled: false,
-            }
-      );
-
-      const { error: ledgerErr } = await supabase.from('ledger').insert(ledgerPayload);
-      if (ledgerErr) throw ledgerErr;
+      if (importErr) throw importErr;
 
       swrCache.invalidate('home_');
       showToast(`Imported ${debts.length} balances from Splitwise!`, 'success');

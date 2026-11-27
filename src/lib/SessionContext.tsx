@@ -50,6 +50,7 @@ export function SessionProvider({
       postTaxDiscountValue: session.sessionRules.postTaxDiscountValue,
       taxPresets: session.taxPresets,
       scTaxPresetId: session.sessionRules.scTaxPresetId,
+      isScApplicable: session.sessionRules.isScApplicable,
       serviceChargeRate: session.sessionRules.serviceChargeRate,
     });
   }, [session.items, session.members, formattedClaims, session.sessionRules, session.taxPresets]);

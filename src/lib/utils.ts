@@ -11,7 +11,9 @@ export const utils = {
 
   parseQty: (val: string | number | undefined): number => {
     if (!val) return 0;
-    if (typeof val === 'number') return val;
+    if (typeof val === 'number') {
+      return Number.isFinite(val) && val > 0 ? val : 0;
+    }
     const str = String(val).trim();
     if (!str) return 0;
 
@@ -24,23 +26,28 @@ export const utils = {
         const num = parseFloat(numStr);
         const den = parseFloat(denStr);
         if (!isNaN(whole) && !isNaN(num) && !isNaN(den) && den !== 0) {
-          return whole + num / den;
+          const total = whole + num / den;
+          return Number.isFinite(total) && total > 0 ? total : 0;
         }
       } else if (spaceParts.length === 1) {
         const [numStr, denStr] = spaceParts[0].split('/');
         const num = parseFloat(numStr);
         const den = parseFloat(denStr);
         if (!isNaN(num) && !isNaN(den) && den !== 0) {
-          return num / den;
+          const total = num / den;
+          return Number.isFinite(total) && total > 0 ? total : 0;
         }
       }
     }
 
     const parsed = parseFloat(str);
-    return isNaN(parsed) ? 0 : parsed;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   },
 
   getFractionString: (qty: number, dividers: number): string => {
+    if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(dividers) || dividers <= 0) {
+      return '';
+    }
     let n = Math.round(qty * 10000);
     let d = Math.round(dividers * 10000);
     const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));

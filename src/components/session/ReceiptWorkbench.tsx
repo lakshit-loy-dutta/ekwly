@@ -141,6 +141,7 @@ export default function ReceiptWorkbench() {
     sessionRules.venueName || null
   );
   const isVenueEditedByUserRef = useRef<boolean>(false);
+  const itemFormRef = useRef<HTMLFormElement | null>(null);
   const [showScannerDrawer, setShowScannerDrawer] = useState(false);
 
   // --- COLLAPSIBLE BILL RULES & TAXES STATE ---
@@ -160,7 +161,7 @@ export default function ReceiptWorkbench() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemQty, setNewItemQty] = useState<string>('1');
   const [newItemPrice, setNewItemPrice] = useState('');
-  const [newItemTaxId, setNewItemTaxId] = useState<string>(taxPresets[0]?.id || 'tx-1');
+  const [newItemTaxId, setNewItemTaxId] = useState<string>(taxPresets[0]?.id || '');
   const [newItemApplySC, setNewItemApplySC] = useState<boolean>(true);
   const [hasNewItemOffer, setHasNewItemOffer] = useState<boolean>(false);
   const [newItemDiscType, setNewItemDiscType] = useState<'percentage' | 'flat'>('percentage');
@@ -484,7 +485,7 @@ export default function ReceiptWorkbench() {
     setNewItemDiscType(item.discountType === 'flat' ? 'flat' : 'percentage');
     setNewItemDiscVal(item.discountValue ? item.discountValue.toString() : '');
     setEditingItemId(item.id);
-    window.scrollTo({ top: 260, behavior: 'smooth' });
+    itemFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   // --- 1-TAP ITEM-CENTRIC AVATAR CLAIMING ---
@@ -531,23 +532,7 @@ export default function ReceiptWorkbench() {
   const computedGrossTotal =
     gs.subTotal + gs.serviceCharge + Object.values(gs.taxBreakdown).reduce((a, b) => a + b, 0);
 
-  const preTaxMultiplier =
-    typeof (mathEngine as any).computePreTaxMultiplier === 'function'
-      ? (mathEngine as any).computePreTaxMultiplier(items, gs.preTaxDiscountAmount)
-      : (() => {
-          const elig = items.reduce((sum, item) => {
-            const discVal = Number(item.discountValue || 0);
-            let itemDisc = 0;
-            if (item.discountType === 'percentage' && discVal > 0) {
-              itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
-            } else if (item.discountType === 'flat' && discVal > 0) {
-              itemDisc = Math.min(item.totalBase, discVal);
-            }
-            const afterItem = Math.max(0, item.totalBase - itemDisc);
-            return item.applyDiscount !== false ? sum + afterItem : sum;
-          }, 0);
-          return elig > 0 ? (elig - gs.preTaxDiscountAmount) / elig : 1;
-        })();
+  const preTaxMultiplier = mathEngine.computePreTaxMultiplier(items, gs.preTaxDiscountAmount);
 
   const hasActivePreTaxBillDiscount = gs.preTaxDiscountAmount > 0;
   const scPercent = Math.round(sessionRules.serviceChargeRate * 100);
@@ -960,6 +945,7 @@ export default function ReceiptWorkbench() {
       {/* ZONE 3: SPACIOUS ADD / EDIT ITEM BAR (FONT-SCALE SAFE STEPPER & CLEAR TAX PILLS) */}
       {isHost && (
         <form
+          ref={itemFormRef}
           onSubmit={handleSaveItem}
           className="glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-4 relative z-15"
         >

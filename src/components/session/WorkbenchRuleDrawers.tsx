@@ -97,6 +97,10 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
 
   // Compute live previews for each of the 3 Service Charge tax modes so the user can visually match their paper receipt
   const scModePreviews = useMemo(() => {
+    if (activeSheet !== 'sc' || items.length === 0) {
+      const empty = { totalTax: 0, grandTotal: 0, rawTotal: 0 };
+      return { inherit: empty, global: empty, none: empty };
+    }
     const computeForPresetId = (targetScTaxPresetId: string) => {
       if (items.length === 0) return { totalTax: 0, grandTotal: 0 };
       const res = mathEngine.generateSplit({
@@ -131,7 +135,7 @@ export default function WorkbenchRuleDrawers({ activeSheet, onClose }: Props) {
       global: computeForPresetId(foodPresetId),
       none: computeForPresetId('none'),
     };
-  }, [items, members, formattedClaims, sessionRules, taxPresets, foodPresetId]);
+  }, [activeSheet, items, members, formattedClaims, sessionRules, taxPresets, foodPresetId]);
 
   // Auto-detect which SC mode matches the user's printed paper bill Grand Total
   const handleAutoDetectScMode = (inputStr: string) => {

@@ -291,4 +291,34 @@ describe('Universal Tax & Settlement Engine', () => {
       result.individualBreakdowns['m1'].totalOwed + result.individualBreakdowns['m2'].totalOwed;
     expect(totalShares).toBe(2080);
   });
+  it('ignores serviceChargeRate when isScApplicable is false and skips conservation on partial claims', () => {
+    const items: BillItem[] = [
+      {
+        id: 'p1',
+        name: 'Truffle Fries',
+        qty: 2,
+        unitPrice: 250,
+        taxRate: 0,
+        taxPresetId: 'gst-5',
+        applySC: true,
+        totalBase: 500,
+      },
+    ];
+    const result = mathEngine.generateSplit({
+      items,
+      members: [members[0], members[1]],
+      formattedClaims: { m1: { p1: '1' }, m2: { p1: '' } },
+      discountType: 'none',
+      discountMode: 'pre-tax',
+      discountValue: '',
+      taxPresets,
+      scTaxPresetId: 'inherit',
+      isScApplicable: false,
+      serviceChargeRate: 0.1,
+    });
+    expect(result.globalSummary.serviceCharge).toBe(0);
+    expect(result.globalSummary.grandTotal).toBe(525);
+    expect(result.individualBreakdowns['m1'].totalOwed).toBe(262.5);
+    expect(result.individualBreakdowns['m2'].totalOwed).toBe(0);
+  });
 });

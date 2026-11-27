@@ -3,7 +3,7 @@ import '../styles/global.css';
 
 const { title, updated } = Astro.props;
 
-const baseUrl = import.meta.env.BASE_URL.replace(/\/\$/, '');
+const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
 const ePath =
   'M 23.75 7.25 L 82.25 7.25 A 6.00 6.00 0 0 1 88.25 13.25 L 88.25 15.15 A 6.00 6.00 0 0 1 82.25 21.15 L 36.13 21.15 A 7.00 7.00 0 0 0 29.13 28.15 L 29.13 36.05 A 7.00 7.00 0 0 0 36.13 43.05 L 62.15 43.05 A 6.00 6.00 0 0 1 68.15 49.05 L 68.15 50.95 A 6.00 6.00 0 0 1 62.15 56.95 L 36.13 56.95 A 7.00 7.00 0 0 0 29.13 63.95 L 29.13 71.85 A 7.00 7.00 0 0 0 36.13 78.85 L 82.25 78.85 A 6.00 6.00 0 0 1 88.25 84.85 L 88.25 86.75 A 6.00 6.00 0 0 1 82.25 92.75 L 23.75 92.75 A 12.00 12.00 0 0 1 11.75 80.75 L 11.75 19.25 A 12.00 12.00 0 0 1 23.75 7.25 Z';
 ---
@@ -18,7 +18,7 @@ const ePath =
 
     {/* Ensure dark/light mode matches user preference */}
     <script is:inline>
-      const savedTheme = localStorage.getItem('theme') || localStorage.getItem('ekwly_theme');
+      const savedTheme = localStorage.getItem('ekwly_theme') || localStorage.getItem('theme');
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       const theme = savedTheme || (prefersDark ? 'dark' : 'light');
       document.documentElement.setAttribute('data-theme', theme);

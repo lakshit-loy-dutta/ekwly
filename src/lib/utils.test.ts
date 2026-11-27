@@ -22,6 +22,14 @@ describe('Calculation Utilities', () => {
     expect(utils.getFractionString(3, 2)).toBe('1 1/2');
   });
 
+  it('clamps negative/invalid quantities and guards zero dividers', () => {
+    expect(utils.parseQty(-3)).toBe(0);
+    expect(utils.parseQty('-1/2')).toBe(0);
+    expect(utils.parseQty(Number.NaN)).toBe(0);
+    expect(utils.getFractionString(1, 0)).toBe('');
+    expect(utils.getFractionString(-2, 3)).toBe('');
+  });
+
   it('splits GST into CGST and SGST accurately', () => {
     const split = utils.getSplitNames('Food GST');
     expect(split.cgst).toBe('Food CGST');

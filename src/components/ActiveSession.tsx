@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Receipt, CreditCard, ArrowRight, Wallet, Trash2, Check, Users } from 'lucide-react';
@@ -23,13 +23,9 @@ interface Props {
 }
 
 function ActiveSessionContent({
-  sessionId,
-  pin,
   initialName,
   onExit,
 }: {
-  sessionId: string | null;
-  pin: string | null;
   initialName?: string | null;
   onExit: () => void;
 }) {
@@ -50,17 +46,17 @@ function ActiveSessionContent({
 
   const [activeTab, setActiveTab] = useState<'workbench' | 'settle'>('workbench');
   const [receiptTitle, setReceiptTitle] = useState<string>(initialName || '');
+  const hasEditedTitleRef = useRef<boolean>(Boolean(initialName));
+  const [headerSlotEl, setHeaderSlotEl] = useState<HTMLElement | null>(null);
   const [showPayerSheet, setShowPayerSheet] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
-    if (sessionId && pin && isHost) {
-      actions.createSessionInDB(sessionId, pin, initialName);
-    }
-  }, [sessionId, pin, isHost, initialName, actions]);
+    setHeaderSlotEl(document.getElementById('ekwly-header-subnav'));
+  }, []);
 
   useEffect(() => {
-    if (!receiptTitle && sessionRules.venueName) {
+    if (!hasEditedTitleRef.current && !receiptTitle && sessionRules.venueName) {
       setReceiptTitle(sessionRules.venueName);
     }
   }, [sessionRules.venueName, receiptTitle]);
@@ -81,10 +77,11 @@ function ActiveSessionContent({
   const assignSinglePayer = async (targetMemberId: string) => {
     if (!isHost || grandTotal <= 0) return;
     utils.haptic('light');
-    await Promise.all(
-      members.map((m) =>
-        actions.updateMemberPaymentInDB(m.id, m.id === targetMemberId ? grandTotal : 0)
-      )
+    await actions.batchUpdateMemberPaymentsInDB(
+      members.map((m) => ({
+        memberId: m.id,
+        amount: m.id === targetMemberId ? grandTotal : 0,
+      }))
     );
   };
 
@@ -239,9 +236,7 @@ function ActiveSessionContent({
           </div>
         );
 
-        const headerSlot =
-          typeof document !== 'undefined' ? document.getElementById('ekwly-header-subnav') : null;
-        return headerSlot ? createPortal(tabSwitcher, headerSlot) : tabSwitcher;
+        return headerSlotEl ? createPortal(tabSwitcher, headerSlotEl) : tabSwitcher;
       })()}
 
       {/* TAB BODY */}
@@ -348,11 +343,15 @@ function ActiveSessionContent({
             <DebtMatrix
               calculationResult={liveCalculation}
               receiptTitle={receiptTitle}
-              setReceiptTitle={setReceiptTitle}
+              setReceiptTitle={(val) => {
+                hasEditedTitleRef.current = true;
+                setReceiptTitle(val);
+              }}
               sessionStatus={sessionStatus}
               ledger={ledger}
               isHost={isHost}
               currentUserId={currentUserId}
+              members={members}
               handleLockSession={handleLockSession}
               handleToggleSettled={actions.toggleLedgerSettledInDB}
               handleExportPDF={handleExportPDF}
@@ -400,6 +399,7 @@ function ActiveSessionContent({
             members={members}
             grandTotal={grandTotal}
             handleUpdatePayment={handleUpdatePayment}
+            handleBatchUpdatePayments={actions.batchUpdateMemberPaymentsInDB}
           />
           <button
             type="button"
@@ -417,12 +417,7 @@ function ActiveSessionContent({
 export default function ActiveSession(props: Props) {
   return (
     <SessionProvider sessionId={props.sessionId} isHost={props.isHost}>
-      <ActiveSessionContent
-        sessionId={props.sessionId}
-        pin={props.pin}
-        initialName={props.initialName}
-        onExit={props.onExit}
-      />
+      <ActiveSessionContent initialName={props.initialName} onExit={props.onExit} />
     </SessionProvider>
   );
 }

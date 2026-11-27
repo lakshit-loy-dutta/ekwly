@@ -7,6 +7,7 @@ import {
 import QRCode from 'react-qr-code';
 import type { CalculationResult } from '../../lib/types';
 import { utils, showToast } from '../../lib/utils';
+import type { DBMember } from '../../lib/useSession';
 import {
   DownloadCloud,
   LockKeyhole,
@@ -34,6 +35,7 @@ interface Props {
   ledger: any[];
   isHost: boolean;
   currentUserId: string | null;
+  members?: DBMember[];
   handleLockSession: () => void;
   handleToggleSettled: (id: string, current: boolean) => void;
   handleExportPDF: (
@@ -261,15 +263,20 @@ export default function DebtMatrix(props: Props) {
               isReminder: false,
             });
 
-            const debtorBreakdown = Object.values(
-              props.calculationResult.individualBreakdowns
-            ).find(
-              (b) =>
-                b.memberName.toLowerCase() ===
-                String(l.debtor_name || '')
-                  .trim()
-                  .toLowerCase()
-            );
+            const matchedDebtorMember =
+              l.debtor_id && props.members
+                ? props.members.find((m) => m.user_id === l.debtor_id)
+                : undefined;
+            const debtorBreakdown =
+              (matchedDebtorMember &&
+                props.calculationResult.individualBreakdowns[matchedDebtorMember.id]) ||
+              Object.values(props.calculationResult.individualBreakdowns).find(
+                (b) =>
+                  b.memberName.trim().toLowerCase() ===
+                  String(l.debtor_name || '')
+                    .trim()
+                    .toLowerCase()
+              );
 
             return (
               <div key={l.id} className="p-4 flex flex-col gap-3">

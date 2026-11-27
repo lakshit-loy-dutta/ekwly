@@ -9,7 +9,7 @@ import type {
 } from './types';
 import type { DBMember } from './useSession';
 
-interface EngineParams {
+export interface EngineParams {
   items: BillItem[];
   members: DBMember[];
   formattedClaims: Record<string, Record<string, string>>;
@@ -19,7 +19,8 @@ interface EngineParams {
   postTaxDiscountType?: 'none' | 'percentage' | 'flat';
   postTaxDiscountValue?: string;
   taxPresets: TaxPreset[];
-  scTaxPresetId: string; // 'none', 'inherit', or a specific UUID
+  scTaxPresetId: string; // 'none', 'inherit', or a specific preset UUID
+  isScApplicable?: boolean;
   serviceChargeRate: number;
 }
 
@@ -37,22 +38,30 @@ export interface ItemBreakdownResult {
   preset: TaxPreset | undefined;
 }
 
+function computeItemDiscount(item: BillItem): number {
+  const rawBase = Math.max(0, item.totalBase);
+  const discVal = Number(item.discountValue || 0);
+  if (!Number.isFinite(discVal) || discVal <= 0) return 0;
+
+  if (item.discountType === 'percentage') {
+    return Math.min(rawBase, rawBase * (discVal / 100));
+  }
+  if (item.discountType === 'flat') {
+    return Math.min(rawBase, discVal);
+  }
+  return 0;
+}
+
 export const mathEngine = {
   /**
    * Computes the pre-tax discount multiplier applied to eligible items (applyDiscount !== false)
    * after individual item/section discounts have been subtracted.
    */
   computePreTaxMultiplier: (items: BillItem[], preTaxDiscountAmount: number): number => {
-    if (!preTaxDiscountAmount || preTaxDiscountAmount <= 0) return 1;
+    if (!Number.isFinite(preTaxDiscountAmount) || preTaxDiscountAmount <= 0) return 1;
+
     const eligibleBaseAfterItemDisc = items.reduce((sum, item) => {
-      const discVal = Number(item.discountValue || 0);
-      let itemDisc = 0;
-      if (item.discountType === 'percentage' && discVal > 0) {
-        itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
-      } else if (item.discountType === 'flat' && discVal > 0) {
-        itemDisc = Math.min(item.totalBase, discVal);
-      }
-      const afterItem = Math.max(0, item.totalBase - itemDisc);
+      const afterItem = Math.max(0, item.totalBase - computeItemDiscount(item));
       return item.applyDiscount !== false ? sum + afterItem : sum;
     }, 0);
 
@@ -60,6 +69,7 @@ export const mathEngine = {
       ? Math.max(0, (eligibleBaseAfterItemDisc - preTaxDiscountAmount) / eligibleBaseAfterItemDisc)
       : 1;
   },
+
   calculateItemBreakdown: (
     item: BillItem,
     options: {
@@ -70,17 +80,10 @@ export const mathEngine = {
       preTaxMultiplier?: number;
     }
   ): ItemBreakdownResult => {
-    const rawBase = item.totalBase;
+    const rawBase = Math.max(0, item.totalBase);
 
     // 1. Item-Specific / Section-Specific Discount
-    let itemDiscountAmount = 0;
-    const itemDiscVal = Number(item.discountValue || 0);
-    if (item.discountType === 'percentage' && itemDiscVal > 0) {
-      itemDiscountAmount = Math.min(rawBase, rawBase * (itemDiscVal / 100));
-    } else if (item.discountType === 'flat' && itemDiscVal > 0) {
-      itemDiscountAmount = Math.min(rawBase, itemDiscVal);
-    }
-
+    const itemDiscountAmount = computeItemDiscount(item);
     const baseAfterItemDiscount = Math.max(0, rawBase - itemDiscountAmount);
 
     // 2. Selective Pre-Tax Bill Discount (only scales items with applyDiscount !== false)
@@ -92,13 +95,15 @@ export const mathEngine = {
     // 3. Service Charge & Taxes
     const preset = options.taxPresets.find((t) => t.id === item.taxPresetId);
     const dynamicTaxRate = preset ? preset.rate / 100 : 0;
-
-    const scEnabled = options.isScApplicable !== false && options.serviceChargeRate > 0;
-    const itemSC = scEnabled && item.applySC ? effectiveBase * options.serviceChargeRate : 0;
-
+    const safeScRate =
+      Number.isFinite(options.serviceChargeRate) && options.serviceChargeRate > 0
+        ? options.serviceChargeRate
+        : 0;
+    const scEnabled = options.isScApplicable !== false && safeScRate > 0;
+    const itemSC = scEnabled && item.applySC ? effectiveBase * safeScRate : 0;
     const itemTaxAmount = effectiveBase * dynamicTaxRate;
-    let scTaxAmount = 0;
 
+    let scTaxAmount = 0;
     if (options.scTaxPresetId === 'inherit') {
       scTaxAmount = itemSC * dynamicTaxRate;
     } else if (options.scTaxPresetId !== 'none') {
@@ -135,20 +140,25 @@ export const mathEngine = {
       postTaxDiscountValue = '',
       taxPresets,
       scTaxPresetId,
+      isScApplicable,
       serviceChargeRate,
     } = params;
 
-    const rawSubTotal = items.reduce((sum, item) => sum + item.totalBase, 0);
+    const effectiveScRate =
+      isScApplicable === false || !Number.isFinite(serviceChargeRate) || serviceChargeRate < 0
+        ? 0
+        : serviceChargeRate;
 
-    // Resolve Pre-Tax vs Post-Tax slots (supports both simultaneous slots AND legacy discountMode)
-    const hasExplicitPostTax =
-      postTaxDiscountType !== 'none' && (parseFloat(postTaxDiscountValue) || 0) > 0;
+    const rawSubTotal = items.reduce((sum, item) => sum + Math.max(0, item.totalBase), 0);
+
+    // Resolve Pre-Tax vs Post-Tax slots cleanly (never silently repurposes a legacy post-tax discount as pre-tax)
+    const parsedExplicitPostVal = parseFloat(postTaxDiscountValue) || 0;
+    const hasExplicitPostTax = postTaxDiscountType !== 'none' && parsedExplicitPostVal > 0;
+    const parsedPrimaryVal = parseFloat(discountValue) || 0;
 
     const activePreTaxType =
-      discountType !== 'none' && (discountMode === 'pre-tax' || hasExplicitPostTax)
-        ? discountType
-        : 'none';
-    const parsedPreTaxVal = parseFloat(discountValue) || 0;
+      discountType !== 'none' && discountMode === 'pre-tax' ? discountType : 'none';
+    const parsedPreTaxVal = activePreTaxType !== 'none' ? parsedPrimaryVal : 0;
 
     const activePostTaxType = hasExplicitPostTax
       ? postTaxDiscountType
@@ -156,9 +166,9 @@ export const mathEngine = {
         ? discountType
         : 'none';
     const parsedPostTaxVal = hasExplicitPostTax
-      ? parseFloat(postTaxDiscountValue) || 0
+      ? parsedExplicitPostVal
       : discountMode === 'post-tax'
-        ? parseFloat(discountValue) || 0
+        ? parsedPrimaryVal
         : 0;
 
     // Step 1: Compute base after per-item discounts & sum eligible base for Pre-Tax bill discount
@@ -166,13 +176,7 @@ export const mathEngine = {
     let eligiblePreTaxSubTotal = 0;
 
     items.forEach((item) => {
-      const discVal = Number(item.discountValue || 0);
-      let itemDisc = 0;
-      if (item.discountType === 'percentage' && discVal > 0) {
-        itemDisc = Math.min(item.totalBase, item.totalBase * (discVal / 100));
-      } else if (item.discountType === 'flat' && discVal > 0) {
-        itemDisc = Math.min(item.totalBase, discVal);
-      }
+      const itemDisc = computeItemDiscount(item);
       totalItemDiscounts += itemDisc;
       const afterItem = Math.max(0, item.totalBase - itemDisc);
       if (item.applyDiscount !== false) {
@@ -192,12 +196,12 @@ export const mathEngine = {
 
     const preTaxMultiplier =
       eligiblePreTaxSubTotal > 0
-        ? (eligiblePreTaxSubTotal - preTaxBillDiscount) / eligiblePreTaxSubTotal
+        ? Math.max(0, (eligiblePreTaxSubTotal - preTaxBillDiscount) / eligiblePreTaxSubTotal)
         : 1;
 
     const globalSummary: GlobalSummary = {
       totalQty: 0,
-      rawSubTotal,
+      rawSubTotal: utils.round2(rawSubTotal),
       itemDiscountAmount: utils.round2(totalItemDiscounts),
       preTaxDiscountAmount: utils.round2(preTaxBillDiscount),
       postTaxDiscountAmount: 0,
@@ -233,14 +237,17 @@ export const mathEngine = {
       }
     };
 
-    // Step 3: Master Bill Calculation across all items
+    // Step 3: Master Bill Calculation across all items (computed once in O(I) and cached)
+    const breakdownByItemId = new Map<string, ItemBreakdownResult>();
     items.forEach((item) => {
       const breakdown = mathEngine.calculateItemBreakdown(item, {
         taxPresets,
-        serviceChargeRate,
+        isScApplicable,
+        serviceChargeRate: effectiveScRate,
         scTaxPresetId,
         preTaxMultiplier,
       });
+      breakdownByItemId.set(item.id, breakdown);
 
       if (scTaxPresetId === 'inherit') {
         addTaxToBreakdown(
@@ -282,45 +289,40 @@ export const mathEngine = {
     );
 
     // Step 5: POS Round-Off
-    const finalRawTotal = grossTotal - postTaxDiscount;
+    const finalRawTotal = Math.max(0, grossTotal - postTaxDiscount);
     const roundedGrandTotal = Math.round(finalRawTotal);
     globalSummary.roundOff = utils.round2(roundedGrandTotal - finalRawTotal);
     globalSummary.grandTotal = roundedGrandTotal;
 
     const distributionMultiplier = grossTotal > 0 ? roundedGrandTotal / grossTotal : 1;
 
-    // Step 6: Individual Debt Calculation
+    // Step 6: Individual Debt Calculation (accumulate full precision, round once per member)
     const individualBreakdowns: Record<string, IndividualBreakdown> = {};
-
     members.forEach((member) => {
-      let subtotal = 0;
-      let totalScAmount = 0;
+      let rawSubtotal = 0;
+      let rawScAmount = 0;
       const consumedItems: { name: string; qtyString: string; cost: number }[] = [];
 
       items.forEach((item) => {
         const consumedQty = utils.parseQty(formattedClaims[member.id]?.[item.id] || '');
-        if (consumedQty > 0) {
+        if (consumedQty > 0 && item.qty > 0) {
           const shareRatio = consumedQty / item.qty;
-          const itemBreakdown = mathEngine.calculateItemBreakdown(item, {
-            taxPresets,
-            serviceChargeRate,
-            scTaxPresetId,
-            preTaxMultiplier,
-          });
+          const itemBreakdown = breakdownByItemId.get(item.id);
+          if (!itemBreakdown) return;
 
           const effectiveBaseShare = itemBreakdown.effectiveBase * shareRatio;
           const itemTaxShare = itemBreakdown.itemTaxAmount * shareRatio;
           const scShare = itemBreakdown.itemSC * shareRatio;
           const scTaxShare = itemBreakdown.scTaxAmount * shareRatio;
 
-          const finalCostShare = utils.round2(effectiveBaseShare + itemTaxShare);
-          subtotal = utils.round2(subtotal + finalCostShare);
-          totalScAmount = utils.round2(totalScAmount + scShare + scTaxShare);
+          const rawItemCost = effectiveBaseShare + itemTaxShare;
+          rawSubtotal += rawItemCost;
+          rawScAmount += scShare + scTaxShare;
 
           consumedItems.push({
             name: item.name,
             qtyString: formattedClaims[member.id]?.[item.id] || consumedQty.toString(),
-            cost: finalCostShare,
+            cost: utils.round2(rawItemCost),
           });
         }
       });
@@ -328,14 +330,24 @@ export const mathEngine = {
       individualBreakdowns[member.id] = {
         memberId: member.id,
         memberName: member.name,
-        subtotal,
-        serviceCharge: totalScAmount,
-        totalOwed: utils.round2((subtotal + totalScAmount) * distributionMultiplier),
+        subtotal: utils.round2(rawSubtotal),
+        serviceCharge: utils.round2(rawScAmount),
+        totalOwed: utils.round2((rawSubtotal + rawScAmount) * distributionMultiplier),
         items: consumedItems,
       };
     });
 
-    // Step 7: Paisa Conservation Pass
+    // Step 7: Paisa Conservation Pass (only when 100% of items are claimed)
+    const allItemsFullyClaimed =
+      items.length > 0 &&
+      items.every((item) => {
+        const totalClaimed = members.reduce(
+          (sum, m) => sum + utils.parseQty(formattedClaims[m.id]?.[item.id] || ''),
+          0
+        );
+        return Math.abs(totalClaimed - item.qty) < 0.01;
+      });
+
     const activeIds = Object.keys(individualBreakdowns).filter(
       (id) => individualBreakdowns[id].totalOwed > 0
     );
@@ -343,7 +355,14 @@ export const mathEngine = {
       activeIds.reduce((sum, id) => sum + individualBreakdowns[id].totalOwed, 0)
     );
     const drift = utils.round2(globalSummary.grandTotal - totalClaimedOwed);
-    if (activeIds.length > 0 && Math.abs(drift) > 0 && Math.abs(drift) <= 0.05) {
+    const maxAllowedDrift = Math.max(0.05, activeIds.length * 0.02);
+
+    if (
+      allItemsFullyClaimed &&
+      activeIds.length > 0 &&
+      Math.abs(drift) > 0 &&
+      Math.abs(drift) <= maxAllowedDrift
+    ) {
       const largestShareId = activeIds.reduce((a, b) =>
         individualBreakdowns[a].totalOwed >= individualBreakdowns[b].totalOwed ? a : b
       );
@@ -365,12 +384,14 @@ export const mathEngine = {
     const creditors = balances
       .filter((b) => b.balance > 0.01)
       .sort((a, b) => b.balance - a.balance);
+
     const transactions: Transaction[] = [];
-    let d = 0,
-      c = 0;
+    let d = 0;
+    let c = 0;
+
     while (d < debtors.length && c < creditors.length) {
-      const debtor = debtors[d],
-        creditor = creditors[c];
+      const debtor = debtors[d];
+      const creditor = creditors[c];
       const amount = Math.min(-debtor.balance, creditor.balance);
       transactions.push({
         creditor_id: creditor.user_id || null,
@@ -384,6 +405,7 @@ export const mathEngine = {
       if (Math.abs(debtors[d].balance) < 0.01) d++;
       if (Math.abs(creditors[c].balance) < 0.01) c++;
     }
+
     return transactions;
   },
 };
